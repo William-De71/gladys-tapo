@@ -1,0 +1,303 @@
+// -----------------------------------------------------------------------------
+// Device orchestration: turning cloud cameras into Gladys devices.
+//
+// One camera becomes one device carrying up to four features:
+//   camera/image        the snapshot shown by the dashboard widget;
+//   button/push         the doorbell press, to trigger scenes;
+//   motion-sensor/binary  motion detection;
+//   battery/integer     the battery level, on battery models only.
+//
+// A device keeps everything needed to capture it in its params (IP, model,
+// capture mode), so a poll or a `onGetImage` never needs the cloud again.
+// -----------------------------------------------------------------------------
+
+import {
+  logger,
+  DEVICE_FEATURE_CATEGORIES,
+  DEVICE_FEATURE_TYPES,
+  DEVICE_FEATURE_UNITS,
+} from '@gladysassistant/integration-sdk';
+import { detectCaptureMode, isBatteryModel, hasNoLocalAccess, buildRtspUrl } from './tapo/rtsp.js';
+import { hasRtspAccount } from './config.js';
+import { discoverLocalAddresses } from './tapo/discovery.js';
+import {
+  EXTERNAL_ID_TYPE,
+  DEVICE_PARAMS,
+  CAPTURE_MODES,
+  FEATURE_SUFFIXES,
+  POLL_FREQUENCY_MS,
+} from './tapo/constants.js';
+
+/**
+ * Build the external ids of one camera through the SDK. Gladys namespaces every
+ * external id as `ext:<selector>:<type>:<platformId>` and rejects anything else,
+ * so these ids must never be assembled by hand.
+ *
+ * The cloud device id plays the `platformId` part: it is the only identifier that
+ * survives a rename or an IP change.
+ * @param {object} gladys - The SDK instance.
+ * @param {string} cloudDeviceId - The cloud device id.
+ * @returns {object} The device id and the feature id factory.
+ * @example
+ * const ids = cameraIds(gladys, '80224A...');
+ * ids.device; // 'ext:ext-dev-tapo:camera:80224A...'
+ */
+export function cameraIds(gladys, cloudDeviceId) {
+  return gladys.externalIds(EXTERNAL_ID_TYPE, cloudDeviceId);
+}
+
+/**
+ * Extract the cloud device id from a device or feature external id.
+ * @param {string} externalId - The external id.
+ * @returns {string|null} The cloud device id, or null when unparseable.
+ * @example
+ * parseCloudDeviceId('ext:ext-dev-tapo:camera:80224A...:image'); // '80224A...'
+ */
+export function parseCloudDeviceId(externalId) {
+  // `ext:<selector>:<type>:<platformId>[:<feature>]` — the platform id is the
+  // fourth segment, whether the id points at the device or at one of its features.
+  const parts = String(externalId || '').split(':');
+  if (parts[0] !== 'ext' || parts[2] !== EXTERNAL_ID_TYPE || !parts[3]) {
+    return null;
+  }
+  return parts[3];
+}
+
+/**
+ * Read a device param by name.
+ * @param {object} device - The Gladys device.
+ * @param {string} name - The param name.
+ * @returns {string|null} The value, or null when absent.
+ * @example
+ * getParam(device, 'TAPO_IP');
+ */
+export function getParam(device, name) {
+  const param = (device.params || []).find((entry) => entry.name === name);
+  return param ? String(param.value) : null;
+}
+
+/**
+ * Build the features of a camera. The doorbell and motion features only exist on
+ * battery models, whose events the cloud reports; a wired camera would carry a
+ * feature that never updates.
+ * @param {object} gladys - The SDK instance, which namespaces the ids.
+ * @param {object} camera - The resolved camera.
+ * @returns {object[]} The features.
+ * @example
+ * buildFeatures(gladys, camera);
+ */
+export function buildFeatures(gladys, camera) {
+  const ids = cameraIds(gladys, camera.cloudDeviceId);
+  const features = [
+    {
+      name: camera.name,
+      external_id: ids.feature(FEATURE_SUFFIXES.IMAGE),
+      category: DEVICE_FEATURE_CATEGORIES.CAMERA,
+      type: DEVICE_FEATURE_TYPES.CAMERA.IMAGE,
+      read_only: false,
+      keep_history: false,
+      has_feedback: false,
+      min: 0,
+      max: 0,
+    },
+  ];
+
+  if (camera.hasEvents) {
+    features.push(
+      {
+        name: `${camera.name} - Doorbell`,
+        external_id: ids.feature(FEATURE_SUFFIXES.BUTTON),
+        category: DEVICE_FEATURE_CATEGORIES.BUTTON,
+        type: DEVICE_FEATURE_TYPES.BUTTON.PUSH,
+        read_only: true,
+        keep_history: true,
+        has_feedback: false,
+        min: 0,
+        max: 1,
+      },
+      {
+        name: `${camera.name} - Motion`,
+        external_id: ids.feature(FEATURE_SUFFIXES.MOTION),
+        category: DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
+        type: DEVICE_FEATURE_TYPES.SENSOR.BINARY,
+        read_only: true,
+        keep_history: true,
+        has_feedback: false,
+        min: 0,
+        max: 1,
+      },
+    );
+  }
+
+  if (camera.hasBattery) {
+    features.push({
+      name: `${camera.name} - Battery`,
+      external_id: ids.feature(FEATURE_SUFFIXES.BATTERY),
+      category: DEVICE_FEATURE_CATEGORIES.BATTERY,
+      type: DEVICE_FEATURE_TYPES.BATTERY.INTEGER,
+      unit: DEVICE_FEATURE_UNITS.PERCENT,
+      read_only: true,
+      keep_history: true,
+      has_feedback: false,
+      min: 0,
+      max: 100,
+    });
+  }
+
+  return features;
+}
+
+/**
+ * Build the Gladys device of one camera.
+ * @param {object} gladys - The SDK instance, which namespaces the ids.
+ * @param {object} camera - The resolved camera.
+ * @returns {object} The device, ready to be published.
+ * @example
+ * buildDevice(gladys, camera);
+ */
+export function buildDevice(gladys, camera) {
+  return {
+    name: camera.name,
+    external_id: cameraIds(gladys, camera.cloudDeviceId).device,
+    model: camera.model || null,
+    // The dashboard widget shows the last PUBLISHED image, never a fresh one, so
+    // the poll is what keeps it up to date (see `onPoll`). Without this, the
+    // widget would stay empty until a doorbell press.
+    should_poll: true,
+    poll_frequency: POLL_FREQUENCY_MS,
+    features: buildFeatures(gladys, camera),
+    params: [
+      { name: DEVICE_PARAMS.CLOUD_DEVICE_ID, value: camera.cloudDeviceId },
+      { name: DEVICE_PARAMS.IP, value: camera.ip || '' },
+      { name: DEVICE_PARAMS.MODEL, value: camera.model || '' },
+      { name: DEVICE_PARAMS.CAPTURE_MODE, value: camera.captureMode || '' },
+      // The live view of the dashboard widget calls the rtsp-camera service,
+      // which streams ANY device carrying a CAMERA_URL param — whatever service
+      // owns it. Publishing the RTSP URL here is therefore what unlocks the live
+      // video for an external integration.
+      { name: DEVICE_PARAMS.CAMERA_URL, value: camera.streamUrl || '' },
+      { name: DEVICE_PARAMS.CAMERA_ROTATION, value: '0' },
+    ],
+  };
+}
+
+/**
+ * Resolve a cloud camera into everything needed to talk to it: its capabilities,
+ * and the capture mode its open ports reveal.
+ * @param {object} cloudCamera - The camera as returned by the cloud.
+ * @param {object} config - The normalized configuration.
+ * @returns {Promise<object>} The resolved camera.
+ * @example
+ * const camera = await resolveCamera(cloudCamera, config);
+ */
+export async function resolveCamera(cloudCamera, config) {
+  const battery = isBatteryModel(cloudCamera.model);
+  const camera = {
+    ...cloudCamera,
+    hasBattery: battery,
+    // Battery models are the ones whose doorbell/motion events the cloud reports.
+    hasEvents: battery,
+    noLocalAccess: hasNoLocalAccess(cloudCamera.model),
+    captureMode: null,
+  };
+
+  if (camera.noLocalAccess) {
+    // Probing is pointless: TP-Link blocks every local path on these models.
+    logger.warn(
+      `"${camera.name}" (${camera.model}) blocks third-party local access: no image can be captured from it.`,
+    );
+    return camera;
+  }
+
+  if (!camera.ip) {
+    // Nothing to probe: the cloud reported no address and none was configured.
+    logger.warn(
+      `"${camera.name}" (${camera.model}) has no known local address. Add it under "Camera addresses" as "${camera.name}|192.168.x.y".`,
+    );
+    return camera;
+  }
+
+  camera.captureMode = await detectCaptureMode(camera, config);
+
+  // Only an RTSP camera can feed the live view: the rtsp-camera service hands the
+  // URL straight to ffmpeg, so the proprietary protocol — which needs an
+  // encrypted session this integration owns — cannot be expressed as a URL.
+  if (camera.captureMode === CAPTURE_MODES.RTSP && hasRtspAccount(config, camera.name)) {
+    camera.streamUrl = buildRtspUrl(camera, config);
+  }
+
+  if (camera.captureMode) {
+    logger.info(`"${camera.name}" (${camera.ip}) will be captured over ${camera.captureMode}`);
+  } else {
+    logger.warn(
+      `"${camera.name}" (${camera.ip}) answers on neither port 554 nor 8800. Check that Gladys can reach it on your network.`,
+    );
+  }
+  return camera;
+}
+
+/**
+ * Resolve every cloud camera and build the devices to publish.
+ * @param {object} gladys - The SDK instance, which namespaces the ids.
+ * @param {object[]} cloudCameras - The cameras returned by the cloud.
+ * @param {object} config - The normalized configuration.
+ * @returns {Promise<object[]>} The devices.
+ * @example
+ * const devices = await buildDiscoveredDevices(gladys, cameras, config);
+ */
+export async function buildDiscoveredDevices(gladys, cloudCameras, config) {
+  // The cloud knows WHICH cameras exist but not WHERE they are, so the local
+  // addresses come from a network scan. A manual address stays authoritative:
+  // the user typed it precisely because automatic detection did not suit.
+  const discovered = await discoverLocalAddresses(gladys);
+  const located = cloudCameras.map((cloudCamera) => ({
+    ...cloudCamera,
+    ip: cloudCamera.ip || discovered.get(String(cloudCamera.cloudDeviceId).toUpperCase()) || '',
+  }));
+
+  // Probing is I/O bound and independent per camera, so resolve them together.
+  const cameras = await Promise.all(located.map((camera) => resolveCamera(camera, config)));
+  return cameras.map((camera) => buildDevice(gladys, camera));
+}
+
+/**
+ * Rebuild a resolved camera from a device Gladys created, so a capture needs no
+ * cloud call. The capture mode is re-probed when the params carry none (a camera
+ * added before its ports answered, or a mode that changed since).
+ * @param {object} device - The Gladys device.
+ * @param {object} config - The normalized configuration.
+ * @returns {Promise<object>} The resolved camera.
+ * @example
+ * const camera = await cameraFromDevice(device, config);
+ */
+export async function cameraFromDevice(device, config) {
+  const cloudDeviceId =
+    getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+  const camera = {
+    cloudDeviceId,
+    name: device.name || 'Tapo Camera',
+    model: getParam(device, DEVICE_PARAMS.MODEL) || '',
+    ip: getParam(device, DEVICE_PARAMS.IP) || '',
+    captureMode: getParam(device, DEVICE_PARAMS.CAPTURE_MODE) || null,
+  };
+
+  // The user may have typed the address by hand after creating the device. The
+  // device can also have been renamed in Gladys since, so the cloud device id is
+  // accepted as a key too — the only name that never changes.
+  if (!camera.ip) {
+    camera.ip =
+      config.camera_ips[camera.name.toLowerCase()] ||
+      config.camera_ips[String(cloudDeviceId).toLowerCase()] ||
+      '';
+  }
+
+  if (!camera.captureMode && camera.ip) {
+    camera.captureMode = await detectCaptureMode(camera, config);
+  }
+  // Without a known mode, the proprietary protocol is the safer guess: it is the
+  // one that works without a camera account.
+  if (!camera.captureMode) {
+    camera.captureMode = CAPTURE_MODES.PROPRIETARY;
+  }
+  return camera;
+}

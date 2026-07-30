@@ -1,0 +1,338 @@
+{
+  "manifest_version": 1,
+  "type": "device",
+  "name": "Tapo",
+  "description": {
+    "en": "Your Tapo cameras and doorbells in Gladys: images, doorbell press and motion.",
+    "fr": "Vos caméras et sonnettes Tapo dans Gladys : images, appui sonnette et mouvement."
+  },
+  "version": "1.0.0",
+  "docker_image": "ghcr.io/william-de71/gladys-tapo:1.0.0",
+  "gladys_version": ">=4.84.0",
+  "cover_image": "https://raw.githubusercontent.com/William-De71/gladys-tapo/master/cover.jpg",
+  "transports": ["local", "cloud"],
+  "network_discovery": [
+    {
+      "type": "udp-active-broadcast",
+      "ports": [20002]
+    }
+  ],
+  "config_schema": [
+    {
+      "key": "intro",
+      "type": "section",
+      "label": {
+        "en": "Getting started",
+        "fr": "Pour commencer"
+      },
+      "description": {
+        "en": "This integration finds your cameras through your TP-Link cloud account, then captures their images on your local network. Enter your Tapo account below, then go to the Discover screen and run a scan: your cameras appear there, ready to be added.\n\nTwo capture modes, chosen automatically per camera by probing it: the standard RTSP stream when the camera exposes one, otherwise the TP-Link proprietary protocol — which also covers battery models and doorbells that offer no RTSP stream.",
+        "fr": "Cette intégration retrouve vos caméras via votre compte cloud TP-Link, puis capture leurs images sur votre réseau local. Renseignez votre compte Tapo ci-dessous, puis allez dans l'écran Découverte et lancez un scan : vos caméras y apparaissent, prêtes à être ajoutées.\n\nDeux modes de capture, choisis automatiquement pour chaque caméra en la sondant : le flux RTSP standard quand la caméra en expose un, sinon le protocole propriétaire TP-Link — qui couvre aussi les modèles sur batterie et les sonnettes qui n'offrent aucun flux RTSP."
+      },
+      "links": [
+        {
+          "url": "https://www.tapo.com/en/",
+          "label": {
+            "en": "Tapo website",
+            "fr": "Site Tapo"
+          }
+        }
+      ]
+    },
+    {
+      "key": "email",
+      "type": "string",
+      "label": {
+        "en": "Tapo account email",
+        "fr": "E-mail du compte Tapo"
+      },
+      "description": {
+        "en": "The email address of your TP-Link / Tapo account, the one you use in the Tapo app.",
+        "fr": "L'adresse e-mail de votre compte TP-Link / Tapo, celle que vous utilisez dans l'application Tapo."
+      },
+      "placeholder": {
+        "en": "you@example.com",
+        "fr": "vous@exemple.com"
+      },
+      "required": true
+    },
+    {
+      "key": "password",
+      "type": "secret",
+      "label": {
+        "en": "Tapo account password",
+        "fr": "Mot de passe du compte Tapo"
+      },
+      "description": {
+        "en": "The password of your TP-Link / Tapo account. It is used to list your cameras and, for cameras without RTSP, to open the local stream.",
+        "fr": "Le mot de passe de votre compte TP-Link / Tapo. Il sert à lister vos caméras et, pour les caméras sans RTSP, à ouvrir le flux local."
+      },
+      "required": true
+    },
+    {
+      "key": "region",
+      "type": "select",
+      "label": {
+        "en": "Cloud region",
+        "fr": "Région du cloud"
+      },
+      "description": {
+        "en": "The TP-Link cloud server closest to you. Change it only if the connection test fails.",
+        "fr": "Le serveur cloud TP-Link le plus proche de vous. À changer uniquement si le test de connexion échoue."
+      },
+      "required": false,
+      "default": "europe",
+      "options": [
+        {
+          "value": "europe",
+          "label": {
+            "en": "Europe",
+            "fr": "Europe"
+          }
+        },
+        {
+          "value": "america",
+          "label": {
+            "en": "America",
+            "fr": "Amérique"
+          }
+        },
+        {
+          "value": "asia",
+          "label": {
+            "en": "Asia",
+            "fr": "Asie"
+          }
+        },
+        {
+          "value": "default",
+          "label": {
+            "en": "Worldwide",
+            "fr": "Mondial"
+          }
+        }
+      ]
+    },
+    {
+      "key": "rtsp_section",
+      "type": "section",
+      "label": {
+        "en": "Camera account (RTSP)",
+        "fr": "Compte caméra (RTSP)"
+      },
+      "description": {
+        "en": "Cameras that expose an RTSP stream need the camera account you created in the Tapo app (Camera settings > Advanced settings > Camera account). This is NOT your Tapo account, and it is created PER CAMERA. The simplest way to enter it: use the \"Save a camera account\" action at the bottom of this page, once per camera. The two fields below only serve as a default, for users who reused the same credentials everywhere.",
+        "fr": "Les caméras exposant un flux RTSP nécessitent le compte caméra créé dans l'application Tapo (Paramètres de la caméra > Paramètres avancés > Compte de la caméra). Ce n'est PAS votre compte Tapo, et il se crée PAR CAMÉRA. Le plus simple pour le renseigner : utilisez l'action « Enregistrer le compte d'une caméra » en bas de cette page, une fois par caméra. Les deux champs ci-dessous ne servent que de valeur par défaut, si vous avez réutilisé les mêmes identifiants partout."
+      }
+    },
+    {
+      "key": "rtsp_username",
+      "type": "string",
+      "label": {
+        "en": "Default account username",
+        "fr": "Identifiant du compte par défaut"
+      },
+      "description": {
+        "en": "Used for every RTSP camera that has no specific account below.",
+        "fr": "Utilisé pour toutes les caméras RTSP n'ayant pas de compte spécifique ci-dessous."
+      },
+      "required": false
+    },
+    {
+      "key": "rtsp_password",
+      "type": "secret",
+      "label": {
+        "en": "Default account password",
+        "fr": "Mot de passe du compte par défaut"
+      },
+      "description": {
+        "en": "Used for every RTSP camera that has no specific account below.",
+        "fr": "Utilisé pour toutes les caméras RTSP n'ayant pas de compte spécifique ci-dessous."
+      },
+      "required": false
+    },
+    {
+      "key": "camera_accounts",
+      "type": "secret",
+      "label": {
+        "en": "Accounts per camera (advanced)",
+        "fr": "Comptes par caméra (avancé)"
+      },
+      "description": {
+        "en": "Filled in automatically by the \"Save a camera account\" action below — use that action rather than typing here. Format, if you edit it by hand: cameras separated by a comma, each as `name|username|password`.",
+        "fr": "Rempli automatiquement par l'action « Enregistrer le compte d'une caméra » ci-dessous — utilisez plutôt cette action. Format, si vous l'éditez à la main : caméras séparées par une virgule, chacune sous la forme `nom|identifiant|motdepasse`."
+      },
+      "placeholder": {
+        "en": "Camera_jardin|gladys|MyPassword, Camera_salon|gladys|OtherPassword",
+        "fr": "Camera_jardin|gladys|MonMotDePasse, Camera_salon|gladys|AutreMotDePasse"
+      },
+      "required": false
+    },
+    {
+      "key": "stream_quality",
+      "type": "select",
+      "label": {
+        "en": "Image quality",
+        "fr": "Qualité de l'image"
+      },
+      "description": {
+        "en": "HD gives a sharper image, SD is lighter and faster to capture.",
+        "fr": "HD donne une image plus nette, SD est plus légère et plus rapide à capturer."
+      },
+      "required": false,
+      "default": "HD",
+      "options": [
+        {
+          "value": "HD",
+          "label": {
+            "en": "HD",
+            "fr": "HD"
+          }
+        },
+        {
+          "value": "SD",
+          "label": {
+            "en": "SD",
+            "fr": "SD"
+          }
+        }
+      ]
+    },
+    {
+      "key": "advanced",
+      "type": "section",
+      "label": {
+        "en": "Advanced",
+        "fr": "Avancé"
+      },
+      "description": {
+        "en": "Fill these fields only if a camera is not found automatically, or to adjust how often events are checked.",
+        "fr": "Ne remplissez ces champs que si une caméra n'est pas trouvée automatiquement, ou pour ajuster la fréquence de vérification des événements."
+      }
+    },
+    {
+      "key": "camera_ips",
+      "type": "string",
+      "label": {
+        "en": "Camera addresses",
+        "fr": "Adresses des caméras"
+      },
+      "description": {
+        "en": "Cameras separated by a comma, each as `name|ip` — for example `Camera_jardin|192.168.1.42, Camera_salon|192.168.1.43`. Gladys looks for the addresses on your network by itself; fill this in for a camera the scan does not find (another VLAN, broadcast filtered by your router). An address typed here always wins.",
+        "fr": "Caméras séparées par une virgule, chacune sous la forme `nom|ip` — par exemple `Camera_jardin|192.168.1.42, Camera_salon|192.168.1.43`. Gladys cherche les adresses sur votre réseau tout seul ; remplissez ce champ pour une caméra que le scan ne trouve pas (autre VLAN, broadcast filtré par votre routeur). Une adresse saisie ici est toujours prioritaire."
+      },
+      "placeholder": {
+        "en": "Camera_jardin|192.168.1.42, Camera_salon|192.168.1.43",
+        "fr": "Camera_jardin|192.168.1.42, Camera_salon|192.168.1.43"
+      },
+      "required": false
+    },
+    {
+      "key": "event_poll_interval",
+      "type": "number",
+      "label": {
+        "en": "Event check interval (s)",
+        "fr": "Intervalle de vérification des événements (s)"
+      },
+      "description": {
+        "en": "How often the integration checks for a doorbell press or a motion detection. A shorter interval reacts faster but talks to your cameras more often.",
+        "fr": "Fréquence à laquelle l'intégration vérifie un appui sonnette ou une détection de mouvement. Un intervalle plus court réagit plus vite mais sollicite davantage vos caméras."
+      },
+      "required": false,
+      "default": 20,
+      "min": 5,
+      "max": 300
+    },
+    {
+      "key": "capture_timeout",
+      "type": "number",
+      "label": {
+        "en": "Capture timeout (s)",
+        "fr": "Délai de capture (s)"
+      },
+      "description": {
+        "en": "How long a camera is given to deliver an image. Cameras using the proprietary protocol — battery models waking from deep sleep — need more time than an RTSP one. Above 14s the dashboard live view may time out first, but the scheduled refresh still succeeds.",
+        "fr": "Temps accordé à une caméra pour fournir une image. Les caméras utilisant le protocole propriétaire — modèles sur batterie sortant de veille — ont besoin de plus de temps qu'une caméra RTSP. Au-delà de 14 s, la vue live du tableau de bord peut expirer avant, mais le rafraîchissement automatique aboutit quand même."
+      },
+      "required": false,
+      "default": 14,
+      "min": 5,
+      "max": 60
+    }
+  ],
+  "actions": [
+    {
+      "key": "test_connection",
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
+      },
+      "timeout_seconds": 60
+    },
+    {
+      "key": "set_camera_account",
+      "label": {
+        "en": "Save a camera account",
+        "fr": "Enregistrer le compte d'une caméra"
+      },
+      "description": {
+        "en": "Enter the camera account you created in the Tapo app, for one camera. Repeat for each camera that needs different credentials.",
+        "fr": "Saisissez le compte caméra créé dans l'application Tapo, pour une caméra. À répéter pour chaque caméra ayant des identifiants différents."
+      },
+      "timeout_seconds": 30,
+      "fields": [
+        {
+          "key": "camera",
+          "type": "string",
+          "label": {
+            "en": "Camera name",
+            "fr": "Nom de la caméra"
+          },
+          "description": {
+            "en": "The camera name exactly as it appears in the Devices tab. Run \"Test the connection\" above: it lists your camera names.",
+            "fr": "Le nom de la caméra tel qu'il apparaît dans l'onglet Appareils. Lancez « Tester la connexion » ci-dessus : il affiche la liste de vos noms de caméras."
+          },
+          "placeholder": {
+            "en": "Camera_jardin",
+            "fr": "Camera_jardin"
+          },
+          "required": true
+        },
+        {
+          "key": "username",
+          "type": "string",
+          "label": {
+            "en": "Camera account username",
+            "fr": "Identifiant du compte caméra"
+          },
+          "description": {
+            "en": "The username you set in the Tapo app, under Camera settings > Advanced settings > Camera account.",
+            "fr": "L'identifiant défini dans l'application Tapo, sous Paramètres de la caméra > Paramètres avancés > Compte de la caméra."
+          },
+          "required": true
+        },
+        {
+          "key": "password",
+          "type": "string",
+          "label": {
+            "en": "Camera account password",
+            "fr": "Mot de passe du compte caméra"
+          },
+          "description": {
+            "en": "The matching password. It is stored encrypted with the other secrets; only this input box shows it as you type.",
+            "fr": "Le mot de passe correspondant. Il est stocké chiffré avec les autres secrets ; seule cette case le montre pendant la saisie."
+          },
+          "required": true
+        }
+      ]
+    },
+    {
+      "key": "refresh_images",
+      "label": {
+        "en": "Refresh the images",
+        "fr": "Rafraîchir les images"
+      },
+      "timeout_seconds": 120
+    }
+  ]
+}
