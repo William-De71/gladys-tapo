@@ -53,6 +53,34 @@ Cliquez sur **Tester la connexion** pour vérifier que vos identifiants sont acc
 
 Rendez-vous ensuite dans l'écran **Découverte** et lancez un scan. Vos caméras y apparaissent, prêtes à être ajoutées. Une fois créées, ajoutez le widget **Caméra** à votre tableau de bord.
 
+## Ce que les caméras sur batterie font — et ne font pas
+
+Les modèles sur batterie ou solaires (C610, C425, D230…) n'exposent ni RTSP ni ONVIF : ils ne parlent que le protocole propriétaire de TP-Link. Cela a deux conséquences concrètes.
+
+### Pas de flux vidéo en direct
+
+Ces caméras affichent des **images rafraîchies régulièrement**, pas un flux continu. La vue live de Gladys s'appuie sur une URL confiée à ffmpeg, or une session propriétaire est chiffrée et pilotée par l'intégration elle-même : elle ne peut pas s'écrire sous forme d'URL. Les caméras filaires en RTSP, elles, ont bien le direct.
+
+Ce n'est pas une limite de l'intégration mais du protocole : aucun outil ne fait autrement sur ces modèles, sauf à passer par un relais externe comme go2rtc.
+
+### La batterie est ménagée automatiquement
+
+Capturer une image est de loin ce qui sollicite le plus une caméra. Sur un modèle solaire, une capture trop fréquente vide la batterie plus vite que le panneau ne la remplit — et une batterie lithium descendue trop bas peut cesser d'accepter la charge, ce qui ne se rattrape pas à distance.
+
+L'intégration lève donc le pied d'elle-même :
+
+| Batterie           | Rafraîchissement automatique | Widget, scène, sonnette |
+| ------------------ | ---------------------------- | ----------------------- |
+| au-dessus de 60 %  | oui                          | oui                     |
+| entre 40 % et 60 % | suspendu                     | oui                     |
+| sous 40 %          | suspendu                     | non                     |
+
+Une caméra passée sous le premier seuil ne reprend qu'une fois **complètement rechargée**. Une reprise partielle relancerait la décharge aussitôt, et les cycles courts répétés usent la batterie plus vite qu'un cycle complet.
+
+Le niveau de batterie et les événements continuent d'être lus dans tous les cas : cela ne coûte presque rien, et c'est ce qui permet de savoir quand la caméra est rechargée.
+
+Les deux seuils et l'intervalle de capture sont réglables dans la configuration. En hiver, ou si votre panneau est peu exposé, montez le premier seuil et allongez l'intervalle.
+
 ## Fonctionnalités créées
 
 Chaque caméra devient un appareil dans Gladys :

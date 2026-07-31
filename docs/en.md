@@ -53,6 +53,34 @@ Click **Test the connection** to check that your credentials are accepted: Glady
 
 Then go to the **Discover** screen and run a scan. Your cameras show up there, ready to be added. Once created, add the **Camera** widget to your dashboard.
 
+## What battery cameras do — and do not do
+
+Battery and solar models (C610, C425, D230…) expose neither RTSP nor ONVIF: they only speak TP-Link's proprietary protocol. That has two practical consequences.
+
+### No live video
+
+These cameras show **regularly refreshed images**, not a continuous stream. Gladys' live view relies on a URL handed to ffmpeg, and a proprietary session is encrypted and driven by the integration itself — it cannot be expressed as a URL. Wired RTSP cameras do get live video.
+
+This is a limit of the protocol rather than of the integration: no tool does better on these models, short of going through an external relay such as go2rtc.
+
+### The battery is protected automatically
+
+Capturing an image is by far the most demanding thing asked of a camera. On a solar model, capturing too often drains the battery faster than the panel refills it — and a lithium cell taken too low may stop accepting charge altogether, which cannot be fixed remotely.
+
+So the integration backs off on its own:
+
+| Battery             | Automatic refresh | Widget, scene, doorbell |
+| ------------------- | ----------------- | ----------------------- |
+| above 60%           | yes               | yes                     |
+| between 40% and 60% | paused            | yes                     |
+| below 40%           | paused            | no                      |
+
+A camera that went below the first threshold only resumes once **fully charged**. Resuming on a partial charge would restart the drain immediately, and repeated shallow cycles wear the battery faster than one proper cycle.
+
+The battery level and the events keep being read in every case: they cost almost nothing, and they are what tells when the camera has recharged.
+
+Both thresholds and the capture interval are configurable. In winter, or if your panel gets little sun, raise the first threshold and lengthen the interval.
+
 ## Features created
 
 Each camera becomes one device in Gladys:

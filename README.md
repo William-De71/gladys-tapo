@@ -50,6 +50,18 @@ The mode is decided by probing the camera, never by its model name: a camera wit
 
 Live video is only available for RTSP cameras: it goes through the `CAMERA_URL` param handed to the rtsp-camera service, and an encrypted 8800 session cannot be expressed as a URL. Proprietary-mode cameras get regularly refreshed images instead.
 
+Bridging the 8800 stream through an HTTP server inside the integration does not
+work either, and the reason is worth recording: the `gladys-integrations` network
+is created with `com.docker.network.bridge.enable_icc=false`, so nothing can
+connect INTO an integration container — not even Gladys, which is where ffmpeg
+runs. Verified by reproducing the exact network options. The only route left
+would be a sub-container, whose ports Gladys publishes on the host; that means
+embedding a relay such as go2rtc, which is out of scope here.
+
+Battery models are also throttled to protect the cell: below 60% the periodic
+capture stops, below 40% nothing is captured, and a camera only resumes once
+fully recharged. Both thresholds are configurable.
+
 ## License
 
 Apache-2.0
