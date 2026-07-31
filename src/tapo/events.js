@@ -14,12 +14,19 @@
 
 import { logger } from '@gladysassistant/integration-sdk';
 import { parseCloudDeviceId, cameraIds, getParam } from '../devices.js';
-import { DEVICE_PARAMS, FEATURE_SUFFIXES } from './constants.js';
+import { DEVICE_PARAMS, FEATURE_SUFFIXES, LOCAL_EVENT_WINDOW_SECONDS } from './constants.js';
+import { TapoLocalApi } from './localApi.js';
 
 /** How long a motion stays reported before being reset to 0. */
 const MOTION_RESET_MS = 60 * 1000;
 
-/** Event types the cloud reports, mapped to what they mean for us. */
+/** `alarm_type` values the local API reports. */
+const ALARM_TYPES = {
+  MOTION: 2,
+  DOORBELL: 3,
+};
+
+/** Textual event types, used by firmwares that label their events. */
 const EVENT_TYPES = {
   DOORBELL: ['ring', 'doorbell', 'button', 'call'],
   MOTION: ['motion', 'person', 'people', 'pet', 'vehicle', 'detection'],
@@ -33,6 +40,20 @@ const EVENT_TYPES = {
  * classifyEvent({ eventType: 'ring' }); // 'doorbell'
  */
 export function classifyEvent(event) {
+  // The local API reports `alarm_type`, a number: 2 is the motion/detection
+  // family, 3 the doorbell ring. Measured on a C610; the textual fields are kept
+  // as a fallback because other firmwares label their events instead.
+  if (event.alarm_type !== undefined) {
+    const type = Number(event.alarm_type);
+    if (type === ALARM_TYPES.DOORBELL) {
+      return 'doorbell';
+    }
+    if (type === ALARM_TYPES.MOTION) {
+      return 'motion';
+    }
+    return null;
+  }
+
   const raw = `${event.eventType || ''} ${event.type || ''} ${event.name || ''}`.toLowerCase();
   if (EVENT_TYPES.DOORBELL.some((keyword) => raw.includes(keyword))) {
     return 'doorbell';
@@ -43,16 +64,8 @@ export function classifyEvent(event) {
   return null;
 }
 
-/**
- * Read the timestamp of an event, in milliseconds. The cloud is inconsistent
- * across firmwares: seconds on some, milliseconds on others.
- * @param {object} event - The raw event.
- * @returns {number} The timestamp in ms, or 0 when absent.
- * @example
- * eventTimestamp({ timestamp: 1750000000 });
- */
 export function eventTimestamp(event) {
-  const raw = Number(event.timestamp ?? event.time ?? event.startTime ?? 0);
+  const raw = Number(event.start_time ?? event.timestamp ?? event.time ?? event.startTime ?? 0);
   if (!Number.isFinite(raw) || raw <= 0) {
     return 0;
   }
@@ -75,16 +88,22 @@ export class EventWatcher {
    * @param {(device: object) => Promise<void>} [options.onDoorbell] - Called when
    * a doorbell press is detected, to push a fresh image.
    */
-  constructor({ gladys, cloud, onDoorbell }) {
+  constructor({ gladys, cloud, onDoorbell, batteryGuard }) {
     this.gladys = gladys;
     this.cloud = cloud;
     this.onDoorbell = onDoorbell;
+    /** Shared with the capture side, so a low battery pauses it. */
+    this.batteryGuard = batteryGuard;
     /** @type {NodeJS.Timeout|null} */
     this.timer = null;
     /** Last event timestamp seen per camera, to only react to new ones. */
     this.watermarks = new Map();
     /** Pending motion resets, per camera. */
     this.motionResets = new Map();
+    /** One local API client per camera IP, reused across rounds. */
+    this.localApis = new Map();
+    /** When each camera was last looked at, to bound the search window. */
+    this.lastLookAt = new Map();
     this.config = null;
     this.running = false;
   }
@@ -117,6 +136,12 @@ export class EventWatcher {
     }
     this.motionResets.forEach((timer) => clearTimeout(timer));
     this.motionResets.clear();
+    // Log out of every camera: a session left open counts against the handful
+    // the firmware allows, and the next start would be refused.
+    this.localApis.forEach((api) => {
+      api.close().catch(() => {});
+    });
+    this.localApis.clear();
   }
 
   /**
@@ -163,7 +188,13 @@ export class EventWatcher {
       return;
     }
 
-    const { events, battery } = await this.fetchDeviceEvents(cloudDeviceId);
+    const { events, battery } = await this.fetchDeviceEvents(device);
+
+    if (this.batteryGuard) {
+      // Feed the guard first: it decides whether captures may run at all, and
+      // the reading below is what lets it release a recovering camera.
+      this.batteryGuard.update(device.external_id, battery, device.name);
+    }
 
     if (battery !== null) {
       await this.gladys
@@ -239,58 +270,42 @@ export class EventWatcher {
    * The cloud exposes this through a passthrough call whose payload varies across
    * models and firmwares, so every field is read defensively: a shape we do not
    * recognize yields no event rather than a crash.
-   * @param {string} cloudDeviceId - The cloud device id.
+   * @param {object} device - The Gladys device, carrying the camera address.
    * @returns {Promise<{ events: object[], battery: number|null }>} What was found.
    * @example
-   * const { events, battery } = await watcher.fetchDeviceEvents('80224A...');
+   * const { events, battery } = await watcher.fetchDeviceEvents(device);
    */
-  async fetchDeviceEvents(cloudDeviceId) {
-    const result = await this.cloud.authenticatedRequest(this.config, {
-      method: 'passthrough',
-      params: {
-        deviceId: cloudDeviceId,
-        requestData: JSON.stringify({
-          method: 'multipleRequest',
-          params: {
-            requests: [
-              { method: 'getDetectionEvents', params: { system: { get_event_list: {} } } },
-              { method: 'getBatteryUsage', params: { battery: { name: 'usage' } } },
-            ],
-          },
-        }),
-      },
-    });
-
-    let payload;
-    try {
-      payload =
-        typeof result.responseData === 'string'
-          ? JSON.parse(result.responseData)
-          : result.responseData;
-    } catch {
+  async fetchDeviceEvents(device) {
+    const ip = getParam(device, DEVICE_PARAMS.IP);
+    if (!ip) {
       return { events: [], battery: null };
     }
 
-    const responses = payload?.result?.responses;
-    if (!Array.isArray(responses)) {
-      return { events: [], battery: null };
+    // One long-lived client per camera: the firmware only accepts a handful of
+    // sessions at a time, so opening one per round would exhaust them and every
+    // later login would be refused with -40413.
+    let api = this.localApis.get(ip);
+    if (!api) {
+      api = new TapoLocalApi(ip, this.config.password);
+      this.localApis.set(ip, api);
     }
 
-    /** @type {object[]} */
-    let events = [];
-    /** @type {number|null} */
-    let battery = null;
+    // Only the window since the last look matters, and the camera stores far
+    // more than that — asking for everything would return hundreds of entries.
+    const now = Math.floor(Date.now() / 1000);
+    const since = this.lastLookAt.get(ip) ?? now - LOCAL_EVENT_WINDOW_SECONDS;
+    this.lastLookAt.set(ip, now);
 
-    responses.forEach((response) => {
-      const list = response?.result?.system?.event_list ?? response?.result?.event_list;
-      if (Array.isArray(list)) {
-        events = events.concat(list);
-      }
-      const level = response?.result?.battery?.usage?.percent ?? response?.result?.battery?.percent;
-      if (level !== undefined && Number.isFinite(Number(level))) {
-        battery = Number(level);
-      }
-    });
+    const [battery, events] = await Promise.all([
+      api.getBatteryLevel().catch((e) => {
+        logger.debug(`Reading the battery of ${ip} failed: ${e.message}`);
+        return null;
+      }),
+      api.getDetections(since, now).catch((e) => {
+        logger.debug(`Reading the detections of ${ip} failed: ${e.message}`);
+        return [];
+      }),
+    ]);
 
     return { events, battery };
   }

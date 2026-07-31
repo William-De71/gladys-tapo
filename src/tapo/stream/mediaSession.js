@@ -201,7 +201,7 @@ export class TapoMediaSession extends EventEmitter {
       payload += `${key}: ${headers[key]}${CRLF}`;
     });
     payload += CRLF;
-    this.socket.write(payload);
+    this.write(payload);
   }
 
   /**
@@ -218,7 +218,28 @@ export class TapoMediaSession extends EventEmitter {
       head += `${key}: ${headers[key]}${CRLF}`;
     });
     head += CRLF;
-    this.socket.write(Buffer.concat([Buffer.from(head), body, Buffer.from(CRLF)]));
+    this.write(Buffer.concat([Buffer.from(head), body, Buffer.from(CRLF)]));
+  }
+
+  /**
+   * Write to the socket, tolerating a session that closed underneath.
+   *
+   * The socket is torn down as soon as the capture has what it needs, while an
+   * acknowledgement may still be in flight — writing to a destroyed socket
+   * raises asynchronously and would take the whole process down.
+   * @param {string|Buffer} data - The bytes to send.
+   * @example
+   * session.write('POST /stream HTTP/1.1\r\n\r\n');
+   */
+  write(data) {
+    if (!this.socket || this.socket.destroyed) {
+      return;
+    }
+    try {
+      this.socket.write(data);
+    } catch (e) {
+      logger.debug(`Tapo media session: write on a closed socket ignored (${e.message})`);
+    }
   }
 
   /**

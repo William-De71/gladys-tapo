@@ -19,6 +19,9 @@ export const DEFAULT_CONFIG = {
   stream_quality: 'HD',
   event_poll_interval: 20, // seconds, between two event checks
   capture_timeout: 14, // seconds, before giving up on a capture
+  image_refresh_interval: 60, // seconds, between two automatic captures
+  battery_pause_refresh: 60, // percent, below which the auto refresh stops
+  battery_stop_all: 40, // percent, below which nothing is captured
 };
 
 /**
@@ -140,6 +143,13 @@ export function normalizeConfig(raw = {}) {
     rtsp_stream: RTSP_STREAMS[quality],
     event_poll_interval: Number(raw.event_poll_interval ?? DEFAULT_CONFIG.event_poll_interval),
     capture_timeout: Number(raw.capture_timeout ?? DEFAULT_CONFIG.capture_timeout),
+    image_refresh_interval: Number(
+      raw.image_refresh_interval ?? DEFAULT_CONFIG.image_refresh_interval,
+    ),
+    battery_pause_refresh: Number(
+      raw.battery_pause_refresh ?? DEFAULT_CONFIG.battery_pause_refresh,
+    ),
+    battery_stop_all: Number(raw.battery_stop_all ?? DEFAULT_CONFIG.battery_stop_all),
     camera_ips: parseCameraIps(raw.camera_ips),
     camera_accounts: parseCameraAccounts(raw.camera_accounts),
   };

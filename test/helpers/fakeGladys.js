@@ -70,3 +70,28 @@ export function fakeCloud({ events = [], battery = null } = {}) {
     },
   };
 }
+
+/**
+ * Build a fake local API client, standing in for one camera.
+ * @param {object} [options] - What the camera reports.
+ * @param {Array} [options.events] - The detections it returns.
+ * @param {number|null} [options.battery] - Its battery level.
+ * @returns {object} The fake client.
+ * @example
+ * const api = fakeLocalApi({ battery: 91 });
+ */
+export function fakeLocalApi({ events = [], battery = null } = {}) {
+  const calls = { count: 0 };
+  return {
+    calls,
+    getBatteryLevel: async () => {
+      calls.count += 1;
+      return battery;
+    },
+    getDetections: async () => {
+      calls.count += 1;
+      return events;
+    },
+    close: async () => {},
+  };
+}

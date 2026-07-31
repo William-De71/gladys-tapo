@@ -26,11 +26,22 @@ import {
 } from './constants.js';
 
 /**
- * JPEG quality steps handed to ffmpeg's `-qscale:v` (2 = best, 31 = worst). A
- * 1280px frame at quality 8 is comfortably under 150 KB, but a noisy night scene
- * can still overshoot, so the capture retries lower rather than failing.
+ * Fallback steps, tried in order until the payload fits, as
+ * `[width, -qscale:v]` pairs (qscale: 2 = best, 31 = worst).
+ *
+ * Quality alone is not enough: past `-qscale:v 15` the returns collapse
+ * (measured: 8 -> 24 only sheds ~30 %), and a detailed outdoor scene can stay
+ * a few hundred bytes above the limit no matter how far the quality drops.
+ * Halving the pixel count is the effective lever, so the steps trade resolution
+ * once quality has done what it can.
  */
-const QUALITY_STEPS = [8, 15, 24];
+const CAPTURE_STEPS = [
+  [IMAGE_WIDTH, 8],
+  [IMAGE_WIDTH, 15],
+  [1024, 12],
+  [1024, 20],
+  [800, 15],
+];
 
 /**
  * Turn ffmpeg's stderr into one actionable sentence.
@@ -169,7 +180,7 @@ function runFfmpeg(args, { timeoutMs, onStdin }) {
  * @example
  * buildArgs('rtsp://camera/stream1', 8, true);
  */
-function buildArgs(input, quality, isRtsp) {
+function buildArgs(input, quality, isRtsp, width = IMAGE_WIDTH) {
   // `-loglevel error` silences the startup banner (version, build flags, codec
   // list): it would otherwise fill the captured stderr and push the actual error
   // out of it, leaving the failure unexplainable.
@@ -188,7 +199,7 @@ function buildArgs(input, quality, isRtsp) {
     '-qscale:v',
     String(quality),
     '-vf',
-    `scale=${IMAGE_WIDTH}:-1`,
+    `scale=${width}:-1`,
   );
   return args;
 }
@@ -202,9 +213,11 @@ function buildArgs(input, quality, isRtsp) {
  * @example
  * await captureRtsp(camera, config, 8);
  */
-function captureRtsp(camera, config, quality) {
+function captureRtsp(camera, config, quality, width) {
   const url = buildRtspUrl(camera, config);
-  return runFfmpeg(buildArgs(url, quality, true), { timeoutMs: config.capture_timeout * 1000 });
+  return runFfmpeg(buildArgs(url, quality, true, width), {
+    timeoutMs: config.capture_timeout * 1000,
+  });
 }
 
 /**
@@ -217,7 +230,7 @@ function captureRtsp(camera, config, quality) {
  * @example
  * await captureProprietary(camera, config, 8);
  */
-async function captureProprietary(camera, config, quality) {
+async function captureProprietary(camera, config, quality, width) {
   const budgetMs = config.capture_timeout * 1000;
   const session = new TapoMediaSession({
     ip: camera.ip,
@@ -228,7 +241,7 @@ async function captureProprietary(camera, config, quality) {
   });
 
   try {
-    const capture = runFfmpeg(buildArgs('-', quality, false), {
+    const capture = runFfmpeg(buildArgs('-', quality, false, width), {
       // ffmpeg gets the WHOLE budget, counted from now. The handshake happens
       // inside that window and eats part of it, so giving each step the full
       // budget separately would let a capture run for twice the configured time.
@@ -244,7 +257,9 @@ async function captureProprietary(camera, config, quality) {
         let fed = 0;
         let ended = false;
         session.on('packet', (packet) => {
-          if (ended) {
+          // `writable` guards the race between ffmpeg exiting on its own and the
+          // camera still pushing packets: writing to a closed pipe throws.
+          if (ended || !stdin.writable) {
             return;
           }
           stdin.write(packet);
@@ -264,6 +279,11 @@ async function captureProprietary(camera, config, quality) {
         });
       },
     });
+
+    // `capture` is already running, so its rejection must always be consumed:
+    // if the handshake below throws first, an unawaited ffmpeg failure would
+    // surface as an unhandled rejection instead of this function's error.
+    capture.catch(() => {});
 
     // Start the session AFTER wiring ffmpeg, so no packet is dropped. The
     // handshake is bounded separately and generously: a battery camera waking
@@ -293,18 +313,20 @@ export async function captureImage(camera, config) {
   }
 
   let lastImage = null;
-  for (const quality of QUALITY_STEPS) {
+  for (const [width, quality] of CAPTURE_STEPS) {
     const image =
       camera.captureMode === CAPTURE_MODES.RTSP
-        ? await captureRtsp(camera, config, quality)
-        : await captureProprietary(camera, config, quality);
+        ? await captureRtsp(camera, config, quality, width)
+        : await captureProprietary(camera, config, quality, width);
     lastImage = image;
 
     // base64 inflates the payload by ~4/3, and Gladys checks the encoded size.
     if (Buffer.byteLength(image.toString('base64')) <= IMAGE_MAX_BYTES) {
       return `image/jpg;base64,${image.toString('base64')}`;
     }
-    logger.debug(`The image of "${camera.name}" is too big at quality ${quality}, retrying lower`);
+    logger.debug(
+      `The image of "${camera.name}" is too big at ${width}px/q${quality}, retrying smaller`,
+    );
   }
 
   // Every step overshot: the camera resolution is unusually high. Report it

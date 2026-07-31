@@ -32,11 +32,27 @@ test('an unreachable RTSP camera reports that no image came out', async () => {
 test('the size limit is the base64 length, not the raw JPEG length', () => {
   // base64 inflates by ~4/3: checking the raw length would let images through
   // that Gladys then rejects.
-  const raw = Buffer.alloc(120 * 1024);
+  const raw = Buffer.alloc(80 * 1024);
   assert.ok(raw.length < IMAGE_MAX_BYTES, 'the raw buffer is under the limit');
   assert.ok(
     Buffer.byteLength(raw.toString('base64')) > IMAGE_MAX_BYTES,
     'but its base64 form is over it, which is what Gladys measures',
+  );
+});
+
+test('the limit stays under what the HTTP layer actually accepts', () => {
+  // Gladys mounts express.json() with no `limit`, so the 100 KB Express default
+  // rejects the request with PayloadTooLargeError long before the documented
+  // 150 KB application check runs. Publishing was failing for exactly this.
+  const EXPRESS_DEFAULT_LIMIT = 100 * 1024;
+  assert.ok(
+    IMAGE_MAX_BYTES < EXPRESS_DEFAULT_LIMIT,
+    `IMAGE_MAX_BYTES must stay under the ${EXPRESS_DEFAULT_LIMIT} byte HTTP limit`,
+  );
+  // And leave room for the JSON envelope wrapped around the image.
+  assert.ok(
+    EXPRESS_DEFAULT_LIMIT - IMAGE_MAX_BYTES >= 1024,
+    'too tight a margin for the JSON envelope',
   );
 });
 
@@ -83,4 +99,19 @@ test('the banner is suppressed at the source', async () => {
   const source = readFileSync(new URL('../src/tapo/snapshot.js', import.meta.url), 'utf-8');
   assert.match(source, /-hide_banner/);
   assert.match(source, /'-loglevel',\s*'error'/);
+});
+
+test('the fallback steps trade resolution, not just quality', async () => {
+  // Quality alone plateaus: measured, going from qscale 8 to 24 only sheds ~30 %,
+  // which leaves a detailed scene a few hundred bytes above the limit forever.
+  // Shrinking the frame is what actually gets under it.
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../src/tapo/snapshot.js', import.meta.url), 'utf-8');
+  const steps = /const CAPTURE_STEPS = \[([\s\S]*?)\];/.exec(source);
+  assert.ok(steps, 'CAPTURE_STEPS must be declared');
+
+  const widths = [...steps[1].matchAll(/\[\s*(IMAGE_WIDTH|\d+)\s*,/g)].map((m) => m[1]);
+  assert.ok(widths.length >= 3, 'at least three fallback steps');
+  // The last step must be narrower than the first, or the retries are pointless.
+  assert.notEqual(widths[widths.length - 1], widths[0], 'the last step must shrink the frame');
 });

@@ -21,10 +21,14 @@ import { EventWatcher } from './src/tapo/events.js';
 import { captureImage } from './src/tapo/snapshot.js';
 import { normalizeConfig, isConfigured, hasRtspAccount } from './src/config.js';
 import { buildDiscoveredDevices, cameraFromDevice, parseCloudDeviceId } from './src/devices.js';
-import { CAPTURE_MODES, DEVICE_PARAMS, IMAGE_REFRESH_INTERVAL_MS } from './src/tapo/constants.js';
+import { CAPTURE_MODES, DEVICE_PARAMS } from './src/tapo/constants.js';
+import { BatteryGuard } from './src/tapo/batteryGuard.js';
 
 const gladys = new GladysIntegration();
 const cloud = new TapoCloud();
+// Guards the battery of solar/wire-free cameras: capturing is what drains them,
+// so it backs off well before the cell reaches a level it may not recover from.
+const batteryGuard = new BatteryGuard();
 
 let config = normalizeConfig();
 
@@ -36,6 +40,9 @@ let config = normalizeConfig();
  * const image = await captureDeviceImage(device);
  */
 async function captureDeviceImage(device) {
+  if (!batteryGuard.allowsOnDemand(device.external_id)) {
+    throw new Error(`TAPO_BATTERY_TOO_LOW:${batteryGuard.levelOf(device.external_id)}%`);
+  }
   const camera = await cameraFromDevice(device, config);
   if (!camera.ip) {
     throw new Error('TAPO_CAMERA_IP_UNKNOWN');
@@ -67,6 +74,11 @@ async function refreshImages(devices) {
   const failures = [];
 
   for (const device of cameras) {
+    // The scheduled refresh is the expensive part, so it is the first thing a
+    // draining battery gives up — an explicit request still goes through.
+    if (!batteryGuard.allowsScheduled(device.external_id)) {
+      continue;
+    }
     try {
       const image = await captureDeviceImage(device);
       await gladys.publishCameraImage(device.external_id, image);
@@ -95,6 +107,7 @@ let refreshTimer = null;
  */
 function startImageRefresh() {
   stopImageRefresh();
+  const intervalSeconds = config.image_refresh_interval;
   refreshTimer = setInterval(async () => {
     try {
       // Re-read the devices every round: a camera may have been added or removed.
@@ -103,8 +116,8 @@ function startImageRefresh() {
     } catch (e) {
       logger.debug(`The image refresh round failed: ${e.message}`);
     }
-  }, IMAGE_REFRESH_INTERVAL_MS);
-  logger.info(`Refreshing the camera images every ${IMAGE_REFRESH_INTERVAL_MS / 1000}s`);
+  }, intervalSeconds * 1000);
+  logger.info(`Refreshing the camera images every ${intervalSeconds}s`);
 }
 
 /**
@@ -125,6 +138,7 @@ function stopImageRefresh() {
 const watcher = new EventWatcher({
   gladys,
   cloud,
+  batteryGuard,
   onDoorbell: async (device) => {
     const image = await captureDeviceImage(device);
     await gladys.publishCameraImage(device.external_id, image);
@@ -369,6 +383,7 @@ gladys.onConfigUpdated(async () => {
   await publishDevices().catch((e) => logger.error('Re-publish after config update failed', e));
   if (isConfigured(config)) {
     watcher.start(config);
+    batteryGuard.configure(config);
     startImageRefresh();
   } else {
     watcher.stop();
@@ -384,6 +399,7 @@ gladys.on('connected', async () => {
     await publishDevices();
     if (isConfigured(config)) {
       watcher.start(config);
+      batteryGuard.configure(config);
       startImageRefresh();
       // Publish a first image right away, so the widget is populated at once
       // instead of waiting a full refresh round.
@@ -405,6 +421,17 @@ gladys.handleShutdown(async (signal) => {
   logger.info(`Received ${signal} -> graceful shutdown`);
   watcher.stop();
   stopImageRefresh();
+});
+
+// --- Last-resort guards ------------------------------------------------------
+// A camera socket dying at the wrong moment must never take the integration
+// down: the supervisor would restart it and every camera would lose its images
+// until the next round. These handlers keep the process alive and leave a trace.
+process.on('uncaughtException', (err) => {
+  logger.error(`Uncaught exception, the integration keeps running: ${err.message}`, err);
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error(`Unhandled rejection, the integration keeps running: ${reason}`);
 });
 
 // --- Startup -----------------------------------------------------------------

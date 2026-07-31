@@ -258,6 +258,66 @@
       "default": 14,
       "min": 5,
       "max": 60
+    },
+    {
+      "key": "image_refresh_interval",
+      "type": "number",
+      "label": {
+        "en": "Image refresh interval (s)",
+        "fr": "Intervalle de rafraîchissement des images (s)"
+      },
+      "description": {
+        "en": "How often a new image is captured for the dashboard. A capture is the most demanding thing asked of a camera, so a longer interval spares a battery or solar model. Raise it if your cameras discharge faster than they recharge.",
+        "fr": "Fréquence à laquelle une nouvelle image est capturée pour le tableau de bord. La capture est ce qui sollicite le plus une caméra : un intervalle plus long ménage les modèles sur batterie ou solaires. Augmentez-le si vos caméras se déchargent plus vite qu'elles ne se rechargent."
+      },
+      "required": false,
+      "default": 60,
+      "min": 15,
+      "max": 3600
+    },
+    {
+      "key": "battery_section",
+      "type": "section",
+      "label": {
+        "en": "Battery protection",
+        "fr": "Protection de la batterie"
+      },
+      "description": {
+        "en": "Capturing images is what drains a battery or solar camera. These limits back off before the battery reaches a level it may not recover from. Once a camera goes below the first limit, capturing only resumes when it is fully charged — a partial recharge would restart the drain, and repeated shallow cycles wear the battery faster. Wired cameras are never affected.",
+        "fr": "La capture d'images est ce qui vide une caméra sur batterie ou solaire. Ces limites lèvent le pied avant que la batterie n'atteigne un niveau dont elle pourrait ne pas se remettre. Une fois passée sous la première limite, la capture ne reprend qu'à charge complète — une recharge partielle relancerait la décharge, et les cycles courts répétés usent la batterie plus vite. Les caméras filaires ne sont jamais concernées."
+      }
+    },
+    {
+      "key": "battery_pause_refresh",
+      "type": "number",
+      "label": {
+        "en": "Pause automatic capture below (%)",
+        "fr": "Suspendre la capture automatique sous (%)"
+      },
+      "description": {
+        "en": "Below this level the automatic refresh stops. Opening the camera widget or a doorbell press still captures an image.",
+        "fr": "Sous ce niveau, le rafraîchissement automatique s'arrête. Ouvrir le widget de la caméra ou un appui sonnette capture toujours une image."
+      },
+      "required": false,
+      "default": 60,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "key": "battery_stop_all",
+      "type": "number",
+      "label": {
+        "en": "Stop every capture below (%)",
+        "fr": "Bloquer toute capture sous (%)"
+      },
+      "description": {
+        "en": "Below this level no image is captured at all, not even on request. The battery level and the events keep being read: they cost almost nothing and tell when the camera has recharged.",
+        "fr": "Sous ce niveau, plus aucune image n'est capturée, même à la demande. Le niveau de batterie et les événements continuent d'être lus : cela ne coûte presque rien et permet de savoir quand la caméra est rechargée."
+      },
+      "required": false,
+      "default": 40,
+      "min": 0,
+      "max": 100
     }
   ],
   "actions": [

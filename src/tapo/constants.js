@@ -36,16 +36,20 @@ export const CAMERA_DEVICE_TYPE_PATTERNS = ['IPCAMERA'];
  */
 export const POLL_FREQUENCY_MS = 60 * 1000;
 
+/** HTTPS port of the local camera API (battery, detections). */
+export const LOCAL_API_PORT = 443;
+
 /**
- * How often the integration re-publishes the camera images by itself.
+ * How far back the first detection search reaches, in seconds.
  *
- * Gladys only wires a device into its poll scheduler at creation time, so a
- * camera created before `should_poll` was declared would never be refreshed.
- * This loop makes the dashboard image independent of that.
- *
- * Kept well under the 12 images/minute/device the host API allows.
+ * Only used the very first time a camera is looked at; afterwards the window
+ * starts where the previous round stopped. Cameras keep days of detections, so
+ * asking for everything would return hundreds of entries for nothing.
  */
-export const IMAGE_REFRESH_INTERVAL_MS = 30 * 1000;
+export const LOCAL_EVENT_WINDOW_SECONDS = 5 * 60;
+
+/** A local request that hangs must not hold the event loop. */
+export const LOCAL_API_TIMEOUT_MS = 10 * 1000;
 
 // --- Local network discovery --------------------------------------------------
 
@@ -128,11 +132,6 @@ export const STREAM_WINDOW_SIZE = 50;
 // --- Images ------------------------------------------------------------------
 
 /**
- * Gladys rejects an image above 150 KB. ffmpeg is asked for a width of 1280 and
- * a quality that lands well under the limit; `snapshot.js` degrades the quality
- * further if a frame still comes out too big.
- */
-/**
  * How long the proprietary handshake may take before giving up. Bounded apart
  * from the capture budget: a battery camera waking from deep sleep can take
  * several seconds to answer, and that wait is not ffmpeg's fault.
@@ -150,8 +149,46 @@ export const HANDSHAKE_TIMEOUT_MS = 15 * 1000;
  */
 export const PROPRIETARY_BYTES_PER_FRAME = 512 * 1024;
 
-export const IMAGE_MAX_BYTES = 150 * 1024;
+/**
+ * Largest base64 payload an image may reach.
+ *
+ * The host API documents 150 KB, but that bound is never reached: Gladys mounts
+ * `express.json()` with no `limit`, so the HTTP layer rejects any body above
+ * Express' 100 KB default with `PayloadTooLargeError` — before the application
+ * check ever runs. The effective ceiling is therefore ~100 KB for the WHOLE
+ * request, and the margin below leaves room for the JSON envelope.
+ *
+ * `snapshot.js` lowers the JPEG quality until the payload fits.
+ */
+export const IMAGE_MAX_BYTES = 96 * 1024;
 export const IMAGE_WIDTH = 1280;
+
+// --- Battery protection ------------------------------------------------------
+
+/**
+ * Battery thresholds guarding a solar/battery camera, in percent.
+ *
+ * A lithium cell drained too far may stop accepting charge altogether, and a
+ * solar panel only refills it in bursts — so capturing must back off long before
+ * the camera reaches a critical level.
+ *
+ * Only battery models are affected; a wired camera is never throttled.
+ */
+export const BATTERY_THRESHOLDS = {
+  /** Below this, the periodic image refresh stops. */
+  PAUSE_REFRESH: 60,
+  /** Below this, no capture at all happens, not even an explicit one. */
+  STOP_ALL: 40,
+  /**
+   * Level at which capturing resumes.
+   *
+   * Deliberately a FULL charge rather than a few points above the pause
+   * threshold: resuming early would restart the drain on a still-weak reserve,
+   * and repeated shallow cycles in the low range wear the cell faster than one
+   * proper cycle.
+   */
+  RESUME: 100,
+};
 
 // --- Features ----------------------------------------------------------------
 

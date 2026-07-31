@@ -141,3 +141,10 @@ test('accounts survive a serialize/parse round-trip', () => {
     .join(', ');
   assert.deepEqual(parseCameraAccounts(serialized), accounts);
 });
+
+test('the image refresh interval is configurable, one minute by default', () => {
+  // A capture is the most demanding thing asked of a camera, so this is the
+  // first knob to turn on a solar model that discharges faster than it refills.
+  assert.equal(normalizeConfig().image_refresh_interval, 60);
+  assert.equal(normalizeConfig({ image_refresh_interval: '180' }).image_refresh_interval, 180);
+});
