@@ -10,7 +10,7 @@ External integration bringing **TP-Link Tapo** cameras and doorbells to [Gladys 
 - **Images captured locally**, never through the cloud, in one of two modes picked per camera:
   - **RTSP** when the camera exposes a stream (needs a camera account created in the Tapo app);
   - **the TP-Link proprietary protocol** (TCP 8800) for the models that expose no RTSP stream, typically the battery doorbells.
-- **Events**: doorbell press, motion detection and battery level, polled from the cloud.
+- **Events**: doorbell press, motion detection and battery level. Motion arrives **pushed over ONVIF** (TCP 2020) on the cameras that serve it — the camera holds the request open and answers the instant it detects something, instead of being asked every N seconds. Cameras without ONVIF fall back to polling their local detection list.
 - A doorbell press **pushes a fresh image** right away, so the widget shows the visitor immediately.
 
 ## Architecture
@@ -24,6 +24,7 @@ src/
     constants.js            protocol values and device params
     cloud.js                TP-Link cloud client (login, camera list)
     rtsp.js                 RTSP URL + capture mode detection (port probing)
+    onvif.js                ONVIF pull point events (port 2020), motion pushed
     snapshot.js             ffmpeg capture, both modes, size-bounded
     events.js               doorbell / motion / battery watcher
     stream/
@@ -61,6 +62,23 @@ embedding a relay such as go2rtc, which is out of scope here.
 Battery models are also throttled to protect the cell: below 60% the periodic
 capture stops, below 40% nothing is captured, and a camera only resumes once
 fully recharged. Both thresholds are configurable.
+
+## Events
+
+Motion and doorbell rings reach Gladys by whichever of two paths the camera supports. The choice is made per camera by probing port 2020, for the same reason the capture mode is: measured on a C210 the port is open and answers, on a C610 it is closed.
+
+| Path                     | How it works                                                          | Latency        |
+| ------------------------ | --------------------------------------------------------------------- | -------------- |
+| **ONVIF** (TCP 2020)     | `PullMessages` is held open by the camera, which answers on detection | ~instant       |
+| **Local detection list** | `searchDetectionList` is polled every `event_poll_interval`           | up to one poll |
+
+ONVIF is what makes a motion usable as a scene trigger, and it is the only path that reports the **falling** edge — so the sensor comes back down when the camera says the motion ended, rather than on a timer. It needs the camera account (the ONVIF credentials are that account, not the Tapo one), so a camera without one stays on the polled path.
+
+Probing port 2020 is also what gives a WIRED camera a motion sensor: those have no local detection list, so before ONVIF they carried no event feature at all.
+
+The two paths never run together on the same camera: they report the same detections, so a camera covered by ONVIF is skipped by the polled path entirely — otherwise every motion would fire its scene twice. The battery level keeps being read either way, since ONVIF does not carry it.
+
+The SOAP is written out by hand rather than pulled from a WSDL stack: the integration makes three calls (`GetCapabilities`, `CreatePullPointSubscription`, `PullMessages`) out of a standard covering hundreds. Two things measured on a C210 and worth keeping in mind: device management is served on `/onvif/device_service` but every other service, Events included, on `/onvif/service` — so the address is read from the capabilities rather than assumed; and `UtcTime` is an attribute of `<tt:Message>`, not an element.
 
 ## License
 

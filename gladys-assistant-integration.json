@@ -10,16 +10,11 @@
   "docker_image": "ghcr.io/william-de71/gladys-tapo:1.0.1",
   "gladys_version": ">=4.84.0",
   "cover_image": "https://raw.githubusercontent.com/William-De71/gladys-tapo/master/cover.jpg",
-  "transports": [
-    "local",
-    "cloud"
-  ],
+  "transports": ["local", "cloud"],
   "network_discovery": [
     {
       "type": "udp-active-broadcast",
-      "ports": [
-        20002
-      ]
+      "ports": [20002]
     }
   ],
   "config_schema": [
@@ -122,12 +117,12 @@
       "key": "rtsp_section",
       "type": "section",
       "label": {
-        "en": "Camera account (RTSP)",
-        "fr": "Compte caméra (RTSP)"
+        "en": "Camera account (RTSP and ONVIF)",
+        "fr": "Compte caméra (RTSP et ONVIF)"
       },
       "description": {
-        "en": "Cameras that expose an RTSP stream need the camera account you created in the Tapo app (Camera settings > Advanced settings > Camera account). This is NOT your Tapo account, and it is created PER CAMERA. The simplest way to enter it: use the \"Save a camera account\" action at the bottom of this page, once per camera. The two fields below only serve as a default, for users who reused the same credentials everywhere.",
-        "fr": "Les caméras exposant un flux RTSP nécessitent le compte caméra créé dans l'application Tapo (Paramètres de la caméra > Paramètres avancés > Compte de la caméra). Ce n'est PAS votre compte Tapo, et il se crée PAR CAMÉRA. Le plus simple pour le renseigner : utilisez l'action « Enregistrer le compte d'une caméra » en bas de cette page, une fois par caméra. Les deux champs ci-dessous ne servent que de valeur par défaut, si vous avez réutilisé les mêmes identifiants partout."
+        "en": "Cameras that expose an RTSP stream need the camera account you created in the Tapo app (Camera settings > Advanced settings > Camera account). It is also what unlocks ONVIF, which lets a camera report a motion the instant it happens instead of being polled. This is NOT your Tapo account, and it is created PER CAMERA. The simplest way to enter it: use the \"Save a camera account\" action at the bottom of this page, once per camera. The two fields below only serve as a default, for users who reused the same credentials everywhere.",
+        "fr": "Les caméras exposant un flux RTSP nécessitent le compte caméra créé dans l'application Tapo (Paramètres de la caméra > Paramètres avancés > Compte de la caméra). C'est aussi lui qui débloque ONVIF, qui permet à une caméra de signaler un mouvement à l'instant où il se produit au lieu d'être interrogée. Ce n'est PAS votre compte Tapo, et il se crée PAR CAMÉRA. Le plus simple pour le renseigner : utilisez l'action « Enregistrer le compte d'une caméra » en bas de cette page, une fois par caméra. Les deux champs ci-dessous ne servent que de valeur par défaut, si vous avez réutilisé les mêmes identifiants partout."
       }
     },
     {
@@ -240,8 +235,8 @@
         "fr": "Intervalle de vérification des événements (s)"
       },
       "description": {
-        "en": "How often the integration checks for a doorbell press or a motion detection. A shorter interval reacts faster but talks to your cameras more often.",
-        "fr": "Fréquence à laquelle l'intégration vérifie un appui sonnette ou une détection de mouvement. Un intervalle plus court réagit plus vite mais sollicite davantage vos caméras."
+        "en": "How often the integration checks for a doorbell press or a motion detection. A shorter interval reacts faster but talks to your cameras more often. Only affects cameras without ONVIF: cameras that support it push their events instantly, with nothing to wait for.",
+        "fr": "Fréquence à laquelle l'intégration vérifie un appui sonnette ou une détection de mouvement. Un intervalle plus court réagit plus vite mais sollicite davantage vos caméras. Ne concerne que les caméras sans ONVIF : celles qui le proposent remontent leurs événements instantanément, sans attente."
       },
       "required": false,
       "default": 20,

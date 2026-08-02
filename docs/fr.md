@@ -97,17 +97,34 @@ C'est le réglage le plus efficace de tous : c'est le **réveil** de la caméra 
 Chaque caméra devient un appareil dans Gladys :
 
 - **Image** — la photo affichée par le widget caméra, rafraîchie à la demande.
-- **Sonnette** — un appui sur le bouton, utilisable comme déclencheur de scène (modèles sur batterie).
-- **Mouvement** — la détection de mouvement, également utilisable comme déclencheur (modèles sur batterie).
+- **Sonnette** — un appui sur le bouton, utilisable comme déclencheur de scène.
+- **Mouvement** — la détection de mouvement, également utilisable comme déclencheur.
 - **Batterie** — le niveau restant, en pourcentage (modèles sur batterie).
 
 Lorsque quelqu'un sonne, l'intégration capture immédiatement une image et l'envoie à Gladys : le widget affiche déjà le visiteur au moment où vous consultez la notification.
+
+### Comment les événements remontent
+
+Deux chemins possibles, choisis automatiquement pour chaque caméra :
+
+| Chemin            | Comment ça marche                                                 | Délai                 |
+| ----------------- | ----------------------------------------------------------------- | --------------------- |
+| **ONVIF**         | La caméra prévient Gladys au moment où elle détecte quelque chose | quasi immédiat        |
+| **Interrogation** | Gladys demande régulièrement à la caméra ce qu'elle a détecté     | jusqu'à un intervalle |
+
+ONVIF est nettement préférable pour déclencher une scène : un mouvement remonte en une seconde au lieu d'attendre la prochaine vérification. Il demande simplement que le **compte caméra** soit renseigné — ce sont ces identifiants-là qu'ONVIF utilise, pas votre compte Tapo.
+
+C'est aussi le seul chemin qui signale la **fin** d'un mouvement : le capteur retombe quand la caméra le dit, et non au bout d'un délai fixe.
+
+Les caméras filaires (C210, C200, C500…) proposent généralement ONVIF, ce qui leur donne un capteur de mouvement qu'elles n'avaient pas auparavant. Les modèles sur batterie ne le proposent pas et restent sur l'interrogation : ce n'est pas gênant, leurs détections remontent quand même, simplement avec un léger décalage.
+
+Vous n'avez rien à configurer : si le compte caméra est renseigné et que la caméra accepte ONVIF, l'intégration l'utilise ; sinon elle interroge la caméra comme avant.
 
 ## Options
 
 - **Qualité de l'image** — HD donne une image plus nette, SD est plus légère et plus rapide à capturer.
 - **Adresses des caméras** — à remplir uniquement si le cloud ne remonte pas l'adresse locale d'une caméra. Une par ligne, sous la forme `nom|ip`.
-- **Intervalle de vérification des événements** — la fréquence à laquelle l'intégration cherche une sonnerie ou un mouvement. Plus court, la réaction est plus rapide mais vos caméras sont davantage sollicitées.
+- **Intervalle de vérification des événements** — la fréquence à laquelle l'intégration cherche une sonnerie ou un mouvement. Plus court, la réaction est plus rapide mais vos caméras sont davantage sollicitées. Ce réglage ne concerne que les caméras sans ONVIF : celles qui l'utilisent préviennent Gladys d'elles-mêmes, sans attendre.
 - **Délai de capture** — le temps accordé à une caméra pour fournir une image.
 
 L'action **Rafraîchir les images** force une nouvelle capture de toutes vos caméras, utile pour vérifier votre installation.
@@ -121,6 +138,10 @@ L'action **Rafraîchir les images** force une nouvelle capture de toutes vos cam
 **Le widget affiche une erreur alors que la caméra répond** — si la caméra utilise le mode RTSP, assurez-vous que son compte caméra est bien renseigné. C'est la cause la plus fréquente : les logs affichent alors `TAPO_RTSP_ACCOUNT_MISSING`. Rappelez-vous que ce compte est propre à chaque caméra.
 
 **Aucune image sur une sonnette sur batterie** — ces modèles se mettent en veille profonde pour économiser leur batterie et peuvent mettre plusieurs secondes à répondre. Augmentez le **délai de capture** si nécessaire.
+
+**Le mouvement met du temps à remonter** — la caméra est probablement sur le chemin « interrogation ». Vérifiez que son **compte caméra** est renseigné : c'est ce qui permet à ONVIF de fonctionner, et donc au mouvement d'être immédiat. Les modèles sur batterie, eux, ne proposent pas ONVIF du tout.
+
+**Aucun mouvement détecté sur une caméra ONVIF** — dans l'application Tapo, vérifiez que la détection de mouvement est activée et que le mode privé est désactivé : une caméra en mode privé ne signale plus rien.
 
 **Caméras sans flux RTSP** — les modèles sur batterie et les sonnettes (C610, C425, D230…) n'exposent ni RTSP ni ONVIF. Ce n'est pas un obstacle : l'intégration bascule automatiquement sur le protocole propriétaire TP-Link, celui qu'utilise l'application Tapo, et récupère leurs images sans compte caméra. Seule différence : pas de flux vidéo direct pour ces caméras, uniquement des images rafraîchies régulièrement.
 

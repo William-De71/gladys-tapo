@@ -1,0 +1,548 @@
+// -----------------------------------------------------------------------------
+// ONVIF events: motion and doorbell pushed by the camera (port 2020).
+//
+// Why this exists alongside the local API: `searchDetectionList` polls a camera
+// for what already happened, so a motion is only noticed at the next round —
+// up to `event_poll_interval` seconds late, and a short motion that starts and
+// ends between two rounds is reported with that same delay. ONVIF inverts it:
+// the camera holds the request open and answers the moment something happens,
+// which is what turns a motion into a usable scene trigger.
+//
+// The protocol is plain SOAP over HTTP, so it is written out by hand here rather
+// than pulling in a WSDL stack: the integration needs exactly three calls
+// (GetServices, CreatePullPointSubscription, PullMessages) out of a standard
+// covering hundreds, and a SOAP client would weigh more than the whole project.
+//
+// Authentication is WS-UsernameToken with a password digest — the CAMERA
+// account created in the Tapo app, never the cloud account. Cameras that expose
+// no camera account also expose no ONVIF, so the two travel together.
+// -----------------------------------------------------------------------------
+
+import crypto from 'node:crypto';
+import http from 'node:http';
+import { logger } from '@gladysassistant/integration-sdk';
+import { ONVIF_PORT, ONVIF_PULL_TIMEOUT_SECONDS, ONVIF_REQUEST_TIMEOUT_MS } from './constants.js';
+
+/** XML namespaces of the three services this module talks to. */
+const NS = {
+  soap: 'http://www.w3.org/2003/05/soap-envelope',
+  wsse: 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd',
+  wsu: 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd',
+  device: 'http://www.onvif.org/ver10/device/wsdl',
+  events: 'http://www.onvif.org/ver10/events/wsdl',
+  addressing: 'http://www.w3.org/2005/08/addressing',
+};
+
+/** Password type declared by the UsernameToken digest profile. */
+const PASSWORD_DIGEST_TYPE =
+  'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordDigest';
+
+/**
+ * Escape the five characters XML cannot carry literally.
+ *
+ * Applied to the username and to the nonce/digest: a camera account may well
+ * contain an `&` or a `<`, and an unescaped one would produce a malformed
+ * envelope the camera answers with a parse fault rather than a clear rejection.
+ * @param {string} value - The raw text.
+ * @returns {string} The escaped text.
+ * @example
+ * escapeXml('a&b'); // 'a&amp;b'
+ */
+export function escapeXml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/**
+ * Build the WS-Security header proving the camera account.
+ *
+ * The digest is `base64(sha1(nonce + created + password))`, with the nonce sent
+ * in base64 and the timestamp in UTC — the camera recomputes it and compares.
+ * The password itself never travels, which is why this profile is used over the
+ * plaintext one even on a LAN.
+ * @param {string} username - The camera account username.
+ * @param {string} password - The camera account password.
+ * @returns {string} The `<Security>` header.
+ * @example
+ * buildSecurityHeader('gladys', 'secret');
+ */
+export function buildSecurityHeader(username, password) {
+  const nonce = crypto.randomBytes(16);
+  const created = new Date().toISOString();
+  const digest = crypto
+    .createHash('sha1')
+    .update(Buffer.concat([nonce, Buffer.from(created, 'utf8'), Buffer.from(password, 'utf8')]))
+    .digest('base64');
+
+  return (
+    `<wsse:Security xmlns:wsse="${NS.wsse}" xmlns:wsu="${NS.wsu}">` +
+    `<wsse:UsernameToken>` +
+    `<wsse:Username>${escapeXml(username)}</wsse:Username>` +
+    `<wsse:Password Type="${PASSWORD_DIGEST_TYPE}">${digest}</wsse:Password>` +
+    `<wsse:Nonce>${nonce.toString('base64')}</wsse:Nonce>` +
+    `<wsu:Created>${created}</wsu:Created>` +
+    `</wsse:UsernameToken></wsse:Security>`
+  );
+}
+
+/**
+ * Wrap a SOAP body in the envelope the camera expects.
+ * @param {string} body - The body XML.
+ * @param {string} securityHeader - The WS-Security header.
+ * @param {string} [extraHeader] - Addressing headers, when the call needs them.
+ * @returns {string} The complete envelope.
+ * @example
+ * buildEnvelope('<tds:GetServices/>', header);
+ */
+function buildEnvelope(body, securityHeader, extraHeader = '') {
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<s:Envelope xmlns:s="${NS.soap}" xmlns:tds="${NS.device}" ` +
+    `xmlns:tev="${NS.events}" xmlns:wsa="${NS.addressing}">` +
+    `<s:Header>${securityHeader}${extraHeader}</s:Header>` +
+    `<s:Body>${body}</s:Body></s:Envelope>`
+  );
+}
+
+/**
+ * Read the text of the first matching element, whatever namespace prefix the
+ * camera chose.
+ *
+ * Firmwares disagree on their prefixes (`tt:`, `wsnt:`, none at all), so the tag
+ * is matched on its LOCAL name. A real XML parser would be more rigorous, but
+ * these responses carry a handful of known fields and a dependency-free read
+ * keeps the module in line with the rest of the integration.
+ * @param {string} xml - The response body.
+ * @param {string} localName - The tag name, without its prefix.
+ * @returns {string|null} The text, or null when absent.
+ * @example
+ * readTag(xml, 'Address');
+ */
+export function readTag(xml, localName) {
+  const pattern = new RegExp(
+    `<(?:[\\w.-]+:)?${localName}\\b[^>]*>([\\s\\S]*?)</(?:[\\w.-]+:)?${localName}>`,
+    'i',
+  );
+  const match = pattern.exec(String(xml || ''));
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * POST a SOAP envelope and return the raw response body.
+ *
+ * A SOAP fault comes back with HTTP 500 and a body explaining why, so the body
+ * is kept in the error: an ONVIF rejection is almost always a wrong camera
+ * account, and that reason has to survive to the logs.
+ * @param {string} url - The service URL.
+ * @param {string} envelope - The envelope to send.
+ * @param {number} [timeoutMs] - How long to wait.
+ * @returns {Promise<string>} The response body.
+ * @example
+ * await postSoap('http://192.168.1.20:2020/onvif/device_service', envelope);
+ */
+export function postSoap(url, envelope, timeoutMs = ONVIF_REQUEST_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const request = http.request(
+      {
+        hostname: target.hostname,
+        port: target.port || ONVIF_PORT,
+        path: target.pathname + target.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/soap+xml; charset=utf-8',
+          'Content-Length': Buffer.byteLength(envelope),
+        },
+        timeout: timeoutMs,
+      },
+      (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          body += chunk;
+        });
+        response.on('end', () => {
+          if (response.statusCode >= 400) {
+            // The fault reason is the actionable part; the status alone is not.
+            const reason = readTag(body, 'Text') || readTag(body, 'faultstring') || '';
+            reject(new Error(`ONVIF_HTTP_${response.statusCode}:${reason.slice(0, 120)}`));
+            return;
+          }
+          resolve(body);
+        });
+      },
+    );
+
+    // A PullMessages request legitimately stays open for a minute waiting for a
+    // motion, so the timeout is the caller's to choose, not a fixed one.
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error('ONVIF_TIMEOUT'));
+    });
+    request.on('error', reject);
+    request.end(envelope);
+  });
+}
+
+/**
+ * Turn an ONVIF topic into the kind of event the integration publishes.
+ *
+ * The topic is the only reliable discriminator: firmwares name their rules
+ * freely ("MyMotion", "PeopleDetect"), but they all hang them under a standard
+ * topic. Anything unrecognized yields null rather than a guessed motion — a
+ * false motion firing a scene is worse than a missed one.
+ * @param {string} topic - The `Topic` element content.
+ * @returns {'doorbell'|'motion'|null} The kind, or null when unknown.
+ * @example
+ * classifyTopic('tns1:RuleEngine/CellMotionDetector/Motion'); // 'motion'
+ */
+export function classifyTopic(topic) {
+  const normalized = String(topic || '').toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  // The doorbell ring is reported by Tapo under a device-specific topic; both
+  // the standard `Visitor` and TP-Link's own spelling are accepted.
+  if (
+    normalized.includes('visitor') ||
+    normalized.includes('doorbell') ||
+    normalized.includes('button')
+  ) {
+    return 'doorbell';
+  }
+  if (
+    normalized.includes('motion') ||
+    normalized.includes('peopledetect') ||
+    normalized.includes('person') ||
+    normalized.includes('vehicle') ||
+    normalized.includes('pet') ||
+    normalized.includes('tamper')
+  ) {
+    return 'motion';
+  }
+  return null;
+}
+
+/**
+ * Extract the events from a `PullMessages` response.
+ *
+ * ONVIF reports both edges of a detection: a message carries a `SimpleItem`
+ * whose value is true when the motion starts and false when it ends. Both are
+ * returned, because the falling edge is precisely what the polled path could
+ * never provide — it is what lets a motion sensor come back down on the
+ * camera's schedule instead of an arbitrary timer.
+ * @param {string} xml - The response body.
+ * @returns {Array<{ kind: string, active: boolean, at: number }>} The events.
+ * @example
+ * parsePullMessages(xml);
+ */
+export function parsePullMessages(xml) {
+  const events = [];
+  // One `NotificationMessage` per event; splitting on the opening tag keeps the
+  // topic and its data together, whatever prefix the firmware used.
+  const chunks = String(xml || '').split(/<(?:[\w.-]+:)?NotificationMessage\b/i);
+
+  chunks.slice(1).forEach((chunk) => {
+    const kind = classifyTopic(readTag(chunk, 'Topic'));
+    if (!kind) {
+      return;
+    }
+
+    // The state lives in a `SimpleItem` whose Name varies (State, IsMotion,
+    // IsPeople…), so the VALUE is what is read: ONVIF constrains it to a
+    // boolean for these topics, and its absence means a stateless event — a
+    // doorbell ring — which is always an activation.
+    const valueMatch = /<(?:[\w.-]+:)?SimpleItem\b[^>]*\bValue="([^"]*)"/i.exec(chunk);
+    const raw = valueMatch ? valueMatch[1].toLowerCase() : null;
+    const active = raw === null ? true : raw === 'true' || raw === '1';
+
+    // `UtcTime` is an ATTRIBUTE of `<tt:Message>`, not an element — reading it
+    // as a tag silently found nothing and every event fell back to "now",
+    // which looks right until two events pulled together share a timestamp.
+    const timeMatch = /\bUtcTime="([^"]+)"/i.exec(chunk);
+    const parsed = timeMatch ? Date.parse(timeMatch[1]) : NaN;
+
+    events.push({ kind, active, at: Number.isFinite(parsed) ? parsed : Date.now() });
+  });
+
+  return events;
+}
+
+/**
+ * ONVIF event client for ONE camera.
+ *
+ * It owns the pull point subscription and the long-poll loop. Nothing is shared
+ * between cameras: a subscription is bound to the camera that issued it, and a
+ * camera that stops answering must not hold up the others.
+ * @example
+ * const client = new TapoOnvif('192.168.1.20', 'gladys', 'secret');
+ * client.start((event) => console.log(event.kind, event.active));
+ */
+export class TapoOnvif {
+  /**
+   * @param {string} ip - The camera address.
+   * @param {string} username - The camera account username.
+   * @param {string} password - The camera account password.
+   */
+  constructor(ip, username, password) {
+    this.ip = ip;
+    this.username = username;
+    this.password = password;
+
+    this.deviceUrl = `http://${ip}:${ONVIF_PORT}/onvif/device_service`;
+    /**
+     * URL of the Events service, read from the capabilities.
+     *
+     * NOT the device service: measured on a C210, the camera serves its device
+     * management on `/onvif/device_service` but every other service —  Events
+     * included — on `/onvif/service`. Subscribing on the device URL is answered
+     * with a fault, so the address is read rather than assumed.
+     * @type {string|null}
+     */
+    this.eventsUrl = null;
+    /** URL of the pull point, handed out by the camera at subscription. @type {string|null} */
+    this.pullPointUrl = null;
+    /** @type {((event: object) => void)|null} */
+    this.onEvent = null;
+    this.running = false;
+    /** Consecutive failures, used to back off a camera that stopped answering. */
+    this.failures = 0;
+  }
+
+  /**
+   * Send one authenticated call to a service.
+   * @param {string} url - The service URL.
+   * @param {string} body - The SOAP body.
+   * @param {object} [options] - Call options.
+   * @param {number} [options.timeoutMs] - How long to wait.
+   * @param {string} [options.extraHeader] - Extra SOAP headers.
+   * @returns {Promise<string>} The response body.
+   * @example
+   * await client.call(url, '<tds:GetServices/>');
+   */
+  call(url, body, { timeoutMs, extraHeader } = {}) {
+    // A fresh security header per call: the digest carries a timestamp the
+    // camera checks against its own clock, so a reused one is eventually
+    // rejected as a replay.
+    const envelope = buildEnvelope(
+      body,
+      buildSecurityHeader(this.username, this.password),
+      extraHeader,
+    );
+    return postSoap(url, envelope, timeoutMs);
+  }
+
+  /**
+   * Check that the camera answers ONVIF with these credentials.
+   *
+   * Used before anything is subscribed, so a wrong camera account surfaces as a
+   * clear rejection instead of a subscription that silently never fires.
+   * @returns {Promise<boolean>} True when ONVIF is usable.
+   * @example
+   * await client.probe();
+   */
+  async probe() {
+    try {
+      const xml = await this.call(this.deviceUrl, '<tds:GetDeviceInformation/>');
+      return Boolean(readTag(xml, 'Manufacturer'));
+    } catch (e) {
+      logger.debug(`ONVIF probe of ${this.ip} failed: ${e.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Read the capabilities: where the Events service lives, and whether the
+   * camera supports pull points at all.
+   *
+   * Both answers come from the same call, and both are needed before any
+   * subscription: a camera declaring `WSPullPointSupport` false would accept the
+   * subscription and then never deliver anything.
+   * @returns {Promise<{ eventsUrl: string|null, pullPoint: boolean }>} What the
+   * camera declares.
+   * @example
+   * const { eventsUrl, pullPoint } = await client.getCapabilities();
+   */
+  async getCapabilities() {
+    const xml = await this.call(
+      this.deviceUrl,
+      '<tds:GetCapabilities><tds:Category>All</tds:Category></tds:GetCapabilities>',
+    );
+
+    // The Events section carries its own XAddr; reading the first XAddr of the
+    // document would pick up Analytics instead, which is the section before it.
+    const section = /<(?:[\w.-]+:)?Events\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?Events>/i.exec(xml);
+    const scope = section ? section[1] : '';
+    const address = readTag(scope, 'XAddr');
+    const pullPoint = (readTag(scope, 'WSPullPointSupport') || '').toLowerCase() !== 'false';
+
+    if (address) {
+      // Same reasoning as for the pull point address: keep the path the camera
+      // chose, but reach it on the address that is known to work.
+      const target = new URL(address);
+      this.eventsUrl = `http://${this.ip}:${ONVIF_PORT}${target.pathname}${target.search}`;
+    }
+    return { eventsUrl: this.eventsUrl, pullPoint };
+  }
+
+  /**
+   * Open a pull point subscription and remember where to pull from.
+   *
+   * The camera answers with the address of a subscription created FOR this
+   * client; pulling from the events service instead returns nothing, which is
+   * the failure mode this method exists to avoid.
+   * @returns {Promise<void>} Resolves once the subscription is open.
+   * @example
+   * await client.subscribe();
+   */
+  async subscribe() {
+    if (!this.eventsUrl) {
+      const { pullPoint } = await this.getCapabilities();
+      if (!pullPoint) {
+        // Saying so explicitly: the caller falls back to polling, and a silent
+        // subscription that never fires would look like a broken sensor.
+        throw new Error('ONVIF_NO_PULLPOINT_SUPPORT');
+      }
+    }
+
+    const xml = await this.call(
+      this.eventsUrl || this.deviceUrl,
+      // The initial termination time is a bound, not a promise: every pull
+      // renews it, and a subscription the integration stops pulling expires on
+      // its own instead of lingering on the camera.
+      '<tev:CreatePullPointSubscription>' +
+        '<tev:InitialTerminationTime>PT10M</tev:InitialTerminationTime>' +
+        '</tev:CreatePullPointSubscription>',
+    );
+
+    const address = readTag(xml, 'Address');
+    if (!address) {
+      throw new Error('ONVIF_NO_PULLPOINT');
+    }
+    // Some firmwares hand back an address pointing at a hostname the LAN cannot
+    // resolve, or at the camera's own idea of its IP behind a NAT. The host is
+    // therefore forced back to the address we reached it on, which is known to
+    // work — only the path the camera chose is kept.
+    const target = new URL(address);
+    this.pullPointUrl = `http://${this.ip}:${ONVIF_PORT}${target.pathname}${target.search}`;
+    logger.debug(`ONVIF subscription open on ${this.ip}`);
+  }
+
+  /**
+   * Pull the events the camera accumulated, waiting for one if there is none.
+   *
+   * This is the call that makes the whole module worthwhile: the camera holds
+   * it open until something happens, so an event reaches Gladys within a second
+   * of the detection rather than at the next poll.
+   * @returns {Promise<object[]>} The events, possibly empty on timeout.
+   * @example
+   * const events = await client.pull();
+   */
+  async pull() {
+    if (!this.pullPointUrl) {
+      await this.subscribe();
+    }
+
+    const xml = await this.call(
+      this.pullPointUrl,
+      '<tev:PullMessages>' +
+        `<tev:Timeout>PT${ONVIF_PULL_TIMEOUT_SECONDS}S</tev:Timeout>` +
+        // Bounded: a camera that buffered a burst of detections must not answer
+        // with hundreds of messages, all of which collapse to one motion anyway.
+        '<tev:MessageLimit>32</tev:MessageLimit>' +
+        '</tev:PullMessages>',
+      {
+        // The camera is EXPECTED to hold this open for the full timeout, so the
+        // socket must outlive it — with a margin, since the answer still has to
+        // travel. Using the default here would kill every quiet pull as a
+        // failure and resubscribe in a loop.
+        timeoutMs: (ONVIF_PULL_TIMEOUT_SECONDS + 10) * 1000,
+        extraHeader: `<wsa:Action>${NS.events}/PullPointSubscription/PullMessages</wsa:Action>`,
+      },
+    );
+
+    return parsePullMessages(xml);
+  }
+
+  /**
+   * Start the long-poll loop.
+   *
+   * Runs until `stop()`, re-subscribing whenever the camera drops the
+   * subscription — which it does on reboot, and silently after an idle period on
+   * some firmwares.
+   * @param {(event: object) => void} onEvent - Called for each event.
+   * @example
+   * client.start((event) => { ... });
+   */
+  start(onEvent) {
+    if (this.running) {
+      return;
+    }
+    this.onEvent = onEvent;
+    this.running = true;
+    this.loop().catch((e) => logger.debug(`ONVIF loop of ${this.ip} ended: ${e.message}`));
+  }
+
+  /**
+   * The loop itself: pull, dispatch, repeat.
+   * @returns {Promise<void>} Resolves when the loop stops.
+   * @example
+   * await client.loop();
+   */
+  async loop() {
+    while (this.running) {
+      try {
+        const events = await this.pull();
+        // A successful pull clears the backoff: a camera that answered once is
+        // healthy again, whether or not it had anything to report.
+        this.failures = 0;
+        events.forEach((event) => {
+          if (this.onEvent) {
+            this.onEvent(event);
+          }
+        });
+      } catch (e) {
+        if (!this.running) {
+          return;
+        }
+        this.failures += 1;
+        // The subscription is the first suspect: it expires, and a rebooted
+        // camera forgets it. Dropping it forces the next round to open a new one.
+        this.pullPointUrl = null;
+        // Backing off rather than hammering: a camera that is off, asleep or
+        // unplugged would otherwise be retried in a tight loop for as long as it
+        // stays away. Capped so a camera coming back is picked up within a minute.
+        const waitMs = Math.min(60_000, 2_000 * this.failures);
+        logger.debug(
+          `ONVIF pull on ${this.ip} failed (${this.failures}): ${e.message} — retrying in ${waitMs / 1000}s`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+    }
+  }
+
+  /**
+   * Stop the loop and release the subscription.
+   *
+   * The in-flight pull is left to finish on its own: it is a plain HTTP request
+   * that times out within the minute, and the loop checks `running` before
+   * doing anything with what it returns.
+   * @example
+   * client.stop();
+   */
+  stop() {
+    this.running = false;
+    const url = this.pullPointUrl;
+    this.pullPointUrl = null;
+    if (!url) {
+      return;
+    }
+    // Best effort: the camera expires the subscription on its own anyway, but
+    // unsubscribing frees the slot now rather than in ten minutes — and the
+    // firmware only keeps a few.
+    this.call(url, '<tev:Unsubscribe/>', { timeoutMs: 3000 }).catch(() => {});
+  }
+}

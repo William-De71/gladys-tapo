@@ -1,0 +1,153 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  escapeXml,
+  buildSecurityHeader,
+  readTag,
+  classifyTopic,
+  parsePullMessages,
+  TapoOnvif,
+} from '../src/tapo/onvif.js';
+
+// The envelope a C210 actually answered `GetCapabilities` with, trimmed to the
+// Events section. Kept verbatim — including the `tt:`/`SOAP-ENV:` prefixes and
+// the Analytics section that precedes it — because those are exactly what a
+// hand-written parser gets wrong.
+const REAL_CAPABILITIES = `<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://www.w3.org/2003/05/soap-envelope" xmlns:tt="http://www.onvif.org/ver10/schema" xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
+<SOAP-ENV:Body><tds:GetCapabilitiesResponse><tds:Capabilities>
+<tt:Analytics><tt:XAddr>http://10.0.50.11:2020/onvif/service</tt:XAddr><tt:RuleSupport>true</tt:RuleSupport></tt:Analytics>
+<tt:Events><tt:XAddr>http://10.0.50.11:2020/onvif/service</tt:XAddr><tt:WSSubscriptionPolicySupport>true</tt:WSSubscriptionPolicySupport><tt:WSPullPointSupport>true</tt:WSPullPointSupport></tt:Events>
+</tds:Capabilities></tds:GetCapabilitiesResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+
+test('the XML escaping covers the characters a password may carry', () => {
+  // A camera account password is user-chosen: an unescaped `&` produces an
+  // envelope the camera rejects as malformed rather than as a bad password.
+  assert.equal(escapeXml('a&b<c>"d\''), 'a&amp;b&lt;c&gt;&quot;d&apos;');
+  assert.equal(escapeXml(undefined), '');
+});
+
+test('the security header carries a digest, never the password itself', () => {
+  const header = buildSecurityHeader('gladys', 'MonMotDePasse');
+  assert.ok(header.includes('<wsse:Username>gladys</wsse:Username>'));
+  assert.ok(!header.includes('MonMotDePasse'), 'the password must not travel in clear');
+  assert.ok(header.includes('PasswordDigest'));
+  assert.ok(/<wsse:Nonce>[A-Za-z0-9+/=]+<\/wsse:Nonce>/.test(header));
+});
+
+test('two headers built in a row use different nonces', () => {
+  // A reused nonce is what a replay looks like; the camera rejects it.
+  const first = /<wsse:Nonce>([^<]+)</.exec(buildSecurityHeader('u', 'p'))[1];
+  const second = /<wsse:Nonce>([^<]+)</.exec(buildSecurityHeader('u', 'p'))[1];
+  assert.notEqual(first, second);
+});
+
+test('a tag is read whatever namespace prefix the firmware chose', () => {
+  assert.equal(readTag('<tt:XAddr>http://x/y</tt:XAddr>', 'XAddr'), 'http://x/y');
+  assert.equal(readTag('<XAddr>http://x/y</XAddr>', 'XAddr'), 'http://x/y');
+  assert.equal(readTag('<wsnt:Topic Dialect="z">a/b</wsnt:Topic>', 'Topic'), 'a/b');
+  assert.equal(readTag('<tt:Other>v</tt:Other>', 'XAddr'), null);
+});
+
+test('the Events XAddr is read from its own section, not from Analytics', () => {
+  // Both sections carry an XAddr here. Reading the first one in the document
+  // would silently subscribe against the Analytics service.
+  const section = /<(?:[\w.-]+:)?Events\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?Events>/i.exec(
+    REAL_CAPABILITIES,
+  );
+  assert.ok(section, 'the Events section must be found');
+  assert.equal(readTag(section[1], 'XAddr'), 'http://10.0.50.11:2020/onvif/service');
+  assert.equal(readTag(section[1], 'WSPullPointSupport'), 'true');
+});
+
+test('the events service path is not the device service path', () => {
+  // Measured on a C210: device management lives on /onvif/device_service while
+  // Events lives on /onvif/service. Assuming one address for both makes every
+  // subscription fail.
+  const client = new TapoOnvif('10.0.50.11', 'u', 'p');
+  assert.equal(client.deviceUrl, 'http://10.0.50.11:2020/onvif/device_service');
+  assert.equal(client.eventsUrl, null, 'the events URL is only known after the capabilities call');
+});
+
+test('topics are classified into the events the integration publishes', () => {
+  assert.equal(classifyTopic('tns1:RuleEngine/CellMotionDetector/Motion'), 'motion');
+  assert.equal(classifyTopic('tns1:RuleEngine/MyRuleDetector/PeopleDetect'), 'motion');
+  assert.equal(classifyTopic('tns1:Device/Trigger/Visitor'), 'doorbell');
+  assert.equal(classifyTopic('tns1:Device/HardwareFailure/StorageFailure'), null);
+  assert.equal(classifyTopic(''), null);
+});
+
+test('a pull answer yields the rising and the falling edge', () => {
+  // The falling edge is what ONVIF adds over polling: without it the sensor
+  // could only come back down on a timer.
+  const xml = `<SOAP-ENV:Envelope><SOAP-ENV:Body><tev:PullMessagesResponse>
+    <wsnt:NotificationMessage>
+      <wsnt:Topic Dialect="xpath">tns1:RuleEngine/CellMotionDetector/Motion</wsnt:Topic>
+      <wsnt:Message><tt:Message UtcTime="2026-08-02T16:30:00Z">
+        <tt:Data><tt:SimpleItem Name="IsMotion" Value="true"/></tt:Data>
+      </tt:Message></wsnt:Message>
+    </wsnt:NotificationMessage>
+    <wsnt:NotificationMessage>
+      <wsnt:Topic Dialect="xpath">tns1:RuleEngine/CellMotionDetector/Motion</wsnt:Topic>
+      <wsnt:Message><tt:Message UtcTime="2026-08-02T16:30:20Z">
+        <tt:Data><tt:SimpleItem Name="IsMotion" Value="false"/></tt:Data>
+      </tt:Message></wsnt:Message>
+    </wsnt:NotificationMessage>
+  </tev:PullMessagesResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+
+  const events = parsePullMessages(xml);
+  assert.equal(events.length, 2);
+  assert.deepEqual(
+    events.map((event) => [event.kind, event.active]),
+    [
+      ['motion', true],
+      ['motion', false],
+    ],
+  );
+  assert.ok(events[1].at > events[0].at, 'the timestamps must be read, not invented');
+});
+
+test('an event carrying no value is an activation', () => {
+  // A doorbell ring is an instant, not a state: it has no falling edge to wait
+  // for, and treating a missing value as "inactive" would drop the press.
+  const xml = `<wsnt:NotificationMessage>
+    <wsnt:Topic>tns1:Device/Trigger/Visitor</wsnt:Topic>
+    <wsnt:Message><tt:Message UtcTime="2026-08-02T16:30:00Z"/></wsnt:Message>
+  </wsnt:NotificationMessage>`;
+  const events = parsePullMessages(xml);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, 'doorbell');
+  assert.equal(events[0].active, true);
+});
+
+test('an empty pull yields nothing rather than a spurious event', () => {
+  // The quiet case is the common one: the camera holds the request open for a
+  // minute and answers with an empty list.
+  const xml = `<SOAP-ENV:Envelope><SOAP-ENV:Body>
+    <tev:PullMessagesResponse><tev:CurrentTime>2026-08-02T16:30:00Z</tev:CurrentTime>
+    </tev:PullMessagesResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+  assert.deepEqual(parsePullMessages(xml), []);
+  assert.deepEqual(parsePullMessages(''), []);
+});
+
+test('an unrecognized topic is dropped instead of guessed as motion', () => {
+  // A false motion fires a scene; a missed one does not. The asymmetry is why
+  // an unknown topic yields nothing.
+  const xml = `<wsnt:NotificationMessage>
+    <wsnt:Topic>tns1:Monitoring/ProcessorUsage</wsnt:Topic>
+    <wsnt:Message><tt:Message><tt:Data>
+      <tt:SimpleItem Name="Value" Value="true"/></tt:Data></tt:Message></wsnt:Message>
+  </wsnt:NotificationMessage>`;
+  assert.deepEqual(parsePullMessages(xml), []);
+});
+
+test('a pull point address is reached on the IP we know, keeping its path', () => {
+  // Firmwares hand back an address built from their own idea of the network —
+  // a hostname the LAN cannot resolve, or an IP behind a NAT. Only the path is
+  // trustworthy.
+  const client = new TapoOnvif('10.0.50.11', 'u', 'p');
+  const address = 'http://camera-internal.local:2020/onvif/Subscription?Idx=7';
+  const target = new URL(address);
+  const rebuilt = `http://${client.ip}:2020${target.pathname}${target.search}`;
+  assert.equal(rebuilt, 'http://10.0.50.11:2020/onvif/Subscription?Idx=7');
+});

@@ -444,6 +444,18 @@ gladys.onAction('set_camera_account', async (fields) => {
     logger.warn(`Re-publish after saving the account failed: ${e.message}`),
   );
 
+  // The account that was just saved is exactly what ONVIF authenticates against,
+  // so this is the moment the camera becomes able to push its events. Without
+  // this the subscription would only be attempted at the next restart, and the
+  // camera would keep being polled for no reason in the meantime.
+  // Dropped first: an existing client still holds the PREVIOUS credentials, and
+  // `setupOnvif` treats a camera it already has a client for as done — so a
+  // corrected password would never be picked up.
+  watcher.dropOnvif(device);
+  watcher
+    .setupOnvif(device)
+    .catch((e) => logger.debug(`ONVIF setup after saving the account failed: ${e.message}`));
+
   // Capture right away: the user learns immediately whether the account works,
   // instead of discovering it later through an empty widget.
   try {

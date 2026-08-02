@@ -17,7 +17,13 @@ import {
   DEVICE_FEATURE_TYPES,
   DEVICE_FEATURE_UNITS,
 } from '@gladysassistant/integration-sdk';
-import { detectCaptureMode, isBatteryModel, hasNoLocalAccess, buildRtspUrl } from './tapo/rtsp.js';
+import {
+  detectCaptureMode,
+  isBatteryModel,
+  hasNoLocalAccess,
+  buildRtspUrl,
+  hasOnvif,
+} from './tapo/rtsp.js';
 import { hasRtspAccount } from './config.js';
 import { discoverLocalAddresses } from './tapo/discovery.js';
 import {
@@ -195,8 +201,11 @@ export async function resolveCamera(cloudCamera, config) {
   const camera = {
     ...cloudCamera,
     hasBattery: battery,
-    // Battery models are the ones whose doorbell/motion events the cloud reports.
+    // Battery models report their doorbell/motion through the local detection
+    // list. Wired cameras have no such list — their events come from ONVIF,
+    // which the probe below decides on.
     hasEvents: battery,
+    hasOnvif: false,
     noLocalAccess: hasNoLocalAccess(cloudCamera.model),
     captureMode: null,
   };
@@ -217,7 +226,23 @@ export async function resolveCamera(cloudCamera, config) {
     return camera;
   }
 
-  camera.captureMode = await detectCaptureMode(camera, config);
+  // Both probes are independent round trips on the same camera, so they run
+  // together rather than one after the other.
+  const [captureMode, onvif] = await Promise.all([
+    detectCaptureMode(camera, config),
+    hasOnvif(camera),
+  ]);
+  camera.captureMode = captureMode;
+  camera.hasOnvif = onvif;
+
+  // A camera serving ONVIF can report motion, whether or not it runs on battery
+  // — which is what gives a wired camera a motion sensor it never had. The
+  // feature is created on the open port alone: the camera account may well be
+  // filled in later, and a feature that only appeared then would leave the
+  // scenes written in the meantime pointing at nothing.
+  if (onvif) {
+    camera.hasEvents = true;
+  }
 
   // Only an RTSP camera can feed the live view: the rtsp-camera service hands the
   // URL straight to ffmpeg, so the proprietary protocol — which needs an

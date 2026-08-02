@@ -14,8 +14,15 @@
 
 import { logger } from '@gladysassistant/integration-sdk';
 import { parseCloudDeviceId, cameraIds, getParam } from '../devices.js';
-import { DEVICE_PARAMS, FEATURE_SUFFIXES, LOCAL_EVENT_WINDOW_SECONDS } from './constants.js';
+import {
+  DEVICE_PARAMS,
+  FEATURE_SUFFIXES,
+  LOCAL_EVENT_WINDOW_SECONDS,
+  ONVIF_MOTION_TIMEOUT_MS,
+} from './constants.js';
 import { TapoLocalApi } from './localApi.js';
+import { TapoOnvif } from './onvif.js';
+import { resolveRtspAccount } from '../config.js';
 
 /** How long a motion stays reported before being reset to 0. */
 const MOTION_RESET_MS = 60 * 1000;
@@ -104,8 +111,154 @@ export class EventWatcher {
     this.localApis = new Map();
     /** When each camera was last looked at, to bound the search window. */
     this.lastLookAt = new Map();
+    /** One ONVIF client per camera IP, for the cameras that support it. */
+    this.onvifClients = new Map();
+    /**
+     * Cloud device ids whose events arrive over ONVIF.
+     *
+     * These cameras are skipped by the polled event path: the two sources report
+     * the SAME detections, so keeping both would publish every motion twice —
+     * once instantly, once up to a poll later, which reads as a second motion
+     * and fires the scene again.
+     * @type {Set<string>}
+     */
+    this.onvifCovered = new Set();
     this.config = null;
     this.running = false;
+  }
+
+  /**
+   * Subscribe to the ONVIF events of one camera, when it offers them.
+   *
+   * Best effort by design: ONVIF needs the camera account, and a camera without
+   * one — or a battery model that keeps port 2020 closed — simply stays on the
+   * polled path. Nothing is lost in that case, the events just arrive later.
+   * @param {object} device - The Gladys device.
+   * @returns {Promise<boolean>} True when the camera now pushes its events.
+   * @example
+   * await watcher.setupOnvif(device);
+   */
+  async setupOnvif(device) {
+    const ip = getParam(device, DEVICE_PARAMS.IP);
+    const cloudDeviceId =
+      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    // The config carries the camera accounts, so there is nothing to try before
+    // the watcher has been started — this method is also called straight from
+    // the "save a camera account" action, which may land first.
+    if (!ip || !cloudDeviceId || !this.config || this.onvifClients.has(ip)) {
+      return false;
+    }
+
+    // The CAMERA account, not the Tapo one: ONVIF authenticates against the
+    // credentials created per camera in the app.
+    const account = resolveRtspAccount(this.config, device.name);
+    if (!account.username || !account.password) {
+      logger.debug(`No camera account for "${device.name}", ONVIF events unavailable`);
+      return false;
+    }
+
+    const client = new TapoOnvif(ip, account.username, account.password);
+    if (!(await client.probe())) {
+      // The camera did not accept the account, or serves no ONVIF at all. Both
+      // are ordinary, and both mean the same thing here: keep polling.
+      return false;
+    }
+
+    try {
+      await client.subscribe();
+    } catch (e) {
+      logger.debug(`ONVIF subscription to "${device.name}" failed: ${e.message}`);
+      return false;
+    }
+
+    this.onvifClients.set(ip, client);
+    this.onvifCovered.add(cloudDeviceId);
+    client.start((event) => {
+      this.handleOnvifEvent(device, cloudDeviceId, event).catch((e) =>
+        logger.debug(`Handling the ONVIF event of "${device.name}" failed: ${e.message}`),
+      );
+    });
+    logger.info(`"${device.name}" now pushes its events over ONVIF`);
+    return true;
+  }
+
+  /**
+   * Drop the ONVIF subscription of one camera, so it can be opened again.
+   *
+   * Needed whenever the credentials change: a live client keeps authenticating
+   * with the old ones, and it is what makes `setupOnvif` consider the camera
+   * already handled. The camera falls back to the polled path until a new
+   * subscription succeeds, so nothing is lost in between.
+   * @param {object} device - The Gladys device.
+   * @example
+   * watcher.dropOnvif(device);
+   */
+  dropOnvif(device) {
+    const ip = getParam(device, DEVICE_PARAMS.IP);
+    const cloudDeviceId =
+      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    const client = ip ? this.onvifClients.get(ip) : null;
+    if (client) {
+      client.stop();
+      this.onvifClients.delete(ip);
+    }
+    if (cloudDeviceId) {
+      this.onvifCovered.delete(cloudDeviceId);
+    }
+  }
+
+  /**
+   * Publish one event the camera pushed.
+   *
+   * The falling edge is what ONVIF adds over polling: the camera says when the
+   * motion STOPS, so the sensor follows the detection instead of an arbitrary
+   * timer. The timer is still armed as a safety net, for the firmwares that only
+   * ever report the rising edge.
+   * @param {object} device - The Gladys device.
+   * @param {string} cloudDeviceId - The cloud device id.
+   * @param {object} event - The event, as parsed from the pull.
+   * @returns {Promise<void>} Resolves once published.
+   * @example
+   * await watcher.handleOnvifEvent(device, 'ID1', { kind: 'motion', active: true });
+   */
+  async handleOnvifEvent(device, cloudDeviceId, event) {
+    const ids = cameraIds(this.gladys, cloudDeviceId);
+
+    if (event.kind === 'doorbell') {
+      // A ring has no falling edge: it is an instant, not a state.
+      if (!event.active) {
+        return;
+      }
+      logger.info(`Doorbell press on "${device.name}" (ONVIF)`);
+      await this.gladys
+        .publishState(ids.feature(FEATURE_SUFFIXES.BUTTON), 1)
+        .catch((e) => logger.debug(`Publishing the doorbell press failed: ${e.message}`));
+      if (this.onDoorbell) {
+        await this.onDoorbell(device).catch((e) =>
+          logger.debug(`Doorbell image capture failed: ${e.message}`),
+        );
+      }
+      return;
+    }
+
+    if (event.kind !== 'motion') {
+      return;
+    }
+
+    await this.gladys
+      .publishState(ids.feature(FEATURE_SUFFIXES.MOTION), event.active ? 1 : 0)
+      .catch((e) => logger.debug(`Publishing the motion failed: ${e.message}`));
+
+    const pending = this.motionResets.get(cloudDeviceId);
+    if (pending) {
+      clearTimeout(pending);
+      this.motionResets.delete(cloudDeviceId);
+    }
+    if (event.active) {
+      // Longer than the polled reset: here the timer is only the fallback for a
+      // falling edge that never comes, so it must not cut a real motion short.
+      this.scheduleMotionReset(cloudDeviceId, ONVIF_MOTION_TIMEOUT_MS);
+    }
   }
 
   /**
@@ -122,6 +275,38 @@ export class EventWatcher {
       this.tick().catch((e) => logger.debug(`Tapo event check failed: ${e.message}`));
     }, config.event_poll_interval * 1000);
     logger.info(`Watching the Tapo events every ${config.event_poll_interval}s`);
+
+    // Try ONVIF on every camera in the background: probing and subscribing take
+    // a round trip each, and the polled path already covers the cameras while
+    // that happens. Whichever cameras accept it then stop being polled.
+    this.setupOnvifSubscriptions().catch((e) =>
+      logger.debug(`Setting up the ONVIF subscriptions failed: ${e.message}`),
+    );
+  }
+
+  /**
+   * Try to subscribe every known camera to its ONVIF events.
+   * @returns {Promise<void>} Resolves once every camera has been tried.
+   * @example
+   * await watcher.setupOnvifSubscriptions();
+   */
+  async setupOnvifSubscriptions() {
+    const devices = this.gladys.devices || [];
+    const cameras = devices.filter((device) =>
+      (device.features || []).some(
+        (feature) => feature.category === 'button' || feature.category === 'motion-sensor',
+      ),
+    );
+    // Independent per camera, and each one is two round trips: doing them
+    // together keeps the startup from growing with the number of cameras.
+    await Promise.all(
+      cameras.map((device) =>
+        this.setupOnvif(device).catch((e) => {
+          logger.debug(`ONVIF setup for "${device.name}" failed: ${e.message}`);
+          return false;
+        }),
+      ),
+    );
   }
 
   /**
@@ -136,6 +321,12 @@ export class EventWatcher {
     }
     this.motionResets.forEach((timer) => clearTimeout(timer));
     this.motionResets.clear();
+    // Unsubscribe rather than just dropping the clients: the camera keeps the
+    // subscription alive on its side for its full termination time, and only
+    // accepts a few at once — a restart would find them all taken.
+    this.onvifClients.forEach((client) => client.stop());
+    this.onvifClients.clear();
+    this.onvifCovered.clear();
     // Log out of every camera: a session left open counts against the handful
     // the firmware allows, and the next start would be refused.
     this.localApis.forEach((api) => {
@@ -205,6 +396,13 @@ export class EventWatcher {
         .catch(() => {});
     }
 
+    // ONVIF already delivered these detections, instantly. Publishing them again
+    // from the polled list would fire every scene a second time, so the polled
+    // path stops at the battery — which ONVIF does not carry.
+    if (this.onvifCovered.has(cloudDeviceId)) {
+      return;
+    }
+
     const previous = this.watermarks.get(cloudDeviceId);
     const latest = events.reduce((max, event) => Math.max(max, eventTimestamp(event)), 0);
     // First look at this camera: record where we are and fire nothing.
@@ -243,13 +441,15 @@ export class EventWatcher {
   }
 
   /**
-   * Bring a motion feature back to 0. The cloud only reports the start of a
-   * motion, so without this the sensor would stay triggered forever.
+   * Bring a motion feature back to 0. The polled path only reports the start of
+   * a motion, so without this the sensor would stay triggered forever.
    * @param {string} cloudDeviceId - The cloud device id.
+   * @param {number} [delayMs] - How long to wait; the ONVIF path passes a longer
+   * delay because there it is only a fallback for a missing falling edge.
    * @example
    * watcher.scheduleMotionReset('80224A...');
    */
-  scheduleMotionReset(cloudDeviceId) {
+  scheduleMotionReset(cloudDeviceId, delayMs = MOTION_RESET_MS) {
     const pending = this.motionResets.get(cloudDeviceId);
     if (pending) {
       // A new motion extends the window instead of resetting mid-detection.
@@ -260,7 +460,7 @@ export class EventWatcher {
       await this.gladys
         .publishState(cameraIds(this.gladys, cloudDeviceId).feature(FEATURE_SUFFIXES.MOTION), 0)
         .catch((e) => logger.debug(`Resetting the motion failed: ${e.message}`));
-    }, MOTION_RESET_MS);
+    }, delayMs);
     this.motionResets.set(cloudDeviceId, timer);
   }
 
@@ -296,15 +496,24 @@ export class EventWatcher {
     const since = this.lastLookAt.get(ip) ?? now - LOCAL_EVENT_WINDOW_SECONDS;
     this.lastLookAt.set(ip, now);
 
+    // A camera pushing its events over ONVIF is not asked for its detections:
+    // the answer would be discarded anyway, and every skipped request is one
+    // less wake-up for a battery camera.
+    const cloudDeviceId =
+      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    const skipDetections = this.onvifCovered.has(cloudDeviceId);
+
     const [battery, events] = await Promise.all([
       api.getBatteryLevel().catch((e) => {
         logger.debug(`Reading the battery of ${ip} failed: ${e.message}`);
         return null;
       }),
-      api.getDetections(since, now).catch((e) => {
-        logger.debug(`Reading the detections of ${ip} failed: ${e.message}`);
-        return [];
-      }),
+      skipDetections
+        ? Promise.resolve([])
+        : api.getDetections(since, now).catch((e) => {
+            logger.debug(`Reading the detections of ${ip} failed: ${e.message}`);
+            return [];
+          }),
     ]);
 
     return { events, battery };

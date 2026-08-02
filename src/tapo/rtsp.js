@@ -12,6 +12,7 @@ import { resolveRtspAccount, hasRtspAccount } from '../config.js';
 import {
   RTSP_PORT,
   STREAM_PORT,
+  ONVIF_PORT,
   CAPTURE_MODES,
   BATTERY_MODEL_PREFIXES,
   NO_LOCAL_ACCESS_MODELS,
@@ -100,6 +101,25 @@ export function isBatteryModel(model) {
 export function hasNoLocalAccess(model) {
   const normalized = String(model || '').toUpperCase();
   return NO_LOCAL_ACCESS_MODELS.some((locked) => normalized.startsWith(locked));
+}
+
+/**
+ * Tell whether a camera serves ONVIF, by probing the port it uses.
+ *
+ * Probed rather than deduced from the model, for the same reason the capture
+ * mode is: measured on a C210, the port is open and answers; on the battery
+ * models it is closed. A model list would have to be maintained against every
+ * new reference, and would be wrong the day TP-Link changes its mind.
+ * @param {object} camera - The camera, with its `ip`.
+ * @returns {Promise<boolean>} True when port 2020 accepts a connection.
+ * @example
+ * await hasOnvif(camera);
+ */
+export async function hasOnvif(camera) {
+  if (!camera.ip) {
+    return false;
+  }
+  return isPortOpen(camera.ip, ONVIF_PORT);
 }
 
 /**

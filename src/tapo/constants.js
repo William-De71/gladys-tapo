@@ -55,6 +55,40 @@ export const LOCAL_EVENT_WINDOW_SECONDS = 5 * 60;
 /** A local request that hangs must not hold the event loop. */
 export const LOCAL_API_TIMEOUT_MS = 10 * 1000;
 
+// --- ONVIF (events pushed by the camera) --------------------------------------
+
+/**
+ * Port the Tapo cameras serve ONVIF on.
+ *
+ * Not the ONVIF default (80): TP-Link moved it, and the standard port is closed
+ * on these cameras.
+ */
+export const ONVIF_PORT = 2020;
+
+/**
+ * How long the camera may hold a `PullMessages` request open waiting for an
+ * event, in seconds.
+ *
+ * This is what makes the events near-instant: the request stays open, and the
+ * camera answers the moment it detects something instead of at the next poll.
+ * Long enough that a quiet camera is not constantly reconnecting, short enough
+ * that a dropped connection is noticed while it still matters.
+ */
+export const ONVIF_PULL_TIMEOUT_SECONDS = 60;
+
+/** Budget for the short ONVIF calls (probe, subscribe), which answer at once. */
+export const ONVIF_REQUEST_TIMEOUT_MS = 10 * 1000;
+
+/**
+ * How long a motion stays reported when the camera never sends the falling edge.
+ *
+ * ONVIF normally reports both edges, so the sensor comes back down on the
+ * camera's own schedule. This is the safety net for the firmwares that only
+ * report the rising one — without it such a camera would stay "motion detected"
+ * forever.
+ */
+export const ONVIF_MOTION_TIMEOUT_MS = 3 * 60 * 1000;
+
 // --- Local network discovery --------------------------------------------------
 
 /** UDP port TP-Link devices answer the discovery broadcast on. */

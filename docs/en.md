@@ -97,17 +97,34 @@ This is the single most effective setting: what costs the battery is **waking th
 Each camera becomes one device in Gladys:
 
 - **Image** — the picture shown by the camera widget, refreshed on demand.
-- **Doorbell** — a press on the button, usable as a scene trigger (battery models).
-- **Motion** — motion detection, also usable as a trigger (battery models).
+- **Doorbell** — a press on the button, usable as a scene trigger.
+- **Motion** — motion detection, also usable as a trigger.
 - **Battery** — the remaining level, as a percentage (battery models).
 
 When someone rings, the integration immediately captures an image and pushes it to Gladys: the widget already shows the visitor by the time you open the notification.
+
+### How events reach Gladys
+
+Two possible paths, chosen automatically per camera:
+
+| Path        | How it works                                            | Delay              |
+| ----------- | ------------------------------------------------------- | ------------------ |
+| **ONVIF**   | The camera tells Gladys the moment it detects something | near instant       |
+| **Polling** | Gladys regularly asks the camera what it detected       | up to one interval |
+
+ONVIF is clearly preferable for triggering a scene: a motion arrives within a second instead of waiting for the next check. All it needs is the **camera account** to be filled in — those are the credentials ONVIF uses, not your Tapo account.
+
+It is also the only path that reports the **end** of a motion: the sensor goes back down when the camera says so, rather than after a fixed delay.
+
+Wired cameras (C210, C200, C500…) generally offer ONVIF, which gives them a motion sensor they did not have before. Battery models do not offer it and stay on polling: that is not a problem, their detections still come through, just with a slight delay.
+
+There is nothing to configure: if the camera account is filled in and the camera accepts ONVIF, the integration uses it; otherwise it polls the camera as before.
 
 ## Options
 
 - **Image quality** — HD gives a sharper image, SD is lighter and faster to capture.
 - **Camera addresses** — only needed when the cloud does not report the local address of a camera. One per line, in the form `name|ip`.
-- **Event check interval** — how often the integration looks for a ring or a motion. Shorter reacts faster but talks to your cameras more often.
+- **Event check interval** — how often the integration looks for a ring or a motion. Shorter reacts faster but talks to your cameras more often. This setting only affects cameras without ONVIF: those that use it tell Gladys on their own, with nothing to wait for.
 - **Capture timeout** — how long a camera is given to deliver an image.
 
 The **Refresh the images** action forces a new capture of every camera, handy to verify your setup.
@@ -121,6 +138,10 @@ The **Refresh the images** action forces a new capture of every camera, handy to
 **The widget shows an error even though the camera answers** — if the camera uses RTSP, make sure its camera account is filled in. This is by far the most common cause: the logs then show `TAPO_RTSP_ACCOUNT_MISSING`. Remember that this account is specific to each camera.
 
 **No image from a battery doorbell** — these models go into deep sleep to save their battery and can take several seconds to answer. Raise the **capture timeout** if needed.
+
+**Motion takes a while to come through** — the camera is most likely on the polling path. Check that its **camera account** is filled in: that is what lets ONVIF work, and therefore what makes motion instant. Battery models do not offer ONVIF at all.
+
+**No motion detected on an ONVIF camera** — in the Tapo app, check that motion detection is enabled and privacy mode is off: a camera in privacy mode reports nothing at all.
 
 **Cameras without an RTSP stream** — battery models and doorbells (C610, C425, D230…) expose neither RTSP nor ONVIF. That is not a blocker: the integration automatically falls back to the TP-Link proprietary protocol, the one the Tapo app uses, and captures their images without any camera account. The only difference: no live video for those cameras, just regularly refreshed images.
 
