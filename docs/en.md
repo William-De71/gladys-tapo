@@ -75,11 +75,22 @@ So the integration backs off on its own:
 | between 40% and 60% | paused            | yes                     |
 | below 40%           | paused            | no                      |
 
-A camera that went below the first threshold only resumes once **fully charged**. Resuming on a partial charge would restart the drain immediately, and repeated shallow cycles wear the battery faster than one proper cycle.
+A camera that went below the first threshold only resumes at **80%**, deliberately well above the pause threshold: resuming just over it would restart the drain immediately, and repeated shallow cycles wear the battery faster than one proper cycle. Avoid setting that level to 100%: a solar camera charges in bursts and rarely reads exactly full, which would leave it paused for good.
 
 The battery level and the events keep being read in every case: they cost almost nothing, and they are what tells when the camera has recharged.
 
-Both thresholds and the capture interval are configurable. In winter, or if your panel gets little sun, raise the first threshold and lengthen the interval.
+A battery camera that **stops answering** — deep sleep, refused session, network down — is also brought back to on-demand: its last known level can no longer be trusted, and a silent camera is more likely to be empty than fine.
+
+### A capture interval of their own
+
+Battery cameras have their **own refresh interval**, independent of the wired ones. Spacing out the captures of a solar model therefore costs nothing to the freshness of your mains-powered cameras.
+
+| Setting                         | Default       | Applies to           |
+| ------------------------------- | ------------- | -------------------- |
+| Image refresh interval          | 60s           | wired cameras only   |
+| Battery camera refresh interval | 900s (15 min) | battery/solar models |
+
+This is the single most effective setting: what costs the battery is **waking the camera up**, far more than the image itself. In winter, or if your panel gets little sun, lengthen that interval and raise the pause threshold.
 
 ## Features created
 

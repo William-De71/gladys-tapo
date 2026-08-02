@@ -75,11 +75,22 @@ L'intégration lève donc le pied d'elle-même :
 | entre 40 % et 60 % | suspendu                     | oui                     |
 | sous 40 %          | suspendu                     | non                     |
 
-Une caméra passée sous le premier seuil ne reprend qu'une fois **complètement rechargée**. Une reprise partielle relancerait la décharge aussitôt, et les cycles courts répétés usent la batterie plus vite qu'un cycle complet.
+Une caméra passée sous le premier seuil ne reprend qu'à **80 %**, volontairement bien au-dessus du seuil de pause : une reprise juste au-dessus relancerait la décharge aussitôt, et les cycles courts répétés usent la batterie plus vite qu'un cycle complet. Évitez de régler ce niveau à 100 % : une caméra solaire se recharge par à-coups et atteint rarement le plein exact, ce qui la laisserait en pause indéfiniment.
 
 Le niveau de batterie et les événements continuent d'être lus dans tous les cas : cela ne coûte presque rien, et c'est ce qui permet de savoir quand la caméra est rechargée.
 
-Les deux seuils et l'intervalle de capture sont réglables dans la configuration. En hiver, ou si votre panneau est peu exposé, montez le premier seuil et allongez l'intervalle.
+Une caméra sur batterie qui **cesse de répondre** — veille profonde, session refusée, réseau coupé — est également ramenée au mode « à la demande » : son dernier niveau connu n'est plus fiable, et une caméra muette a plus de chances d'être vide que pleine.
+
+### Un intervalle de capture propre aux caméras sur batterie
+
+Les caméras sur batterie ont leur **propre intervalle de rafraîchissement**, indépendant de celui des caméras filaires. Espacer les captures d'un modèle solaire ne dégrade donc pas la fraîcheur des images de vos caméras sur secteur.
+
+| Réglage                                                 | Par défaut     | Concerne                       |
+| ------------------------------------------------------- | -------------- | ------------------------------ |
+| Intervalle de rafraîchissement des images               | 60 s           | caméras sur secteur uniquement |
+| Intervalle de rafraîchissement des caméras sur batterie | 900 s (15 min) | caméras sur batterie/solaires  |
+
+C'est le réglage le plus efficace de tous : c'est le **réveil** de la caméra qui coûte de la batterie, bien plus que l'image elle-même. En hiver, ou si votre panneau est peu exposé, allongez cet intervalle et montez le seuil de pause.
 
 ## Fonctionnalités créées
 

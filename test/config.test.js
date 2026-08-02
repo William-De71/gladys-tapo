@@ -148,3 +148,62 @@ test('the image refresh interval is configurable, one minute by default', () => 
   assert.equal(normalizeConfig().image_refresh_interval, 60);
   assert.equal(normalizeConfig({ image_refresh_interval: '180' }).image_refresh_interval, 180);
 });
+
+test('battery cameras have their own refresh interval', () => {
+  // The two used to share one setting, so sparing a solar camera also let every
+  // wired camera's image go stale. They are unrelated costs.
+  const config = normalizeConfig({
+    image_refresh_interval: '60',
+    battery_image_refresh_interval: '1800',
+  });
+  assert.equal(config.image_refresh_interval, 60);
+  assert.equal(config.battery_image_refresh_interval, 1800);
+});
+
+test('the battery refresh interval defaults well above the wired one', () => {
+  const config = normalizeConfig();
+  assert.ok(
+    config.battery_image_refresh_interval > config.image_refresh_interval,
+    'a battery camera must not be captured as often as a wired one',
+  );
+});
+
+test('changing the wired interval leaves the battery one alone', () => {
+  const config = normalizeConfig({ image_refresh_interval: '15' });
+  assert.equal(
+    config.battery_image_refresh_interval,
+    DEFAULT_CONFIG.battery_image_refresh_interval,
+  );
+});
+
+test('a cleared numeric field falls back to its default', () => {
+  // `Number('')` is 0: a cleared refresh interval used to become a 0-second
+  // loop, and a cleared battery threshold disarmed the protection entirely.
+  const config = normalizeConfig({
+    image_refresh_interval: '',
+    battery_image_refresh_interval: '',
+    battery_pause_refresh: '',
+    battery_stop_all: '',
+    capture_timeout: '',
+  });
+  assert.equal(config.image_refresh_interval, DEFAULT_CONFIG.image_refresh_interval);
+  assert.equal(
+    config.battery_image_refresh_interval,
+    DEFAULT_CONFIG.battery_image_refresh_interval,
+  );
+  assert.equal(config.battery_pause_refresh, DEFAULT_CONFIG.battery_pause_refresh);
+  assert.equal(config.battery_stop_all, DEFAULT_CONFIG.battery_stop_all);
+  assert.equal(config.capture_timeout, DEFAULT_CONFIG.capture_timeout);
+});
+
+test('a non-numeric value falls back to its default', () => {
+  assert.equal(
+    normalizeConfig({ image_refresh_interval: 'soon' }).image_refresh_interval,
+    DEFAULT_CONFIG.image_refresh_interval,
+  );
+});
+
+test('the resume level is configurable', () => {
+  assert.equal(normalizeConfig().battery_resume, DEFAULT_CONFIG.battery_resume);
+  assert.equal(normalizeConfig({ battery_resume: '90' }).battery_resume, 90);
+});

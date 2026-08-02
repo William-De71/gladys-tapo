@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BatteryGuard, CAPTURE_POLICY } from '../src/tapo/batteryGuard.js';
-import { BATTERY_THRESHOLDS } from '../src/tapo/constants.js';
+import { BATTERY_THRESHOLDS, BATTERY_READING_MAX_AGE_MS } from '../src/tapo/constants.js';
 
 const ID = 'ext:ext-dev-tapo:camera:ID1';
 
@@ -31,7 +31,7 @@ test('below the stop threshold, nothing is captured at all', () => {
   assert.equal(guard.allowsOnDemand(ID), false);
 });
 
-test('a camera that went low stays held back until FULLY charged', () => {
+test('a camera that went low stays held back until properly recharged', () => {
   // The point of the whole guard: resuming a few points above the threshold
   // would restart the drain on a still-weak reserve, and shallow cycles in the
   // low range wear the cell faster than one proper cycle.
@@ -39,14 +39,48 @@ test('a camera that went low stays held back until FULLY charged', () => {
   guard.update(ID, 55); // drops below the pause threshold
   assert.equal(guard.allowsScheduled(ID), false);
 
-  guard.update(ID, 65); // back above it, but not charged
+  guard.update(ID, 65); // back above it, but not recharged
   assert.equal(guard.allowsScheduled(ID), false, 'must not resume on a partial charge');
 
-  guard.update(ID, 99); // nearly there, still not enough
+  guard.update(ID, BATTERY_THRESHOLDS.RESUME - 1); // nearly there, still not enough
   assert.equal(guard.allowsScheduled(ID), false);
 
   guard.update(ID, BATTERY_THRESHOLDS.RESUME);
-  assert.equal(guard.allowsScheduled(ID), true, 'a full charge releases it');
+  assert.equal(guard.allowsScheduled(ID), true, 'reaching the resume level releases it');
+});
+
+test('the resume level is reachable by a solar camera', () => {
+  // Regression: it used to require a FULL charge. A solar camera charges in
+  // bursts and its level is sampled once a minute, so it essentially never read
+  // 100% — a camera that dipped once stayed paused forever, and the only way out
+  // was to disable the whole integration.
+  assert.ok(
+    BATTERY_THRESHOLDS.RESUME < 100,
+    'requiring 100% makes the pause permanent in practice',
+  );
+  assert.ok(
+    BATTERY_THRESHOLDS.RESUME > BATTERY_THRESHOLDS.PAUSE_REFRESH,
+    'resuming at the pause level would restart the drain immediately',
+  );
+});
+
+test('the resume level can be set from the configuration', () => {
+  const guard = new BatteryGuard();
+  guard.configure({ battery_pause_refresh: 40, battery_stop_all: 20, battery_resume: 60 });
+  guard.update(ID, 35);
+  assert.equal(guard.allowsScheduled(ID), false);
+  guard.update(ID, 55);
+  assert.equal(guard.allowsScheduled(ID), false, 'below the configured resume level');
+  guard.update(ID, 60);
+  assert.equal(guard.allowsScheduled(ID), true);
+});
+
+test('a resume below the pause threshold is raised to it', () => {
+  // Otherwise a camera would be released the moment it crossed back over the
+  // pause limit, which is the shallow cycling the guard exists to prevent.
+  const guard = new BatteryGuard();
+  guard.configure({ battery_pause_refresh: 60, battery_resume: 30 });
+  assert.ok(guard.resume >= guard.pauseRefresh);
 });
 
 test('no oscillation around the threshold', () => {
@@ -60,11 +94,54 @@ test('no oscillation around the threshold', () => {
   }
 });
 
-test('a camera with no battery reading is never throttled', () => {
+test('a wired camera is never throttled', () => {
   // Wired cameras report no battery: they must not be guessed into a limit.
   const guard = new BatteryGuard();
   assert.equal(guard.policyFor('ext:ext-dev-tapo:camera:WIRED'), CAPTURE_POLICY.FULL);
   assert.equal(guard.allowsScheduled('ext:ext-dev-tapo:camera:WIRED'), true);
+});
+
+test('a battery camera that never reported is held to on-demand', () => {
+  // Regression: an unknown level used to mean "capture freely", which is exactly
+  // backwards. A battery camera that does not answer is more likely to be flat
+  // than fine, and the scheduled refresh is what would finish it off.
+  const guard = new BatteryGuard();
+  guard.trackBatteryCamera(ID);
+  assert.equal(guard.policyFor(ID), CAPTURE_POLICY.ON_DEMAND);
+  assert.equal(guard.allowsScheduled(ID), false);
+  assert.equal(guard.allowsOnDemand(ID), true, 'the user can still ask for an image');
+});
+
+test('reporting a level marks a camera as running on battery', () => {
+  // Covers the models the prefix list does not know about yet.
+  const guard = new BatteryGuard();
+  guard.update(ID, 90);
+  assert.equal(guard.isBatteryCamera(ID), true);
+});
+
+test('a stale reading stops authorizing captures', (t) => {
+  // The guard decides from the LAST known level, so a camera whose readings stop
+  // coming would keep being captured against an ever-staler number — while the
+  // battery it reflects keeps dropping.
+  t.mock.timers.enable({ apis: ['Date'] });
+  const guard = new BatteryGuard();
+  guard.update(ID, 95);
+  assert.equal(guard.allowsScheduled(ID), true);
+
+  t.mock.timers.tick(BATTERY_READING_MAX_AGE_MS + 1000);
+  assert.equal(guard.allowsScheduled(ID), false, 'a stale 95% must not keep the refresh running');
+  assert.equal(guard.allowsOnDemand(ID), true);
+});
+
+test('a fresh reading revives a camera whose level had gone stale', (t) => {
+  t.mock.timers.enable({ apis: ['Date'] });
+  const guard = new BatteryGuard();
+  guard.update(ID, 95);
+  t.mock.timers.tick(BATTERY_READING_MAX_AGE_MS + 1000);
+  assert.equal(guard.allowsScheduled(ID), false);
+
+  guard.update(ID, 92);
+  assert.equal(guard.allowsScheduled(ID), true, 'the camera answered again');
 });
 
 test('an unreadable battery leaves the previous decision untouched', () => {

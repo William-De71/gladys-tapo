@@ -31,8 +31,12 @@ export const CAMERA_DEVICE_TYPE_PATTERNS = ['IPCAMERA'];
 
 /**
  * How often Gladys polls a camera. One of the frequencies the core accepts.
- * Every minute keeps the dashboard image fresh without hammering the cameras —
- * a battery model would drain far faster under a tighter loop.
+ *
+ * This is the CEILING, not the capture rate: `onPoll` is also what reads the
+ * battery and the missed events, and those must keep running even when capturing
+ * is paused. The interval between two captures is decided per camera by
+ * `image_refresh_interval` / `battery_image_refresh_interval`, which the poll
+ * honours through a per-device timestamp.
  */
 export const POLL_FREQUENCY_MS = 60 * 1000;
 
@@ -182,13 +186,30 @@ export const BATTERY_THRESHOLDS = {
   /**
    * Level at which capturing resumes.
    *
-   * Deliberately a FULL charge rather than a few points above the pause
-   * threshold: resuming early would restart the drain on a still-weak reserve,
-   * and repeated shallow cycles in the low range wear the cell faster than one
-   * proper cycle.
+   * Comfortably above the pause threshold rather than a couple of points over
+   * it: resuming early restarts the drain on a still-weak reserve, and repeated
+   * shallow cycles in the low range wear the cell faster than one proper cycle.
+   *
+   * NOT a full charge, though. A solar camera charges in bursts and rarely sits
+   * at 100%, so requiring it meant a camera that dipped once stayed blocked
+   * forever — the level was sampled once a minute and simply never read 100.
+   * A camera has to earn its way back, not be locked out.
    */
-  RESUME: 100,
+  RESUME: 80,
 };
+
+/**
+ * How long a battery reading stays trusted, in milliseconds.
+ *
+ * The guard decides from the last known level, so a level that stopped being
+ * refreshed — camera asleep, session refused, network down — must not keep
+ * authorizing captures on an increasingly stale number. Past this age the
+ * reading is dropped and a battery camera falls back to on-demand only.
+ *
+ * Generous on purpose: a battery camera in deep sleep legitimately misses
+ * several rounds, and treating that as a fault would pause it for nothing.
+ */
+export const BATTERY_READING_MAX_AGE_MS = 30 * 60 * 1000;
 
 // --- Features ----------------------------------------------------------------
 

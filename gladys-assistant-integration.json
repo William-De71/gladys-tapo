@@ -267,8 +267,8 @@
         "fr": "Intervalle de rafraîchissement des images (s)"
       },
       "description": {
-        "en": "How often a new image is captured for the dashboard. A capture is the most demanding thing asked of a camera, so a longer interval spares a battery or solar model. Raise it if your cameras discharge faster than they recharge.",
-        "fr": "Fréquence à laquelle une nouvelle image est capturée pour le tableau de bord. La capture est ce qui sollicite le plus une caméra : un intervalle plus long ménage les modèles sur batterie ou solaires. Augmentez-le si vos caméras se déchargent plus vite qu'elles ne se rechargent."
+        "en": "How often a new image is captured for the dashboard, on MAINS-POWERED cameras only. Battery and solar cameras have their own setting below, so keeping your wired images fresh costs nothing to the others.",
+        "fr": "Fréquence à laquelle une nouvelle image est capturée pour le tableau de bord, pour les caméras SUR SECTEUR uniquement. Les caméras sur batterie ou solaires ont leur propre réglage ci-dessous : garder vos images filaires fraîches ne coûte donc rien aux autres."
       },
       "required": false,
       "default": 60,
@@ -283,9 +283,25 @@
         "fr": "Protection de la batterie"
       },
       "description": {
-        "en": "Capturing images is what drains a battery or solar camera. These limits back off before the battery reaches a level it may not recover from. Once a camera goes below the first limit, capturing only resumes when it is fully charged — a partial recharge would restart the drain, and repeated shallow cycles wear the battery faster. Wired cameras are never affected.",
-        "fr": "La capture d'images est ce qui vide une caméra sur batterie ou solaire. Ces limites lèvent le pied avant que la batterie n'atteigne un niveau dont elle pourrait ne pas se remettre. Une fois passée sous la première limite, la capture ne reprend qu'à charge complète — une recharge partielle relancerait la décharge, et les cycles courts répétés usent la batterie plus vite. Les caméras filaires ne sont jamais concernées."
+        "en": "Capturing images is what drains a battery or solar camera. These settings apply ONLY to battery and solar models — wired cameras keep their own interval and are never throttled. Once a camera goes below the pause limit, capturing only resumes at the recharge level: a partial recharge would restart the drain, and repeated shallow cycles wear the battery faster.",
+        "fr": "La capture d'images est ce qui vide une caméra sur batterie ou solaire. Ces réglages s'appliquent UNIQUEMENT aux modèles sur batterie ou solaires — les caméras filaires gardent leur propre intervalle et ne sont jamais ralenties. Une fois passée sous la limite de pause, la capture ne reprend qu'au niveau de recharge : une recharge partielle relancerait la décharge, et les cycles courts répétés usent la batterie plus vite."
       }
+    },
+    {
+      "key": "battery_image_refresh_interval",
+      "type": "number",
+      "label": {
+        "en": "Battery camera refresh interval (s)",
+        "fr": "Intervalle de rafraîchissement des caméras sur batterie (s)"
+      },
+      "description": {
+        "en": "How often a battery or solar camera is captured, independently of your wired cameras. Waking a camera up is what costs the battery, so this is the single most effective setting: 900s (15 min) lets a solar panel refill between two captures. Lower it only if your cameras recharge faster than they discharge.",
+        "fr": "Fréquence à laquelle une caméra sur batterie ou solaire est capturée, indépendamment de vos caméras filaires. C'est le réveil de la caméra qui coûte de la batterie : ce réglage est donc le plus efficace de tous. 900 s (15 min) laisse à un panneau solaire le temps de recharger entre deux captures. Ne le baissez que si vos caméras se rechargent plus vite qu'elles ne se déchargent."
+      },
+      "required": false,
+      "default": 900,
+      "min": 60,
+      "max": 86400
     },
     {
       "key": "battery_pause_refresh",
@@ -316,6 +332,22 @@
       },
       "required": false,
       "default": 40,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "key": "battery_resume",
+      "type": "number",
+      "label": {
+        "en": "Resume automatic capture at (%)",
+        "fr": "Reprendre la capture automatique à (%)"
+      },
+      "description": {
+        "en": "Once a camera has been paused, it stays paused until it reaches this level — deliberately well above the pause limit, so it does not immediately fall back into the drain it was pulled out of. Avoid 100%: a solar camera charges in bursts and rarely reads exactly full, which would keep it paused for good.",
+        "fr": "Une fois une caméra mise en pause, elle le reste jusqu'à ce niveau — volontairement bien au-dessus de la limite de pause, pour qu'elle ne retombe pas aussitôt dans la décharge dont elle vient de sortir. Évitez 100 % : une caméra solaire se recharge par à-coups et atteint rarement le plein exact, ce qui la laisserait en pause indéfiniment."
+      },
+      "required": false,
+      "default": 80,
       "min": 0,
       "max": 100
     }
