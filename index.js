@@ -83,19 +83,36 @@ function isBatteryDevice(device) {
  * and the media profile, which cost two round trips to discover — rediscovering
  * them on every arrow press would make the camera feel sluggish. It also owns
  * the watchdog, which only bounds a movement if the same client sees the stop.
- * @param {object} device - The Gladys device.
- * @returns {object|null} The client, or null without a camera account.
+ *
+ * The device is RE-READ rather than used as handed over: a command payload
+ * carries only the external id, the selector and the params — no `name`. The
+ * camera account is indexed BY NAME (the Tapo app creates one per camera), so
+ * building the client from the payload alone looked up an account for
+ * "undefined" and every movement was refused.
+ * @param {object} device - The Gladys device, as the command payload carries it.
+ * @returns {Promise<object|null>} The client, or null without a camera account.
  * @example
- * const ptz = getPtzClient(device);
+ * const ptz = await getPtzClient(device);
  */
-function getPtzClient(device) {
+async function getPtzClient(device) {
   const existing = ptzClients.get(device.external_id);
   if (existing) {
     return existing;
   }
 
-  const ip = (device.params || []).find((param) => param.name === DEVICE_PARAMS.IP)?.value;
-  const account = resolveRtspAccount(config, device.name);
+  // Only on the first command of a camera: the client is then cached, so the
+  // arrows that follow cost nothing extra.
+  const known = await gladys
+    .getDevices()
+    .then((devices) => devices.find((entry) => entry.external_id === device.external_id))
+    .catch(() => null);
+  const name = known?.name || device.name;
+
+  // The params of the payload are authoritative — they are the ones Gladys just
+  // sent — but a re-read device carries them too when the payload has none.
+  const params = device.params || known?.params || [];
+  const ip = params.find((param) => param.name === DEVICE_PARAMS.IP)?.value;
+  const account = resolveRtspAccount(config, name);
   if (!ip || !account.username || !account.password) {
     return null;
   }
@@ -413,27 +430,34 @@ gladys.onSetValue(async (device, deviceFeature, value) => {
   if (type !== CAMERA_FEATURE_TYPES.MOVE && type !== CAMERA_FEATURE_TYPES.PRESET) {
     // Every other feature of a camera is read-only; a value written to one is a
     // caller mistake worth surfacing rather than a command to guess at.
-    logger.debug(`onSetValue <- ignoring ${deviceFeature.category}/${type} on "${device.name}"`);
+    logger.debug(
+      `onSetValue <- ignoring ${deviceFeature.category}/${type} on ${device.external_id}`,
+    );
     return;
   }
 
-  const ptz = getPtzClient(device);
+  // The selector, not the name: a command payload carries no `name`, and every
+  // message here used to read "undefined" — which is exactly what made the
+  // first failure unreadable.
+  const label = device.selector || device.external_id;
+
+  const ptz = await getPtzClient(device);
   if (!ptz) {
-    throw new Error(`No camera account configured for "${device.name}"`);
+    throw new Error(`No camera account configured for "${label}"`);
   }
 
   if (type === CAMERA_FEATURE_TYPES.PRESET) {
     const token = presetTokenFor(device, value);
     if (!token) {
-      throw new Error(`Unknown preset ${value} on "${device.name}"`);
+      throw new Error(`Unknown preset ${value} on "${label}"`);
     }
-    logger.debug(`onSetValue <- preset ${value} on "${device.name}"`);
+    logger.info(`onSetValue <- preset ${value} on "${label}"`);
     await ptz.gotoPreset(token);
     return;
   }
 
   if (Number(value) === CAMERA_MOVE.STOP) {
-    logger.debug(`onSetValue <- stop on "${device.name}"`);
+    logger.info(`onSetValue <- stop on "${label}"`);
     await ptz.stop();
     return;
   }
@@ -443,7 +467,10 @@ gladys.onSetValue(async (device, deviceFeature, value) => {
   // the release is lost — and the spec is explicit that such a value must mean a
   // nudge rather than the full watchdog of rotation. The step is what makes both
   // callers correct, and the stop that may follow is then a no-op.
-  logger.debug(`onSetValue <- move ${value} on "${device.name}"`);
+  //
+  // Logged at INFO, not debug: a PTZ command is a user gesture that either
+  // reaches the camera or does not, and the debug level hid that entirely.
+  logger.info(`onSetValue <- move ${value} on "${label}"`);
   await ptz.step(Number(value));
 });
 
