@@ -132,6 +132,18 @@ While privacy mode is on, the camera keeps streaming but only shows a black fram
 
 If a camera does not offer this feature, the switch simply is not created.
 
+## Pointing a motorized camera (PTZ)
+
+Motorized cameras (C200, C210, C225, C500…) can be aimed from Gladys: the arrows appear directly on the dashboard camera widget, next to the image.
+
+Like the events, this goes through ONVIF and therefore needs the **camera account** to be filled in. The integration asks each camera what it can do: a camera that pans without a motorized zoom only shows the four arrows, and a fixed camera shows nothing at all. There are no capabilities for you to declare.
+
+**The saved positions** you created in the Tapo app are picked up as they are, with their names. They appear in a dropdown below the arrows, and can be used in a scene — the most common use by far: "when I leave, point the camera at the door". Gladys neither creates nor renames positions: that stays in the Tapo app. If you add one, it shows up at the next scan.
+
+Pressing an arrow moves the camera **one step**, not continuously. This is deliberate: a command sent from a scene, or a press whose release is lost, must stay a small movement rather than several seconds of rotation. As a safety net, any continuous movement is stopped automatically after five seconds anyway, even if Gladys loses contact with the camera in the meantime.
+
+One note on speed: Tapo firmwares largely ignore the requested speed and derive the pace from the distance to travel. A step may therefore feel slow — that is the camera's behaviour, not a missing setting.
+
 ## Options
 
 - **Image quality** — HD gives a sharper image, SD is lighter and faster to capture.

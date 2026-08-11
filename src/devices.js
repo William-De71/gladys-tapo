@@ -24,7 +24,7 @@ import {
   buildRtspUrl,
   hasOnvif,
 } from './tapo/rtsp.js';
-import { hasRtspAccount } from './config.js';
+import { hasRtspAccount, resolveRtspAccount } from './config.js';
 import { discoverLocalAddresses } from './tapo/discovery.js';
 import { TapoLocalApi } from './tapo/localApi.js';
 import {
@@ -33,7 +33,27 @@ import {
   CAPTURE_MODES,
   FEATURE_SUFFIXES,
   POLL_FREQUENCY_MS,
+  CAMERA_MOVE,
+  CAMERA_FEATURE_TYPES,
 } from './tapo/constants.js';
+import { TapoPtz } from './tapo/ptz.js';
+
+/**
+ * Default labels of the canonical movements.
+ *
+ * The dashboard renders arrows, not text, so these only surface where a label is
+ * all there is: the scene editor and the device settings page. English on
+ * purpose — Gladys translates its own canonical labels, and an integration
+ * publishing French ones would pin them for every user.
+ */
+const MOVEMENT_LABELS = {
+  [CAMERA_MOVE.PAN_LEFT]: 'Pan left',
+  [CAMERA_MOVE.PAN_RIGHT]: 'Pan right',
+  [CAMERA_MOVE.TILT_UP]: 'Tilt up',
+  [CAMERA_MOVE.TILT_DOWN]: 'Tilt down',
+  [CAMERA_MOVE.ZOOM_IN]: 'Zoom in',
+  [CAMERA_MOVE.ZOOM_OUT]: 'Zoom out',
+};
 
 /**
  * Build the external ids of one camera through the SDK. Gladys namespaces every
@@ -158,6 +178,59 @@ export function buildFeatures(gladys, camera) {
     });
   }
 
+  // PTZ: only what the camera actually declared when probed. A pan/tilt camera
+  // without motorized zoom publishes four movements, so the dashboard renders
+  // exactly the buttons that work — the capability lives in the options, not in
+  // the existence of the feature (spec A.2).
+  if (camera.ptzMovements && camera.ptzMovements.length > 0) {
+    features.push({
+      name: `${camera.name} - Move`,
+      external_id: ids.feature(FEATURE_SUFFIXES.MOVE),
+      category: DEVICE_FEATURE_CATEGORIES.CAMERA,
+      type: CAMERA_FEATURE_TYPES.MOVE,
+      read_only: false,
+      // A movement is a command, not a measurement: keeping it would fill the
+      // history with values that describe nothing about the camera's state.
+      keep_history: false,
+      has_feedback: false,
+      min: CAMERA_MOVE.STOP,
+      max: CAMERA_MOVE.ZOOM_OUT,
+      // STOP is never listed: the spec keeps it always supported.
+      supported_options: camera.ptzMovements.map((value, index) => ({
+        value,
+        label: MOVEMENT_LABELS[value],
+        sort_order: index,
+      })),
+    });
+  }
+
+  // Presets are the user's own positions, created in the Tapo app. A camera with
+  // none publishes no feature rather than an empty select.
+  if (camera.ptzPresets && camera.ptzPresets.length > 0) {
+    features.push({
+      name: `${camera.name} - Preset`,
+      external_id: ids.feature(FEATURE_SUFFIXES.PRESET),
+      category: DEVICE_FEATURE_CATEGORIES.CAMERA,
+      type: CAMERA_FEATURE_TYPES.PRESET,
+      read_only: false,
+      keep_history: false,
+      has_feedback: false,
+      min: 0,
+      // The spec ties max to the highest option value, which the mapping below
+      // keeps equal to the last index.
+      max: Math.max(0, camera.ptzPresets.length - 1),
+      // The option VALUE is the index, not the protocol token: tokens are free
+      // text on the camera side ("1", "Preset001"…) and Gladys options carry
+      // integers. The token itself is stored in the device params, which is what
+      // maps a recalled option back to the camera's own identifier.
+      supported_options: camera.ptzPresets.map((preset, index) => ({
+        value: index,
+        label: preset.name || `Preset ${index + 1}`,
+        sort_order: index,
+      })),
+    });
+  }
+
   if (camera.hasBattery) {
     features.push({
       name: `${camera.name} - Battery`,
@@ -174,6 +247,59 @@ export function buildFeatures(gladys, camera) {
   }
 
   return features;
+}
+
+/**
+ * Ask a camera what it can move, and which positions it has saved.
+ *
+ * Both answers come from the camera itself rather than from a model table: TP-Link
+ * ships pan/tilt and fixed cameras under neighbouring references, and the user
+ * may have created presets in the Tapo app at any time. A camera that cannot be
+ * asked — no camera account configured, no ONVIF — yields empty capabilities,
+ * which is how a fixed camera and an unreachable one both end up publishing no
+ * PTZ feature.
+ * @param {object} camera - The resolved camera.
+ * @param {object} config - The normalized configuration.
+ * @returns {Promise<{ movements: number[], presets: Array<object> }>} What it supports.
+ * @example
+ * const { movements, presets } = await probePtz(camera, config);
+ */
+export async function probePtz(camera, config) {
+  const empty = { movements: [], presets: [] };
+  const account = resolveRtspAccount(config, camera.name);
+  if (!camera.ip || !camera.hasOnvif || !account.username || !account.password) {
+    return empty;
+  }
+
+  const ptz = new TapoPtz(camera.ip, account.username, account.password);
+  try {
+    const capabilities = await ptz.discover();
+    if (!capabilities) {
+      // A fixed camera: it answers ONVIF, it just has no motors.
+      return empty;
+    }
+
+    const movements = ptz.supportedMovements();
+    // Presets are worth asking for even on a camera whose motors are unclear —
+    // but a failure here must not cost the movements, which are the main
+    // capability. A camera with no preset simply returns an empty list.
+    const presets = await ptz.getPresets().catch((e) => {
+      logger.debug(`Reading the presets of "${camera.name}" failed: ${e.message}`);
+      return [];
+    });
+
+    if (movements.length > 0) {
+      logger.info(
+        `"${camera.name}" supports PTZ (${movements.length} movements, ${presets.length} presets)`,
+      );
+    }
+    return { movements, presets };
+  } catch (e) {
+    // Almost always a wrong camera account: ONVIF answered the port probe but
+    // rejects the credentials. Not fatal — the camera keeps its image feature.
+    logger.debug(`PTZ probe of "${camera.name}" failed: ${e.message}`);
+    return empty;
+  }
 }
 
 /**
@@ -206,6 +332,13 @@ export function buildDevice(gladys, camera) {
       // video for an external integration.
       { name: DEVICE_PARAMS.CAMERA_URL, value: camera.streamUrl || '' },
       { name: DEVICE_PARAMS.CAMERA_ROTATION, value: '0' },
+      // The bridge between the two identifier spaces: Gladys options carry the
+      // integer index, ONVIF wants the camera's own token. Stored on the device
+      // so that recalling a preset needs no round trip to rediscover the list.
+      {
+        name: DEVICE_PARAMS.PRESET_TOKENS,
+        value: (camera.ptzPresets || []).map((preset) => preset.token).join(','),
+      },
     ],
   };
 }
@@ -385,6 +518,12 @@ export async function resolveCamera(cloudCamera, config) {
   if (onvif) {
     camera.hasEvents = true;
   }
+
+  // Asked only once the ONVIF port is known to answer, and only with credentials
+  // in hand: the PTZ service is behind the same camera account as the events.
+  const ptz = await probePtz(camera, config);
+  camera.ptzMovements = ptz.movements;
+  camera.ptzPresets = ptz.presets;
 
   // Only an RTSP camera can feed the live view: the rtsp-camera service hands the
   // URL straight to ffmpeg, so the proprietary protocol — which needs an

@@ -411,3 +411,73 @@ test('an unreachable camera is retried, since it said nothing about its account'
     forgetRefusedCredentials();
   }
 });
+
+// --- PTZ features -------------------------------------------------------------
+
+test('a camera with no PTZ publishes no movement feature', () => {
+  // A fixed camera must not grow a D-pad that faults on every press.
+  const features = buildFeatures(gladys, { ...camera, ptzMovements: [], ptzPresets: [] });
+  assert.ok(!features.some((feature) => feature.type === 'move'));
+  assert.ok(!features.some((feature) => feature.type === 'preset'));
+});
+
+test('the movement options mirror what the camera declared', () => {
+  // A pan/tilt camera without motorized zoom renders four arrows and no zoom
+  // buttons: the capability lives in the options, not in the feature existing.
+  const features = buildFeatures(gladys, {
+    ...camera,
+    ptzMovements: [1, 2, 3, 4],
+    ptzPresets: [],
+  });
+  const move = features.find((feature) => feature.type === 'move');
+
+  assert.ok(move);
+  assert.equal(move.category, 'camera');
+  assert.equal(move.read_only, false);
+  // A command is not a measurement; keeping it would fill the history with
+  // values describing nothing about the camera.
+  assert.equal(move.keep_history, false);
+  assert.deepEqual(
+    move.supported_options.map((option) => option.value),
+    [1, 2, 3, 4],
+  );
+  // STOP is always supported and never listed, per the spec.
+  assert.ok(!move.supported_options.some((option) => option.value === 0));
+  assert.equal(move.min, 0);
+  assert.equal(move.max, 6);
+});
+
+test('the preset options carry indexes, and the tokens travel in the params', () => {
+  // Gladys options are integers; ONVIF identifies a preset by free text. The
+  // params are what bridge the two identifier spaces.
+  const withPresets = {
+    ...camera,
+    ptzMovements: [1, 2],
+    ptzPresets: [
+      { token: '1', name: 'Entree' },
+      { token: 'Preset002', name: 'Jardin' },
+    ],
+  };
+
+  const preset = buildFeatures(gladys, withPresets).find((feature) => feature.type === 'preset');
+  assert.deepEqual(preset.supported_options, [
+    { value: 0, label: 'Entree', sort_order: 0 },
+    { value: 1, label: 'Jardin', sort_order: 1 },
+  ]);
+  // The spec ties max to the highest option value.
+  assert.equal(preset.max, 1);
+
+  const device = buildDevice(gladys, withPresets);
+  assert.equal(getParam(device, DEVICE_PARAMS.PRESET_TOKENS), '1,Preset002');
+});
+
+test('a nameless preset still gets a usable label', () => {
+  // The option would otherwise render as an empty line in the select.
+  const features = buildFeatures(gladys, {
+    ...camera,
+    ptzMovements: [1],
+    ptzPresets: [{ token: '3', name: '' }],
+  });
+  const preset = features.find((feature) => feature.type === 'preset');
+  assert.equal(preset.supported_options[0].label, 'Preset 1');
+});

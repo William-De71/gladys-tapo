@@ -89,6 +89,67 @@ export const ONVIF_REQUEST_TIMEOUT_MS = 10 * 1000;
  */
 export const ONVIF_MOTION_TIMEOUT_MS = 3 * 60 * 1000;
 
+// --- ONVIF PTZ (pan / tilt / zoom) -------------------------------------------
+
+/**
+ * Canonical values of the Gladys `camera.move` feature.
+ *
+ * Mirrors `CAMERA_MOVE` in the core (`server/utils/constants.js`, spec
+ * `docs/specs/camera-ptz-control.md` A.2). Declared here rather than imported
+ * from the SDK because the published SDK still exposes `CAMERA.IMAGE` alone —
+ * importing an undefined constant would break the integration at startup, while
+ * these values are fixed by the spec.
+ */
+export const CAMERA_MOVE = {
+  STOP: 0,
+  PAN_LEFT: 1,
+  PAN_RIGHT: 2,
+  TILT_UP: 3,
+  TILT_DOWN: 4,
+  ZOOM_IN: 5,
+  ZOOM_OUT: 6,
+};
+
+/** The `camera` feature types the PTZ contract adds, same reasoning as above. */
+export const CAMERA_FEATURE_TYPES = {
+  MOVE: 'move',
+  PRESET: 'preset',
+};
+
+/**
+ * Safety bound on a continuous move, in milliseconds.
+ *
+ * The spec makes this a MUST: a stop that never arrives — browser tab killed
+ * mid-press, Wi-Fi drop between the move and its release — must never leave the
+ * camera grinding against its mechanical stop. Every `ContinuousMove` this
+ * integration sends is therefore armed with a timer that stops it locally.
+ */
+export const PTZ_WATCHDOG_MS = 5 * 1000;
+
+/**
+ * How far one `RelativeMove` step travels, in ONVIF normalized units (-1..1).
+ *
+ * Relative is the DEFAULT mode, because a lone movement value — a scene action,
+ * a dashboard tap whose release is lost — is the common case, and the spec warns
+ * it would otherwise mean the full watchdog of motion (~5 s) where the user
+ * expects a nudge. Measured on a C200: the pan axis covers 360° over the -1..1
+ * range, so 0.05 is roughly 9° — a visible step that does not overshoot.
+ */
+export const PTZ_STEP = 0.05;
+
+/**
+ * Speed sent alongside a movement, in ONVIF normalized units (0..1).
+ *
+ * Kept high on purpose. Tapo firmwares largely IGNORE the speed of a
+ * `RelativeMove` and derive the pace from the distance instead (reported on a
+ * C200: identical speeds, wildly different results depending on `distance`), so
+ * a low value here buys nothing and a high one costs nothing.
+ */
+export const PTZ_SPEED = 0.8;
+
+/** A PTZ call is a short round trip; it must not hang the command path. */
+export const PTZ_REQUEST_TIMEOUT_MS = 5 * 1000;
+
 // --- Local network discovery --------------------------------------------------
 
 /** UDP port TP-Link devices answer the discovery broadcast on. */
@@ -115,6 +176,15 @@ export const DEVICE_PARAMS = {
   CAMERA_URL: 'CAMERA_URL',
   /** Rotation applied to the live view, same contract as rtsp-camera. */
   CAMERA_ROTATION: 'CAMERA_ROTATION',
+  /**
+   * ONVIF preset tokens, comma-separated, in the order of the feature options.
+   *
+   * The `preset` feature sends the option's INDEX (Gladys options are integers),
+   * while ONVIF identifies a preset by a free-text token ("1", "Preset001"…).
+   * This param is what maps one back to the other, so recalling a preset costs
+   * no extra call to the camera.
+   */
+  PRESET_TOKENS: 'TAPO_PRESET_TOKENS',
 };
 
 /** How the image of a camera is captured. */
@@ -254,6 +324,8 @@ export const FEATURE_SUFFIXES = {
   MOTION: 'motion',
   BATTERY: 'battery',
   PRIVACY: 'privacy',
+  MOVE: 'move',
+  PRESET: 'preset',
 };
 
 /**

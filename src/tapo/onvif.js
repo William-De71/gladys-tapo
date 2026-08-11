@@ -23,14 +23,17 @@ import http from 'node:http';
 import { logger } from '@gladysassistant/integration-sdk';
 import { ONVIF_PORT, ONVIF_PULL_TIMEOUT_SECONDS, ONVIF_REQUEST_TIMEOUT_MS } from './constants.js';
 
-/** XML namespaces of the three services this module talks to. */
-const NS = {
+/** XML namespaces of the services this module and the PTZ client talk to. */
+export const NS = {
   soap: 'http://www.w3.org/2003/05/soap-envelope',
   wsse: 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd',
   wsu: 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd',
   device: 'http://www.onvif.org/ver10/device/wsdl',
   events: 'http://www.onvif.org/ver10/events/wsdl',
   addressing: 'http://www.w3.org/2005/08/addressing',
+  media: 'http://www.onvif.org/ver10/media/wsdl',
+  ptz: 'http://www.onvif.org/ver20/ptz/wsdl',
+  schema: 'http://www.onvif.org/ver10/schema',
 };
 
 /** Password type declared by the UsernameToken digest profile. */
@@ -98,11 +101,15 @@ export function buildSecurityHeader(username, password) {
  * @example
  * buildEnvelope('<tds:GetServices/>', header);
  */
-function buildEnvelope(body, securityHeader, extraHeader = '') {
+export function buildEnvelope(body, securityHeader, extraHeader = '') {
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<s:Envelope xmlns:s="${NS.soap}" xmlns:tds="${NS.device}" ` +
-    `xmlns:tev="${NS.events}" xmlns:wsa="${NS.addressing}">` +
+    `xmlns:tev="${NS.events}" xmlns:wsa="${NS.addressing}" ` +
+    // Media and PTZ travel with the same envelope: the PTZ client below reuses
+    // this builder, and a body referencing an undeclared prefix is answered with
+    // a parse fault rather than a usable error.
+    `xmlns:trt="${NS.media}" xmlns:tptz="${NS.ptz}" xmlns:tt="${NS.schema}">` +
     `<s:Header>${securityHeader}${extraHeader}</s:Header>` +
     `<s:Body>${body}</s:Body></s:Envelope>`
   );
