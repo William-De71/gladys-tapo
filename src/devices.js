@@ -227,6 +227,18 @@ export function buildDevice(gladys, camera) {
 const authRefused = new Set();
 
 /**
+ * Cameras that rejected the TP-Link password on their local API, by IP.
+ *
+ * Exists so the camera account can be tried WITHOUT hitting the camera twice in
+ * one scan: the second account waits for the next scan instead of following the
+ * first attempt immediately. Two failed logins back to back is what arms the
+ * brute-force protection — measured, one container update was enough to lock a
+ * C210 out for half an hour.
+ * @type {Set<string>}
+ */
+const cloudPasswordRefused = new Set();
+
+/**
  * Forget the rejected credentials, so a corrected account is tried again.
  *
  * Called when the configuration changes: the user's fix must take effect at the
@@ -236,6 +248,7 @@ const authRefused = new Set();
  */
 export function forgetRefusedCredentials() {
   authRefused.clear();
+  cloudPasswordRefused.clear();
 }
 
 /**
@@ -275,57 +288,58 @@ export async function probePrivacyMode(camera, config) {
     return null;
   }
 
-  // BOTH accounts are tried, cloud first, because which one a camera accepts
-  // cannot be told from the outside: measured, a C500 takes the TP-Link password
-  // and refuses nothing else, while a C210 refuses that same password. Preferring
-  // the camera account outright looked reasonable — every RTSP camera has one —
-  // and it took the switch away from the camera that already worked.
+  // ONE login attempt per scan. Never two.
   //
-  // The order matters and is bounded: at most two attempts, and the second only
-  // runs when the first was a clean password rejection. A camera that is locked
-  // out or unreachable is not tried again here, since that is what deepens a
-  // lockout.
+  // Trying the second account when the first is rejected sounds harmless and is
+  // not: two failed logins in a row is exactly what arms the camera's
+  // brute-force protection, and a scan then leaves it locked out for half an
+  // hour. Measured on a C210 — a single container update, hence a single scan,
+  // was enough to re-lock it.
+  //
+  // So the account is CHOSEN rather than searched for. The TP-Link password
+  // first, since that is what the local API authenticates with on most models
+  // (a C500 takes it); the camera account only once the cloud one has been
+  // recorded as refused, which happens on the NEXT scan, with the failure in
+  // between remembered.
   const account = resolveRtspAccount(config, camera.name);
-  const attempts = [{ username: 'admin', password: config.password }];
-  if (account.username && account.password) {
-    attempts.push({ username: account.username, password: account.password });
+  const cloudRefused = cloudPasswordRefused.has(camera.ip);
+  const credentials =
+    cloudRefused && account.username && account.password
+      ? { username: account.username, password: account.password }
+      : { username: 'admin', password: config.password };
+  if (!credentials.password) {
+    return null;
   }
 
-  let lastError = null;
-  for (const credentials of attempts) {
-    if (!credentials.password) {
-      continue;
+  // A short-lived session of its own: the watcher's cache is keyed by IP and
+  // owned by the event loop, and borrowing from it here — during a scan, before
+  // any device exists — would race with it. Closed below so the camera frees the
+  // slot right away rather than in a few minutes; the firmware only keeps a few.
+  const api = new TapoLocalApi(camera.ip, credentials.password, credentials.username);
+  try {
+    const state = await api.getPrivacyMode();
+    api.close();
+    if (state === null) {
+      // The call went through and the camera answered with a shape carrying no
+      // lens mask — an older firmware without the feature.
+      logger.info(`"${camera.name}" reports no privacy mode: no switch created`);
     }
+    return state;
+  } catch (e) {
+    api.close();
 
-    // A short-lived session of its own: the watcher's cache is keyed by IP and
-    // owned by the event loop, and borrowing from it here — during a scan, before
-    // any device exists — would race with it. Closed below so the camera frees the
-    // slot right away rather than in a few minutes; the firmware only keeps a few.
-    const api = new TapoLocalApi(camera.ip, credentials.password, credentials.username);
-    try {
-      const state = await api.getPrivacyMode();
-      if (state === null) {
-        // The call went through and the camera answered with a shape carrying no
-        // lens mask — an older firmware without the feature.
-        logger.info(`"${camera.name}" reports no privacy mode: no switch created`);
-      }
-      return state;
-    } catch (e) {
-      lastError = e;
-      if (!e.message.includes('BAD_PASSWORD')) {
-        // Locked out, unreachable, or anything else: trying the other account
-        // would only add a failed login to a camera that is already counting
-        // them.
-        break;
-      }
-    } finally {
-      api.close();
-    }
-  }
-
-  {
-    const e = lastError;
-    if (!e) {
+    // A different account left to try? Then this refusal is not final: record it
+    // and let the NEXT scan use the other one, so the camera is never hit twice
+    // in a row. Without a distinct camera account there is nothing else to try,
+    // and the probe stops for good below.
+    const hasOtherAccount =
+      account.username && account.password && account.password !== config.password;
+    if (e.message.includes('BAD_PASSWORD') && !cloudRefused && hasOtherAccount) {
+      cloudPasswordRefused.add(camera.ip);
+      logger.info(
+        `"${camera.name}" refused the Tapo password on its local API: ` +
+          `its camera account will be tried at the next scan`,
+      );
       return null;
     }
     // Logged at INFO, not debug. This decides whether a camera gets a switch at

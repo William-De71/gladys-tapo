@@ -216,10 +216,11 @@ test('the privacy switch is told apart from the motion sensor', () => {
 
 // --- Privacy probe credentials and lockout ------------------------------------
 
-test('the camera account is tried when the Tapo password is rejected', async () => {
-  // Which account a camera accepts cannot be told from the outside — a C500
-  // takes the Tapo password, a C210 refuses it, and both have a camera account
-  // since both stream over RTSP. So both are tried, cloud first.
+test('the camera account waits for the NEXT scan, never the same one', async () => {
+  // Two failed logins back to back is what arms the camera's brute-force
+  // protection: measured, one container update — so one scan — locked a C210
+  // out for half an hour. The second account therefore gets its turn one scan
+  // later, with the refusal remembered in between.
   const seen = [];
   const probed = { ...camera, ip: '10.0.0.5' };
   const withAccount = normalizeConfig({
@@ -239,6 +240,11 @@ test('the camera account is tried when the Tapo password is rejected', async () 
     return false;
   };
   try {
+    // First scan: the cloud password only, and it is rejected.
+    assert.equal(await probePrivacyMode(probed, withAccount), null);
+    assert.equal(seen.length, 1, 'one login per scan, never two');
+
+    // Second scan: now the camera account, and it works.
     assert.equal(await probePrivacyMode(probed, withAccount), false);
   } finally {
     TapoLocalApi.prototype.getPrivacyMode = original;
@@ -323,7 +329,7 @@ test('a camera with no camera account falls back to the Tapo password', async ()
   assert.deepEqual(seen, [{ username: 'admin', password: 'cloud-secret' }]);
 });
 
-test('a rejected password is never retried, and forgotten when settings change', async () => {
+test('a camera with no camera account is given up on after one rejection', async () => {
   // Retrying is what walks a camera into an escalating lockout: measured on a
   // C210, five minutes after a few attempts and twenty-nine after a few more.
   // A missing switch costs far less than a camera locked out of every path.
