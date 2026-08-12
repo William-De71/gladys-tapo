@@ -42,12 +42,18 @@ import {
  * `x` is pan, `y` is tilt, `z` is zoom — the ONVIF normalized space, where the
  * sign carries the direction. Keeping this as data means the move/step/stop
  * paths all read the same table instead of each re-deriving the signs.
+ *
+ * The TILT axis is inverted against the ONVIF convention, on purpose. The
+ * standard points `y` positive upwards; Tapo firmwares move the camera DOWN for
+ * a positive tilt, so following the spec sent the camera the wrong way on both
+ * arrows (measured: "tilt down" raised the camera). The signs below are what the
+ * hardware does, not what the standard says.
  */
 const MOVE_VECTORS = {
   [CAMERA_MOVE.PAN_LEFT]: { x: -1, y: 0, z: 0 },
   [CAMERA_MOVE.PAN_RIGHT]: { x: 1, y: 0, z: 0 },
-  [CAMERA_MOVE.TILT_UP]: { x: 0, y: 1, z: 0 },
-  [CAMERA_MOVE.TILT_DOWN]: { x: 0, y: -1, z: 0 },
+  [CAMERA_MOVE.TILT_UP]: { x: 0, y: -1, z: 0 },
+  [CAMERA_MOVE.TILT_DOWN]: { x: 0, y: 1, z: 0 },
   [CAMERA_MOVE.ZOOM_IN]: { x: 0, y: 0, z: 1 },
   [CAMERA_MOVE.ZOOM_OUT]: { x: 0, y: 0, z: -1 },
 };

@@ -168,6 +168,10 @@ test('a step is bounded by construction and carries only the axis it moves', asy
   await ptz.step(CAMERA_MOVE.TILT_UP);
   assert.ok(sent[0].includes('RelativeMove'));
   assert.ok(sent[0].includes('PanTilt'));
+  // Tapo tilts the opposite way to the ONVIF convention: a positive `y` sends
+  // the camera DOWN. Following the standard pointed both arrows the wrong way,
+  // so the sign is asserted rather than left to the next reader to "fix".
+  assert.ok(/y="-0?\.5"/.test(sent[0]), 'tilt up must send a negative y on Tapo');
   // Sending a zoom translation to a camera whose zoom is not being moved is
   // answered with a fault on some firmwares.
   assert.ok(!sent[0].includes('<tt:Zoom'));
