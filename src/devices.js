@@ -24,7 +24,7 @@ import {
   buildRtspUrl,
   hasOnvif,
 } from './tapo/rtsp.js';
-import { hasRtspAccount, resolveRtspAccount } from './config.js';
+import { hasRtspAccount } from './config.js';
 import { discoverLocalAddresses } from './tapo/discovery.js';
 import { TapoLocalApi } from './tapo/localApi.js';
 import {
@@ -281,17 +281,21 @@ export async function probePrivacyMode(camera, config) {
     return null;
   }
 
-  // ONE login attempt per scan, with the credential this API actually
-  // authenticates with: the camera account when the user saved one, the TP-Link
-  // password otherwise.
-  const account = resolveRtspAccount(config, camera.name);
-  const credentials =
-    account.username && account.password
-      ? { username: account.username, password: account.password }
-      : { username: 'admin', password: config.password };
-  if (!credentials.password) {
+  // ONE login attempt per scan, with the TP-Link account password.
+  //
+  // MEASURED, twice: a C500 gets its switch with this password and loses it the
+  // moment the camera account is preferred instead. Reading the reference
+  // implementations suggested the opposite twice over, and the camera disagreed
+  // both times — so the measurement wins, and this comment exists so the change
+  // is not made a third time.
+  //
+  // What the camera account is for is still unresolved for the cameras that
+  // refuse this password (a C210 here); what is certain is that swapping the
+  // order is not the answer.
+  if (!config.password) {
     return null;
   }
+  const credentials = { username: 'admin', password: config.password };
 
   // A short-lived session of its own: the watcher's cache is keyed by IP and
   // owned by the event loop, and borrowing from it here — during a scan, before
@@ -327,18 +331,14 @@ export async function probePrivacyMode(camera, config) {
     }
 
     if (e.message.includes('BAD_PASSWORD')) {
-      // Which credential was refused decides what the user can do about it, so
-      // the message says which one was sent. Suggesting they check the Tapo
-      // password when the camera account was used would send them to the wrong
-      // screen — and the Tapo password is provably right anyway, since the same
-      // one lists their cameras on the cloud.
+      // No action is suggested, because there is none. The Tapo password is
+      // provably right — the same one lists these cameras on the cloud — and the
+      // camera account does not drive this API (measured: preferring it costs
+      // the switch on a camera that had one). Such a camera simply keeps its
+      // local API to itself.
       logger.warn(
-        account.username && account.password
-          ? `"${camera.name}" rejected its camera account on its local API: no privacy switch. ` +
-              `Re-save it with the "Save a camera account" action — it must be the account ` +
-              `created in the Tapo app under Advanced settings > Camera account.`
-          : `"${camera.name}" rejected the Tapo password on its local API: no privacy switch. ` +
-              `Save its camera account with the "Save a camera account" action, then scan again.`,
+        `"${camera.name}" rejected the Tapo password on its local API: no privacy switch. ` +
+          `This camera does not open its local API to Gladys; its other features are unaffected.`,
       );
     } else if (e.message.includes('NO_NONCE')) {
       // The camera locks an address out after failed logins, and every further

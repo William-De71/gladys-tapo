@@ -216,7 +216,7 @@ test('the privacy switch is told apart from the motion sensor', () => {
 
 // --- Privacy probe credentials and lockout ------------------------------------
 
-test('one login per scan, with the camera account, and never twice', async () => {
+test('one login per scan, with the Tapo password, and never twice', async () => {
   // It cannot drive this API at all: it opens a session whose user_group is not
   // root, which pytapo — the origin of this protocol — rejects outright
   // ("encrypted control via 3rd party account does not seem to be supported").
@@ -246,13 +246,16 @@ test('one login per scan, with the camera account, and never twice', async () =>
     forgetRefusedCredentials();
   }
 
-  // One login, with the camera account — never a second one with the other.
-  assert.deepEqual(seen, [{ username: 'william', password: 'camera-secret' }]);
+  // One login, with the Tapo password — never a second one with the other.
+  assert.deepEqual(seen, [{ username: 'admin', password: 'cloud-secret' }]);
 });
 
-test('the camera account is what authenticates this API when one is saved', async () => {
-  // The login digest is built from the camera account in pytapo, which this
-  // protocol comes from; the Tapo password is what such a camera rejects.
+test('the Tapo password is what drives this API, even when a camera account exists', async () => {
+  // MEASURED twice on a C500: it gets its switch with the Tapo password and
+  // loses it the moment the camera account is preferred. Home Assistant does the
+  // same — it controls cameras with "admin" + the cloud password
+  // (async_step_auth_cloud_password, "Cloud password works for control"), and
+  // keeps the camera account for the RTSP stream.
   const seen = [];
   const probed = { ...camera, ip: '10.0.0.10' };
   const withAccount = normalizeConfig({
@@ -273,7 +276,7 @@ test('the camera account is what authenticates this API when one is saved', asyn
     forgetRefusedCredentials();
   }
 
-  assert.deepEqual(seen, [{ username: 'william', password: 'camera-secret' }]);
+  assert.deepEqual(seen, [{ username: 'admin', password: 'cloud-secret' }]);
 });
 
 test('a locked-out camera is touched once, not twice', async () => {
@@ -299,7 +302,7 @@ test('a locked-out camera is touched once, not twice', async () => {
     forgetRefusedCredentials();
   }
 
-  assert.deepEqual(seen, ['camera-secret'], 'one login only');
+  assert.deepEqual(seen, ['cloud-secret'], 'one login only');
 });
 
 test('a camera with no camera account falls back to the Tapo password', async () => {
