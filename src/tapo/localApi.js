@@ -469,7 +469,15 @@ export class TapoLocalApi {
     const result = await this.callMethod('getLensMaskConfig', {
       lens_mask: { name: ['lens_mask_info'] },
     });
-    const enabled = result?.lens_mask?.lens_mask_info?.enabled;
+
+    // `lens_mask_info` is an OBJECT on some firmwares and a one-entry ARRAY on
+    // others — measured: a C500 answers with the object, a C210 does not, and
+    // reading `.enabled` straight off the array yielded undefined, which dropped
+    // the switch of a camera that supports the feature perfectly well.
+    const raw = result?.lens_mask?.lens_mask_info;
+    const info = Array.isArray(raw) ? raw[0] : raw;
+    const enabled = info?.enabled;
+
     if (enabled === 'on') {
       return true;
     }
