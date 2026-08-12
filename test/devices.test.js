@@ -481,3 +481,27 @@ test('a nameless preset still gets a usable label', () => {
   const preset = features.find((feature) => feature.type === 'preset');
   assert.equal(preset.supported_options[0].label, 'Preset 1');
 });
+
+// --- Doorbell feature ---------------------------------------------------------
+
+test('a camera that declared no doorbell topic gets no button feature', () => {
+  const features = buildFeatures(gladys, { ...camera, hasEvents: true, hasDoorbell: false });
+  assert.ok(!features.some((feature) => feature.category === 'button'));
+  // The motion sensor is unaffected: the two capabilities are independent.
+  assert.ok(features.some((feature) => feature.category === 'motion-sensor'));
+});
+
+test('a camera that could not be asked keeps its button feature', () => {
+  // `null` is "unknown", not "no". An unused row is cosmetic; a missing one
+  // silently breaks the scenes a real doorbell was wired into.
+  const unknown = buildFeatures(gladys, { ...camera, hasEvents: true, hasDoorbell: null });
+  assert.ok(unknown.some((feature) => feature.category === 'button'));
+
+  const undeclared = buildFeatures(gladys, { ...camera, hasEvents: true });
+  assert.ok(undeclared.some((feature) => feature.category === 'button'));
+});
+
+test('a camera that declared a doorbell topic keeps its button feature', () => {
+  const features = buildFeatures(gladys, { ...camera, hasEvents: true, hasDoorbell: true });
+  assert.ok(features.some((feature) => feature.category === 'button'));
+});

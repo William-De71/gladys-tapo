@@ -37,6 +37,7 @@ import {
   CAMERA_FEATURE_TYPES,
 } from './tapo/constants.js';
 import { TapoPtz } from './tapo/ptz.js';
+import { TapoOnvif } from './tapo/onvif.js';
 
 /**
  * Default labels of the canonical movements.
@@ -129,31 +130,37 @@ export function buildFeatures(gladys, camera) {
     },
   ];
 
+  // The doorbell is skipped only when the camera EXPLICITLY said it has no
+  // visitor topic. `hasDoorbell` is null when it could not be asked — an older
+  // firmware, a refused call, a battery model reporting through the cloud — and
+  // the feature is then created as before: an unused row is cosmetic, whereas a
+  // missing one silently breaks the scenes a real doorbell was wired into.
+  if (camera.hasEvents && camera.hasDoorbell !== false) {
+    features.push({
+      name: `${camera.name} - Doorbell`,
+      external_id: ids.feature(FEATURE_SUFFIXES.BUTTON),
+      category: DEVICE_FEATURE_CATEGORIES.BUTTON,
+      type: DEVICE_FEATURE_TYPES.BUTTON.PUSH,
+      read_only: true,
+      keep_history: true,
+      has_feedback: false,
+      min: 0,
+      max: 1,
+    });
+  }
+
   if (camera.hasEvents) {
-    features.push(
-      {
-        name: `${camera.name} - Doorbell`,
-        external_id: ids.feature(FEATURE_SUFFIXES.BUTTON),
-        category: DEVICE_FEATURE_CATEGORIES.BUTTON,
-        type: DEVICE_FEATURE_TYPES.BUTTON.PUSH,
-        read_only: true,
-        keep_history: true,
-        has_feedback: false,
-        min: 0,
-        max: 1,
-      },
-      {
-        name: `${camera.name} - Motion`,
-        external_id: ids.feature(FEATURE_SUFFIXES.MOTION),
-        category: DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
-        type: DEVICE_FEATURE_TYPES.SENSOR.BINARY,
-        read_only: true,
-        keep_history: true,
-        has_feedback: false,
-        min: 0,
-        max: 1,
-      },
-    );
+    features.push({
+      name: `${camera.name} - Motion`,
+      external_id: ids.feature(FEATURE_SUFFIXES.MOTION),
+      category: DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
+      type: DEVICE_FEATURE_TYPES.SENSOR.BINARY,
+      read_only: true,
+      keep_history: true,
+      has_feedback: false,
+      min: 0,
+      max: 1,
+    });
   }
 
   // Created unless the camera EXPLICITLY answered that it has no lens mask.
@@ -300,6 +307,35 @@ export async function probePtz(camera, config) {
     logger.debug(`PTZ probe of "${camera.name}" failed: ${e.message}`);
     return empty;
   }
+}
+
+/**
+ * Ask a camera whether it can ever report a doorbell press.
+ *
+ * Same principle as the PTZ probe: the camera is asked rather than deduced from
+ * its model. TP-Link ships doorbells and plain cameras under neighbouring
+ * references, and a model table would drop the button of the first doorbell it
+ * does not know about — breaking the scenes built on it.
+ * @param {object} camera - The resolved camera.
+ * @param {object} config - The normalized configuration.
+ * @returns {Promise<boolean|null>} True/false when known, null when unasked.
+ * @example
+ * const hasButton = await probeDoorbell(camera, config);
+ */
+export async function probeDoorbell(camera, config) {
+  const account = resolveRtspAccount(config, camera.name);
+  if (!camera.ip || !camera.hasOnvif || !account.username || !account.password) {
+    // Nothing was asked, so nothing is known — notably the battery models, whose
+    // events travel through the cloud and never through ONVIF.
+    return null;
+  }
+
+  const client = new TapoOnvif(camera.ip, account.username, account.password);
+  const hasDoorbell = await client.hasDoorbell();
+  if (hasDoorbell === false) {
+    logger.info(`"${camera.name}" declares no doorbell topic: no button feature created`);
+  }
+  return hasDoorbell;
 }
 
 /**
@@ -520,10 +556,15 @@ export async function resolveCamera(cloudCamera, config) {
   }
 
   // Asked only once the ONVIF port is known to answer, and only with credentials
-  // in hand: the PTZ service is behind the same camera account as the events.
-  const ptz = await probePtz(camera, config);
+  // in hand: both services sit behind the same camera account as the events.
+  // Independent round trips on the same camera, so they run together.
+  const [ptz, hasDoorbell] = await Promise.all([
+    probePtz(camera, config),
+    probeDoorbell(camera, config),
+  ]);
   camera.ptzMovements = ptz.movements;
   camera.ptzPresets = ptz.presets;
+  camera.hasDoorbell = hasDoorbell;
 
   // Only an RTSP camera can feed the live view: the rtsp-camera service hands the
   // URL straight to ffmpeg, so the proprietary protocol — which needs an
