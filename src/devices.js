@@ -359,10 +359,22 @@ export async function probePrivacyMode(camera, config) {
     }
 
     if (e.message.includes('BAD_PASSWORD')) {
-      logger.warn(
-        `"${camera.name}" rejected the credentials used for its local API: no privacy switch. ` +
-          `Save its camera account with the "Save a camera account" action, then scan again.`,
-      );
+      // Two different messages, because the two situations call for opposite
+      // things. Telling a user to save an account they already saved reads as a
+      // bug in the integration — and here it would be the SECOND account that
+      // just got refused, so there is nothing left for them to do.
+      if (hasOtherAccount) {
+        logger.warn(
+          `"${camera.name}" refused both the Tapo password and its camera account on its ` +
+            `local API: no privacy switch. Its local API is closed to these credentials — ` +
+            `check the camera account in the Tapo app if you expect this camera to have the switch.`,
+        );
+      } else {
+        logger.warn(
+          `"${camera.name}" rejected the Tapo password on its local API: no privacy switch. ` +
+            `Save its camera account with the "Save a camera account" action, then scan again.`,
+        );
+      }
     } else if (e.message.includes('NO_NONCE')) {
       // The camera locks an address out after failed logins, and every further
       // attempt extends the penalty — so saying "wait" is the actionable advice,
