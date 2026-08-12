@@ -227,18 +227,6 @@ export function buildDevice(gladys, camera) {
 const authRefused = new Set();
 
 /**
- * Cameras that rejected the TP-Link password on their local API, by IP.
- *
- * Exists so the camera account can be tried WITHOUT hitting the camera twice in
- * one scan: the second account waits for the next scan instead of following the
- * first attempt immediately. Two failed logins back to back is what arms the
- * brute-force protection — measured, one container update was enough to lock a
- * C210 out for half an hour.
- * @type {Set<string>}
- */
-const cloudPasswordRefused = new Set();
-
-/**
  * Forget the rejected credentials, so a corrected account is tried again.
  *
  * Called when the configuration changes: the user's fix must take effect at the
@@ -248,7 +236,6 @@ const cloudPasswordRefused = new Set();
  */
 export function forgetRefusedCredentials() {
   authRefused.clear();
-  cloudPasswordRefused.clear();
 }
 
 /**
@@ -259,10 +246,16 @@ export function forgetRefusedCredentials() {
  * recorded in `NO_LOCAL_ACCESS_MODELS`: a capability guessed from a model string
  * is a capability guessed wrong.
  *
- * Two accounts are tried, the TP-Link one then the camera one, and no more than
- * that. Which one a camera accepts is not something the model or the capture
- * mode reveals: a C500 takes the TP-Link password, a C210 refuses it, and both
- * have a camera account since both stream over RTSP.
+ * The CAMERA account authenticates this API, not the TP-Link one. In pytapo —
+ * where this protocol comes from — the login digest is built from the first
+ * credential passed to the client, which Home Assistant fills with the camera
+ * account; the cloud password it also passes is used elsewhere, for the media
+ * stream. Sending the TP-Link password here is what a camera with a real camera
+ * account rejects, and it is rejected rightly.
+ *
+ * The TP-Link password remains the fallback for the cameras that have no camera
+ * account saved — one credential is tried per scan, never two, since two failed
+ * logins in a row is what arms the brute-force protection.
  *
  * A refusal is REMEMBERED and never retried (see `authRefused`). Tapo cameras
  * lock an address out after a few failed logins, and the penalty escalates —
@@ -288,23 +281,12 @@ export async function probePrivacyMode(camera, config) {
     return null;
   }
 
-  // ONE login attempt per scan. Never two.
-  //
-  // Trying the second account when the first is rejected sounds harmless and is
-  // not: two failed logins in a row is exactly what arms the camera's
-  // brute-force protection, and a scan then leaves it locked out for half an
-  // hour. Measured on a C210 — a single container update, hence a single scan,
-  // was enough to re-lock it.
-  //
-  // So the account is CHOSEN rather than searched for. The TP-Link password
-  // first, since that is what the local API authenticates with on most models
-  // (a C500 takes it); the camera account only once the cloud one has been
-  // recorded as refused, which happens on the NEXT scan, with the failure in
-  // between remembered.
+  // ONE login attempt per scan, with the credential this API actually
+  // authenticates with: the camera account when the user saved one, the TP-Link
+  // password otherwise.
   const account = resolveRtspAccount(config, camera.name);
-  const cloudRefused = cloudPasswordRefused.has(camera.ip);
   const credentials =
-    cloudRefused && account.username && account.password
+    account.username && account.password
       ? { username: account.username, password: account.password }
       : { username: 'admin', password: config.password };
   if (!credentials.password) {
@@ -328,20 +310,6 @@ export async function probePrivacyMode(camera, config) {
   } catch (e) {
     api.close();
 
-    // A different account left to try? Then this refusal is not final: record it
-    // and let the NEXT scan use the other one, so the camera is never hit twice
-    // in a row. Without a distinct camera account there is nothing else to try,
-    // and the probe stops for good below.
-    const hasOtherAccount =
-      account.username && account.password && account.password !== config.password;
-    if (e.message.includes('BAD_PASSWORD') && !cloudRefused && hasOtherAccount) {
-      cloudPasswordRefused.add(camera.ip);
-      logger.info(
-        `"${camera.name}" refused the Tapo password on its local API: ` +
-          `its camera account will be tried at the next scan`,
-      );
-      return null;
-    }
     // Logged at INFO, not debug. This decides whether a camera gets a switch at
     // all, and hiding it left the only symptom being a control that never
     // appeared — undiagnosable without attaching a debugger to the integration.
@@ -359,22 +327,19 @@ export async function probePrivacyMode(camera, config) {
     }
 
     if (e.message.includes('BAD_PASSWORD')) {
-      // Two different messages, because the two situations call for opposite
-      // things. Telling a user to save an account they already saved reads as a
-      // bug in the integration — and here it would be the SECOND account that
-      // just got refused, so there is nothing left for them to do.
-      if (hasOtherAccount) {
-        logger.warn(
-          `"${camera.name}" refused both the Tapo password and its camera account on its ` +
-            `local API: no privacy switch. Its local API is closed to these credentials — ` +
-            `check the camera account in the Tapo app if you expect this camera to have the switch.`,
-        );
-      } else {
-        logger.warn(
-          `"${camera.name}" rejected the Tapo password on its local API: no privacy switch. ` +
-            `Save its camera account with the "Save a camera account" action, then scan again.`,
-        );
-      }
+      // Which credential was refused decides what the user can do about it, so
+      // the message says which one was sent. Suggesting they check the Tapo
+      // password when the camera account was used would send them to the wrong
+      // screen — and the Tapo password is provably right anyway, since the same
+      // one lists their cameras on the cloud.
+      logger.warn(
+        account.username && account.password
+          ? `"${camera.name}" rejected its camera account on its local API: no privacy switch. ` +
+              `Re-save it with the "Save a camera account" action — it must be the account ` +
+              `created in the Tapo app under Advanced settings > Camera account.`
+          : `"${camera.name}" rejected the Tapo password on its local API: no privacy switch. ` +
+              `Save its camera account with the "Save a camera account" action, then scan again.`,
+      );
     } else if (e.message.includes('NO_NONCE')) {
       // The camera locks an address out after failed logins, and every further
       // attempt extends the penalty — so saying "wait" is the actionable advice,

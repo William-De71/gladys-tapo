@@ -216,11 +216,12 @@ test('the privacy switch is told apart from the motion sensor', () => {
 
 // --- Privacy probe credentials and lockout ------------------------------------
 
-test('the camera account waits for the NEXT scan, never the same one', async () => {
-  // Two failed logins back to back is what arms the camera's brute-force
-  // protection: measured, one container update — so one scan — locked a C210
-  // out for half an hour. The second account therefore gets its turn one scan
-  // later, with the refusal remembered in between.
+test('one login per scan, with the camera account, and never twice', async () => {
+  // It cannot drive this API at all: it opens a session whose user_group is not
+  // root, which pytapo — the origin of this protocol — rejects outright
+  // ("encrypted control via 3rd party account does not seem to be supported").
+  // Trying it as a fallback bought nothing and cost a second failed login per
+  // scan, which is what armed the camera's brute-force protection.
   const seen = [];
   const probed = { ...camera, ip: '10.0.0.5' };
   const withAccount = normalizeConfig({
@@ -234,33 +235,24 @@ test('the camera account waits for the NEXT scan, never the same one', async () 
   const original = TapoLocalApi.prototype.getPrivacyMode;
   TapoLocalApi.prototype.getPrivacyMode = async function record() {
     seen.push({ username: this.username, password: this.password });
-    if (this.password === 'cloud-secret') {
-      throw new Error('TAPO_LOCAL_BAD_PASSWORD');
-    }
-    return false;
+    throw new Error('TAPO_LOCAL_BAD_PASSWORD');
   };
   try {
-    // First scan: the cloud password only, and it is rejected.
     assert.equal(await probePrivacyMode(probed, withAccount), null);
-    assert.equal(seen.length, 1, 'one login per scan, never two');
-
-    // Second scan: now the camera account, and it works.
-    assert.equal(await probePrivacyMode(probed, withAccount), false);
+    // And no further scan touches it either.
+    assert.equal(await probePrivacyMode(probed, withAccount), null);
   } finally {
     TapoLocalApi.prototype.getPrivacyMode = original;
     forgetRefusedCredentials();
   }
 
-  assert.deepEqual(seen, [
-    { username: 'admin', password: 'cloud-secret' },
-    { username: 'william', password: 'camera-secret' },
-  ]);
+  // One login, with the camera account — never a second one with the other.
+  assert.deepEqual(seen, [{ username: 'william', password: 'camera-secret' }]);
 });
 
-test('a camera the Tapo password suits is not bothered with a second login', async () => {
-  // The regression this pins: preferring the camera account took the switch away
-  // from a C500 that the cloud password had been serving all along. Every extra
-  // login is also a step towards the lockout.
+test('the camera account is what authenticates this API when one is saved', async () => {
+  // The login digest is built from the camera account in pytapo, which this
+  // protocol comes from; the Tapo password is what such a camera rejects.
   const seen = [];
   const probed = { ...camera, ip: '10.0.0.10' };
   const withAccount = normalizeConfig({
@@ -271,7 +263,7 @@ test('a camera the Tapo password suits is not bothered with a second login', asy
 
   const original = TapoLocalApi.prototype.getPrivacyMode;
   TapoLocalApi.prototype.getPrivacyMode = async function record() {
-    seen.push(this.password);
+    seen.push({ username: this.username, password: this.password });
     return true;
   };
   try {
@@ -281,12 +273,12 @@ test('a camera the Tapo password suits is not bothered with a second login', asy
     forgetRefusedCredentials();
   }
 
-  assert.deepEqual(seen, ['cloud-secret']);
+  assert.deepEqual(seen, [{ username: 'william', password: 'camera-secret' }]);
 });
 
-test('a locked-out camera is not tried with the other account either', async () => {
-  // Trying the second account would add a failed login to a camera that is
-  // already counting them, which is what deepens the lockout.
+test('a locked-out camera is touched once, not twice', async () => {
+  // A second login would add a failed attempt to a camera that is already
+  // counting them, which is what deepens the lockout.
   const seen = [];
   const probed = { ...camera, ip: '10.0.0.11' };
   const withAccount = normalizeConfig({
@@ -307,7 +299,7 @@ test('a locked-out camera is not tried with the other account either', async () 
     forgetRefusedCredentials();
   }
 
-  assert.deepEqual(seen, ['cloud-secret'], 'a locked-out camera is touched once, not twice');
+  assert.deepEqual(seen, ['camera-secret'], 'one login only');
 });
 
 test('a camera with no camera account falls back to the Tapo password', async () => {
