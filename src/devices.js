@@ -24,7 +24,7 @@ import {
   buildRtspUrl,
   hasOnvif,
 } from './tapo/rtsp.js';
-import { hasRtspAccount } from './config.js';
+import { hasRtspAccount, resolveRtspAccount } from './config.js';
 import { discoverLocalAddresses } from './tapo/discovery.js';
 import { TapoLocalApi } from './tapo/localApi.js';
 import {
@@ -211,6 +211,30 @@ export function buildDevice(gladys, camera) {
 }
 
 /**
+ * Cameras whose local credentials were rejected, by IP.
+ *
+ * Tapo firmwares lock an address out after a few failed logins, and the penalty
+ * grows with each attempt (measured on a C210: 5 minutes, then 29). Retrying a
+ * password that is known to be wrong is therefore not merely useless — it walks
+ * the camera into a lockout that outlasts the scan and blocks the paths that DO
+ * work. Cleared by `forgetRefusedCredentials` when the user edits the settings.
+ * @type {Set<string>}
+ */
+const authRefused = new Set();
+
+/**
+ * Forget the rejected credentials, so a corrected account is tried again.
+ *
+ * Called when the configuration changes: the user's fix must take effect at the
+ * next scan rather than requiring a restart.
+ * @example
+ * forgetRefusedCredentials();
+ */
+export function forgetRefusedCredentials() {
+  authRefused.clear();
+}
+
+/**
  * Ask a camera whether it supports the privacy mode, and what its current state
  * is.
  *
@@ -218,9 +242,17 @@ export function buildDevice(gladys, camera) {
  * recorded in `NO_LOCAL_ACCESS_MODELS`: a capability guessed from a model string
  * is a capability guessed wrong.
  *
- * Unlike the ONVIF probes, this one needs no camera account — the local API
- * authenticates with the TP-Link account password — so it covers the battery
- * models too, which expose no ONVIF at all.
+ * The camera account is tried FIRST, falling back to the TP-Link account
+ * password. A camera for which the user created a camera account expects those
+ * credentials on its local API and rejects the cloud ones — measured on a C210,
+ * which answered `TAPO_LOCAL_BAD_PASSWORD` to the cloud password while a C500
+ * with no camera account accepted it.
+ *
+ * A rejected password is REMEMBERED and never retried (see `authRefused`).
+ * Tapo cameras lock themselves out after a few failed logins, and the penalty
+ * escalates — measured: 5 minutes, then 29 after a handful of attempts. A probe
+ * that ran on every scan therefore turned a wrong password into a camera locked
+ * out for good, which costs far more than a missing switch.
  * @param {object} camera - The resolved camera.
  * @param {object} config - The normalized configuration.
  * @returns {Promise<boolean|null>} The current state, or null when the camera
@@ -229,7 +261,26 @@ export function buildDevice(gladys, camera) {
  * const isPrivate = await probePrivacyMode(camera, config);
  */
 export async function probePrivacyMode(camera, config) {
-  if (!camera.ip || !config.password) {
+  if (!camera.ip) {
+    return null;
+  }
+
+  if (authRefused.has(camera.ip)) {
+    // Deliberately silent about the credentials themselves: the user already got
+    // one explicit message, and repeating it every scan would be noise.
+    logger.debug(`Skipping the privacy probe of "${camera.name}": credentials already refused`);
+    return null;
+  }
+
+  // The camera account wins when there is one — it is what such a camera
+  // expects — and the cloud password is the fallback for the cameras that have
+  // none.
+  const account = resolveRtspAccount(config, camera.name);
+  const credentials =
+    account.username && account.password
+      ? { username: account.username, password: account.password }
+      : { username: 'admin', password: config.password };
+  if (!credentials.password) {
     return null;
   }
 
@@ -237,7 +288,7 @@ export async function probePrivacyMode(camera, config) {
   // owned by the event loop, and borrowing from it here — during a scan, before
   // any device exists — would race with it. Closed below so the camera frees the
   // slot right away rather than in a few minutes; the firmware only keeps a few.
-  const api = new TapoLocalApi(camera.ip, config.password);
+  const api = new TapoLocalApi(camera.ip, credentials.password, credentials.username);
   try {
     const state = await api.getPrivacyMode();
     if (state === null) {
@@ -250,11 +301,19 @@ export async function probePrivacyMode(camera, config) {
     // Logged at INFO, not debug. This decides whether a camera gets a switch at
     // all, and hiding it left the only symptom being a control that never
     // appeared — undiagnosable without attaching a debugger to the integration.
-    // `TAPO_LOCAL_NO_NONCE` here means the camera refused the local session
-    // outright, which some firmwares do whatever credentials are offered.
-    logger.info(
-      `"${camera.name}" refused the local session (${e.message}): no privacy switch created`,
-    );
+    if (e.message.includes('BAD_PASSWORD')) {
+      // Stop here, for good: retrying is what walks a camera into an escalating
+      // lockout, and no amount of retrying will make a wrong password right.
+      authRefused.add(camera.ip);
+      logger.warn(
+        `"${camera.name}" rejected the credentials used for its local API: no privacy switch. ` +
+          `Save its camera account with the "Save a camera account" action, then scan again.`,
+      );
+    } else {
+      logger.info(
+        `"${camera.name}" refused the local session (${e.message}): no privacy switch created`,
+      );
+    }
     // Never `false`: "the camera refused the call" and "the camera has no lens
     // mask" must not lead to the same conclusion, since one of them would
     // silently drop the switch of a camera that has one.

@@ -8,11 +8,14 @@ import {
   buildFeatures,
   buildDevice,
   cameraFromDevice,
+  probePrivacyMode,
+  forgetRefusedCredentials,
 } from '../src/devices.js';
 import { isBatteryModel, hasNoLocalAccess, buildRtspUrl } from '../src/tapo/rtsp.js';
 import { normalizeConfig } from '../src/config.js';
 import { fakeGladys } from './helpers/fakeGladys.js';
 import { DEVICE_PARAMS, CAPTURE_MODES } from '../src/tapo/constants.js';
+import { TapoLocalApi } from '../src/tapo/localApi.js';
 
 const gladys = fakeGladys();
 
@@ -209,4 +212,80 @@ test('the privacy switch is told apart from the motion sensor', () => {
   assert.deepEqual(binaries.map((feature) => feature.category).sort(), ['motion-sensor', 'switch']);
   // Only one of the two is writable.
   assert.deepEqual(binaries.map((feature) => feature.read_only).sort(), [false, true]);
+});
+
+// --- Privacy probe credentials and lockout ------------------------------------
+
+test('a camera with a camera account is probed with it, not with the cloud password', async () => {
+  // A camera for which the user created a camera account rejects the cloud
+  // credentials on its local API — measured on a C210.
+  const seen = [];
+  const probed = { ...camera, ip: '10.0.0.5' };
+  const withAccount = normalizeConfig({
+    email: 'a@b.c',
+    password: 'cloud-secret',
+    camera_accounts: 'jardin|william|camera-secret',
+  });
+
+  // The probe opens its own client, so the constructor is what has to be
+  // observed; recording the arguments is enough to pin which account wins.
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  TapoLocalApi.prototype.getPrivacyMode = async function record() {
+    seen.push({ username: this.username, password: this.password });
+    return false;
+  };
+  try {
+    await probePrivacyMode(probed, withAccount);
+  } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+  }
+
+  assert.deepEqual(seen, [{ username: 'william', password: 'camera-secret' }]);
+});
+
+test('a camera with no camera account falls back to the Tapo password', async () => {
+  const seen = [];
+  const probed = { ...camera, ip: '10.0.0.6' };
+  const cloudOnly = normalizeConfig({ email: 'a@b.c', password: 'cloud-secret' });
+
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  TapoLocalApi.prototype.getPrivacyMode = async function record() {
+    seen.push({ username: this.username, password: this.password });
+    return true;
+  };
+  try {
+    await probePrivacyMode(probed, cloudOnly);
+  } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+  }
+
+  assert.deepEqual(seen, [{ username: 'admin', password: 'cloud-secret' }]);
+});
+
+test('a rejected password is never retried, and forgotten when settings change', async () => {
+  // Retrying is what walks a camera into an escalating lockout: measured on a
+  // C210, five minutes after a few attempts and twenty-nine after a few more.
+  // A missing switch costs far less than a camera locked out of every path.
+  let attempts = 0;
+  const probed = { ...camera, ip: '10.0.0.7' };
+  const cloudOnly = normalizeConfig({ email: 'a@b.c', password: 'wrong' });
+
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  TapoLocalApi.prototype.getPrivacyMode = async function refuse() {
+    attempts += 1;
+    throw new Error('TAPO_LOCAL_BAD_PASSWORD');
+  };
+  try {
+    assert.equal(await probePrivacyMode(probed, cloudOnly), null);
+    assert.equal(await probePrivacyMode(probed, cloudOnly), null);
+    assert.equal(attempts, 1, 'the second scan must not touch the camera again');
+
+    // The user fixing their settings is exactly the moment to try again.
+    forgetRefusedCredentials();
+    await probePrivacyMode(probed, cloudOnly);
+    assert.equal(attempts, 2);
+  } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+    forgetRefusedCredentials();
+  }
 });

@@ -24,7 +24,12 @@ import { TapoCloud, TapoAuthError } from './src/tapo/cloud.js';
 import { EventWatcher } from './src/tapo/events.js';
 import { captureImage } from './src/tapo/snapshot.js';
 import { normalizeConfig, isConfigured, hasRtspAccount } from './src/config.js';
-import { buildDiscoveredDevices, cameraFromDevice, parseCloudDeviceId } from './src/devices.js';
+import {
+  buildDiscoveredDevices,
+  cameraFromDevice,
+  parseCloudDeviceId,
+  forgetRefusedCredentials,
+} from './src/devices.js';
 import { CAPTURE_MODES, DEVICE_PARAMS } from './src/tapo/constants.js';
 import { BatteryGuard } from './src/tapo/batteryGuard.js';
 import { isBatteryModel } from './src/tapo/rtsp.js';
@@ -551,6 +556,10 @@ gladys.onConfigUpdated(async () => {
   logger.info('onConfigUpdated -> reloading the configuration');
   // The account may have changed: drop the token rather than guess it still works.
   cloud.token = null;
+  // Same for the cameras whose credentials were rejected: the user very likely
+  // came here to fix exactly that, and the re-publish below must try again
+  // rather than keep skipping them until a restart.
+  forgetRefusedCredentials();
   await publishDevices().catch((e) => logger.error('Re-publish after config update failed', e));
   if (isConfigured(config)) {
     // Thresholds first: the watcher polls straight away, and a tick landing
