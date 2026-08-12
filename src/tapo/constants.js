@@ -132,10 +132,15 @@ export const PTZ_WATCHDOG_MS = 5 * 1000;
  * Relative is the DEFAULT mode, because a lone movement value — a scene action,
  * a dashboard tap whose release is lost — is the common case, and the spec warns
  * it would otherwise mean the full watchdog of motion (~5 s) where the user
- * expects a nudge. Measured on a C200: the pan axis covers 360° over the -1..1
- * range, so 0.05 is roughly 9° — a visible step that does not overshoot.
+ * expects a nudge.
+ *
+ * The size is EMPIRICAL, not geometric. Deriving it from the axis range (0.05
+ * for ~9° of pan) produced a camera that answered every command with a 200 and
+ * did not move an inch: below some firmware threshold, a translation is
+ * acknowledged and then ignored. Reported elsewhere on these firmwares too — a
+ * distance of 0.1 crawls, 0.8 moves normally, at identical speeds.
  */
-export const PTZ_STEP = 0.05;
+export const PTZ_STEP = 0.5;
 
 /**
  * Speed sent alongside a movement, in ONVIF normalized units (0..1).
