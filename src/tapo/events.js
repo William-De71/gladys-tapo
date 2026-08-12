@@ -553,6 +553,27 @@ export class EventWatcher {
       return { events: [], battery: null, privacy: null };
     }
 
+    // A camera pushing its events over ONVIF is not asked for its detections:
+    // the answer would be discarded anyway, and every skipped request is one
+    // less wake-up for a battery camera.
+    const cloudDeviceId =
+      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    const skipDetections = this.onvifCovered.has(cloudDeviceId);
+
+    // Nothing to read on this camera: an ONVIF-covered wired camera with no
+    // battery and no privacy switch has no local question left. Opening a
+    // session anyway is not free — on a camera that refuses these credentials it
+    // is a failed login every tick, which is what keeps such a camera locked out
+    // permanently instead of for a few minutes.
+    const features = device.features || [];
+    const wants = (suffix) =>
+      features.some((feature) => String(feature.external_id || '').endsWith(`:${suffix}`));
+    const wantsBattery = wants(FEATURE_SUFFIXES.BATTERY);
+    const wantsPrivacy = wants(FEATURE_SUFFIXES.PRIVACY);
+    if (skipDetections && !wantsBattery && !wantsPrivacy) {
+      return { events: [], battery: null, privacy: null };
+    }
+
     const api = this.getLocalApi(ip);
 
     // Only the window since the last look matters, and the camera stores far
@@ -561,18 +582,16 @@ export class EventWatcher {
     const since = this.lastLookAt.get(ip) ?? now - LOCAL_EVENT_WINDOW_SECONDS;
     this.lastLookAt.set(ip, now);
 
-    // A camera pushing its events over ONVIF is not asked for its detections:
-    // the answer would be discarded anyway, and every skipped request is one
-    // less wake-up for a battery camera.
-    const cloudDeviceId =
-      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
-    const skipDetections = this.onvifCovered.has(cloudDeviceId);
-
+    // Only what this device actually exposes is asked for: reading a battery
+    // level from a wired camera, or a lens mask from a camera that has no
+    // switch, is pure cost with nothing to gain.
     const [battery, events, privacy] = await Promise.all([
-      api.getBatteryLevel().catch((e) => {
-        logger.debug(`Reading the battery of ${ip} failed: ${e.message}`);
-        return null;
-      }),
+      wantsBattery
+        ? api.getBatteryLevel().catch((e) => {
+            logger.debug(`Reading the battery of ${ip} failed: ${e.message}`);
+            return null;
+          })
+        : Promise.resolve(null),
       skipDetections
         ? Promise.resolve([])
         : api.getDetections(since, now).catch((e) => {
@@ -581,11 +600,13 @@ export class EventWatcher {
           }),
       // Re-read every round so a toggle made from the Tapo app reaches Gladys:
       // a switch that only reflects what Gladys itself did is a switch that
-      // lies. One more call on a session that is already open.
-      api.getPrivacyMode().catch((e) => {
-        logger.debug(`Reading the privacy mode of ${ip} failed: ${e.message}`);
-        return null;
-      }),
+      // lies. Only for the cameras that HAVE the switch, though.
+      wantsPrivacy
+        ? api.getPrivacyMode().catch((e) => {
+            logger.debug(`Reading the privacy mode of ${ip} failed: ${e.message}`);
+            return null;
+          })
+        : Promise.resolve(null),
     ]);
 
     return { events, battery, privacy };

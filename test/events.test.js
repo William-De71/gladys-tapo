@@ -24,7 +24,13 @@ const doorbellCamera = {
  */
 function buildWatcher({ events = [], battery = null, privacy = null, onDoorbell } = {}) {
   const gladys = fakeGladys();
-  const device = buildDevice(gladys, doorbellCamera);
+  // The privacy state is only read for a camera that HAS the switch — the local
+  // session is not opened for questions the device cannot answer — so the fake
+  // camera must declare it whenever the test cares about it.
+  const device = buildDevice(gladys, {
+    ...doorbellCamera,
+    hasPrivacyMode: privacy === null ? undefined : privacy,
+  });
   gladys.devices = [device];
   const watcher = new EventWatcher({ gladys, cloud: fakeCloud(), onDoorbell });
   watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
@@ -386,4 +392,34 @@ test('the local client is shared rather than opened twice', async () => {
   const { watcher, api } = buildWatcher({});
   assert.equal(watcher.getLocalApi(doorbellCamera.ip), api);
   assert.equal(watcher.getLocalApi(doorbellCamera.ip), watcher.getLocalApi(doorbellCamera.ip));
+});
+
+test('a camera with nothing local to answer is not logged into at all', async () => {
+  // The bug this pins: every tick opened a session on a wired, ONVIF-covered
+  // camera just to ask questions it has no features for. On a camera that
+  // refuses those credentials, that is a failed login every 20 seconds — which
+  // held a C210 in a permanent lockout instead of a few minutes.
+  const gladys = fakeGladys();
+  const wired = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID3',
+    hasBattery: false,
+    hasEvents: true,
+  });
+  gladys.devices = [wired];
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+  // Its events arrive over ONVIF, so the detections are skipped too: nothing at
+  // all is left to ask.
+  watcher.onvifCovered.add('ID3');
+
+  let opened = false;
+  watcher.getLocalApi = () => {
+    opened = true;
+    return fakeLocalApi({});
+  };
+
+  await watcher.checkDevice(wired);
+  assert.equal(opened, false, 'no local session must be opened with nothing to read');
 });
