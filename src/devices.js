@@ -239,12 +239,25 @@ export async function probePrivacyMode(camera, config) {
   // slot right away rather than in a few minutes; the firmware only keeps a few.
   const api = new TapoLocalApi(camera.ip, config.password);
   try {
-    return await api.getPrivacyMode();
+    const state = await api.getPrivacyMode();
+    if (state === null) {
+      // The call went through and the camera answered with a shape carrying no
+      // lens mask — an older firmware without the feature.
+      logger.info(`"${camera.name}" reports no privacy mode: no switch created`);
+    }
+    return state;
   } catch (e) {
+    // Logged at INFO, not debug. This decides whether a camera gets a switch at
+    // all, and hiding it left the only symptom being a control that never
+    // appeared — undiagnosable without attaching a debugger to the integration.
+    // `TAPO_LOCAL_NO_NONCE` here means the camera refused the local session
+    // outright, which some firmwares do whatever credentials are offered.
+    logger.info(
+      `"${camera.name}" refused the local session (${e.message}): no privacy switch created`,
+    );
     // Never `false`: "the camera refused the call" and "the camera has no lens
     // mask" must not lead to the same conclusion, since one of them would
     // silently drop the switch of a camera that has one.
-    logger.debug(`Privacy mode probe of "${camera.name}" failed: ${e.message}`);
     return null;
   } finally {
     api.close();
