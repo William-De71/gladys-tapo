@@ -167,3 +167,46 @@ test('a camera with no stream URL publishes an empty one, never a broken one', (
   const device = buildDevice(gladys, { ...camera, streamUrl: undefined });
   assert.equal(getParam(device, DEVICE_PARAMS.CAMERA_URL), '');
 });
+
+// --- Privacy mode feature -----------------------------------------------------
+
+test('a camera that answered gets a privacy switch, in either state', () => {
+  [true, false].forEach((state) => {
+    const features = buildFeatures(gladys, { ...camera, hasPrivacyMode: state });
+    const privacy = features.find((feature) => feature.category === 'switch');
+    assert.ok(privacy, `a camera reporting ${state} must expose the switch`);
+    assert.equal(privacy.type, 'binary');
+    assert.equal(privacy.read_only, false);
+    // The one feature here whose state is genuinely readable back, which is what
+    // lets a toggle made in the Tapo app show up in Gladys.
+    assert.equal(privacy.has_feedback, true);
+    assert.equal(privacy.min, 0);
+    assert.equal(privacy.max, 1);
+  });
+});
+
+test('a camera that could not be asked gets no privacy switch', () => {
+  // `null` is "unknown", and an unknown capability must not become a switch
+  // wired to nothing.
+  assert.ok(
+    !buildFeatures(gladys, { ...camera, hasPrivacyMode: null }).some(
+      (feature) => feature.category === 'switch',
+    ),
+  );
+  assert.ok(!buildFeatures(gladys, camera).some((feature) => feature.category === 'switch'));
+});
+
+test('the privacy switch is told apart from the motion sensor', () => {
+  // Both are typed `binary` in Gladys — only the category separates them, which
+  // is exactly why the command path routes on the category.
+  const features = buildFeatures(gladys, {
+    ...camera,
+    hasEvents: true,
+    hasPrivacyMode: false,
+  });
+  const binaries = features.filter((feature) => feature.type === 'binary');
+  assert.equal(binaries.length, 2, 'motion and privacy both type as binary');
+  assert.deepEqual(binaries.map((feature) => feature.category).sort(), ['motion-sensor', 'switch']);
+  // Only one of the two is writable.
+  assert.deepEqual(binaries.map((feature) => feature.read_only).sort(), [false, true]);
+});

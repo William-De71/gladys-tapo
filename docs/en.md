@@ -120,6 +120,18 @@ Wired cameras (C210, C200, C500…) generally offer ONVIF, which gives them a mo
 
 There is nothing to configure: if the camera account is filled in and the camera accepts ONVIF, the integration uses it; otherwise it polls the camera as before.
 
+## Privacy mode
+
+Tapo cameras have a privacy mode that physically covers the lens. It shows up in Gladys as a switch, usable in a scene — "when I get home, blind the living room camera".
+
+It does not go through ONVIF (it is TP-Link's own feature) but through the same local channel as the battery level. No camera account is needed, then: your Tapo account password is enough, and battery models get it too.
+
+The switch works **both ways**. A toggle made from the Tapo app shows up in Gladys at the next check, within the minute.
+
+While privacy mode is on, the camera keeps streaming but only shows a black frame reading "Privacy Mode is on". The integration therefore does not capture it: the widget keeps its last useful image instead of turning black, and a battery camera is not woken up for nothing. Images resume as soon as privacy mode is turned off.
+
+If a camera does not offer this feature, the switch simply is not created.
+
 ## Options
 
 - **Image quality** — HD gives a sharper image, SD is lighter and faster to capture.

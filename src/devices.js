@@ -26,6 +26,7 @@ import {
 } from './tapo/rtsp.js';
 import { hasRtspAccount } from './config.js';
 import { discoverLocalAddresses } from './tapo/discovery.js';
+import { TapoLocalApi } from './tapo/localApi.js';
 import {
   EXTERNAL_ID_TYPE,
   DEVICE_PARAMS,
@@ -135,6 +136,28 @@ export function buildFeatures(gladys, camera) {
     );
   }
 
+  // Created unless the camera EXPLICITLY answered that it has no lens mask.
+  // `hasPrivacyMode` is null when the question could not be asked — no local
+  // address, camera asleep, firmware without the method — and a switch that is
+  // missing is worse than one that is briefly unresponsive: the scenes built on
+  // it would break silently.
+  if (camera.hasPrivacyMode !== null && camera.hasPrivacyMode !== undefined) {
+    features.push({
+      name: `${camera.name} - Privacy mode`,
+      external_id: ids.feature(FEATURE_SUFFIXES.PRIVACY),
+      category: DEVICE_FEATURE_CATEGORIES.SWITCH,
+      type: DEVICE_FEATURE_TYPES.SWITCH.BINARY,
+      read_only: false,
+      keep_history: true,
+      // The only feature here whose state is genuinely readable back from the
+      // camera: the poll re-reads it, so a toggle made in the Tapo app shows up
+      // in Gladys instead of leaving the switch lying.
+      has_feedback: true,
+      min: 0,
+      max: 1,
+    });
+  }
+
   if (camera.hasBattery) {
     features.push({
       name: `${camera.name} - Battery`,
@@ -188,6 +211,47 @@ export function buildDevice(gladys, camera) {
 }
 
 /**
+ * Ask a camera whether it supports the privacy mode, and what its current state
+ * is.
+ *
+ * Asked rather than deduced from the model, for the reason this project already
+ * recorded in `NO_LOCAL_ACCESS_MODELS`: a capability guessed from a model string
+ * is a capability guessed wrong.
+ *
+ * Unlike the ONVIF probes, this one needs no camera account — the local API
+ * authenticates with the TP-Link account password — so it covers the battery
+ * models too, which expose no ONVIF at all.
+ * @param {object} camera - The resolved camera.
+ * @param {object} config - The normalized configuration.
+ * @returns {Promise<boolean|null>} The current state, or null when the camera
+ * does not support it or could not be asked.
+ * @example
+ * const isPrivate = await probePrivacyMode(camera, config);
+ */
+export async function probePrivacyMode(camera, config) {
+  if (!camera.ip || !config.password) {
+    return null;
+  }
+
+  // A short-lived session of its own: the watcher's cache is keyed by IP and
+  // owned by the event loop, and borrowing from it here — during a scan, before
+  // any device exists — would race with it. Closed below so the camera frees the
+  // slot right away rather than in a few minutes; the firmware only keeps a few.
+  const api = new TapoLocalApi(camera.ip, config.password);
+  try {
+    return await api.getPrivacyMode();
+  } catch (e) {
+    // Never `false`: "the camera refused the call" and "the camera has no lens
+    // mask" must not lead to the same conclusion, since one of them would
+    // silently drop the switch of a camera that has one.
+    logger.debug(`Privacy mode probe of "${camera.name}" failed: ${e.message}`);
+    return null;
+  } finally {
+    api.close();
+  }
+}
+
+/**
  * Resolve a cloud camera into everything needed to talk to it: its capabilities,
  * and the capture mode its open ports reveal.
  * @param {object} cloudCamera - The camera as returned by the cloud.
@@ -226,14 +290,18 @@ export async function resolveCamera(cloudCamera, config) {
     return camera;
   }
 
-  // Both probes are independent round trips on the same camera, so they run
-  // together rather than one after the other.
-  const [captureMode, onvif] = await Promise.all([
+  // Independent round trips on the same camera, so they run together rather than
+  // one after the other. The privacy probe joins them because it depends on
+  // neither: it speaks the local API, not ONVIF, so a battery camera without any
+  // ONVIF at all still gets its switch.
+  const [captureMode, onvif, privacyMode] = await Promise.all([
     detectCaptureMode(camera, config),
     hasOnvif(camera),
+    probePrivacyMode(camera, config),
   ]);
   camera.captureMode = captureMode;
   camera.hasOnvif = onvif;
+  camera.hasPrivacyMode = privacyMode;
 
   // A camera serving ONVIF can report motion, whether or not it runs on battery
   // — which is what gives a wired camera a motion sensor it never had. The

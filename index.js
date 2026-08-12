@@ -15,7 +15,11 @@
 // notification.
 // -----------------------------------------------------------------------------
 
-import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
+import {
+  GladysIntegration,
+  logger,
+  DEVICE_FEATURE_CATEGORIES,
+} from '@gladysassistant/integration-sdk';
 import { TapoCloud, TapoAuthError } from './src/tapo/cloud.js';
 import { EventWatcher } from './src/tapo/events.js';
 import { captureImage } from './src/tapo/snapshot.js';
@@ -105,6 +109,13 @@ function isRefreshDue(device) {
 async function captureDeviceImage(device) {
   if (!batteryGuard.allowsOnDemand(device.external_id)) {
     throw new Error(`TAPO_BATTERY_TOO_LOW:${batteryGuard.levelOf(device.external_id)}%`);
+  }
+  // A masked camera keeps streaming: it serves a black frame reading "Privacy
+  // Mode is on" rather than failing, so capturing would succeed and publish a
+  // picture that reads as a broken camera. Refusing here keeps the last useful
+  // image on the widget — and spares a battery model a wake-up for nothing.
+  if (watcher.isPrivacyModeOn(device.external_id)) {
+    throw new Error('TAPO_PRIVACY_MODE_ON');
   }
   const camera = await cameraFromDevice(device, config);
   if (!camera.ip) {
@@ -290,6 +301,38 @@ gladys.onGetImage(async (device) => {
     logger.warn(`Capturing the image of "${device.name}" failed: ${e.message}`);
     throw e;
   }
+});
+
+// --- Privacy mode: Gladys asks to mask or unmask the lens --------------------
+gladys.onSetValue(async (device, deviceFeature, value) => {
+  // Routed on the CATEGORY, not on the type: `binary` is the same string for
+  // eight categories in Gladys, and the motion sensor of these very cameras
+  // already uses `sensor.binary`. Matching on the type alone would make a
+  // privacy command indistinguishable from a write to the motion sensor.
+  if (deviceFeature.category !== DEVICE_FEATURE_CATEGORIES.SWITCH) {
+    logger.debug(`onSetValue <- ignoring ${deviceFeature.category} on ${device.external_id}`);
+    return;
+  }
+
+  // The selector, not the name: a command payload carries no `name`.
+  const label = device.selector || device.external_id;
+  const ip = (device.params || []).find((param) => param.name === DEVICE_PARAMS.IP)?.value;
+  if (!ip) {
+    throw new Error(`No local address known for "${label}"`);
+  }
+
+  const enabled = Number(value) === 1;
+  logger.info(`onSetValue <- privacy ${enabled ? 'on' : 'off'} on "${label}"`);
+
+  // Through the watcher's client, never a fresh one: the firmware only accepts a
+  // handful of sessions and a second client would eventually get every login
+  // refused.
+  await watcher.getLocalApi(ip).setPrivacyMode(enabled);
+
+  // Remembered right away rather than at the next poll: otherwise a camera the
+  // user just un-masked would keep being skipped by the capture guard for up to
+  // a minute, which looks like the switch did nothing.
+  watcher.setPrivacyMode(device.external_id, enabled);
 });
 
 // --- Polling: Gladys asks to refresh a device --------------------------------

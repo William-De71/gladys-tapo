@@ -76,14 +76,19 @@ export function fakeCloud({ events = [], battery = null } = {}) {
  * @param {object} [options] - What the camera reports.
  * @param {Array} [options.events] - The detections it returns.
  * @param {number|null} [options.battery] - Its battery level.
+ * @param {boolean|null} [options.privacy] - Its privacy mode; null stands for a
+ * camera whose firmware has no lens mask.
  * @returns {object} The fake client.
  * @example
  * const api = fakeLocalApi({ battery: 91 });
  */
-export function fakeLocalApi({ events = [], battery = null } = {}) {
+export function fakeLocalApi({ events = [], battery = null, privacy = null } = {}) {
   const calls = { count: 0 };
+  /** What `setPrivacyMode` was last asked for, so a command can be asserted. */
+  const written = { privacy: null };
   return {
     calls,
+    written,
     getBatteryLevel: async () => {
       calls.count += 1;
       return battery;
@@ -91,6 +96,13 @@ export function fakeLocalApi({ events = [], battery = null } = {}) {
     getDetections: async () => {
       calls.count += 1;
       return events;
+    },
+    // Deliberately NOT counted in `calls`: that counter exists to assert which
+    // cameras were polled for their detections, and adding a second increment
+    // per round would break that reading for reasons unrelated to the test.
+    getPrivacyMode: async () => privacy,
+    setPrivacyMode: async (enabled) => {
+      written.privacy = enabled;
     },
     close: async () => {},
   };

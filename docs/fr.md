@@ -120,6 +120,18 @@ Les caméras filaires (C210, C200, C500…) proposent généralement ONVIF, ce q
 
 Vous n'avez rien à configurer : si le compte caméra est renseigné et que la caméra accepte ONVIF, l'intégration l'utilise ; sinon elle interroge la caméra comme avant.
 
+## Mode privé
+
+Les caméras Tapo disposent d'un mode privé qui masque physiquement l'objectif. Il apparaît dans Gladys comme un interrupteur, utilisable dans une scène — « quand j'arrive, coupe la caméra du salon ».
+
+Il ne passe pas par ONVIF (c'est une fonction propre à TP-Link) mais par le même canal local que le niveau de batterie. Aucun compte caméra n'est donc nécessaire : le mot de passe de votre compte Tapo suffit, et les modèles sur batterie en bénéficient aussi.
+
+L'interrupteur fonctionne **dans les deux sens**. Une bascule faite depuis l'application Tapo remonte dans Gladys à la vérification suivante, dans la minute.
+
+Pendant que le mode privé est actif, la caméra continue de diffuser mais ne montre plus qu'une image noire portant « Privacy Mode is on ». L'intégration ne la capture donc pas : le widget conserve sa dernière image utile au lieu de virer au noir, et une caméra sur batterie n'est pas réveillée pour rien. Les images reprennent dès que le mode privé est désactivé.
+
+Si une caméra ne propose pas cette fonction, l'interrupteur n'est simplement pas créé.
+
 ## Options
 
 - **Qualité de l'image** — HD donne une image plus nette, SD est plus légère et plus rapide à capturer.
