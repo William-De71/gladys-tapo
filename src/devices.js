@@ -214,14 +214,11 @@ export function buildDevice(gladys, camera) {
  * Cameras that refused a local session, by IP.
  *
  * Tapo firmwares lock an address out after a few failed logins, and the penalty
- * grows with each attempt (measured on a C210: 5 minutes, then 29, then 27 from
- * a single further scan). Retrying is therefore not merely useless — it is what
- * keeps the camera locked, and the lockout blocks the paths that DO work.
- *
- * Holds every refusal, not just wrong passwords: a locked-out camera answers
- * `NO_NONCE` rather than `BAD_PASSWORD`, so guarding the password case alone
- * left the very situation that needed stopping still retrying on every scan.
- * Cleared by `forgetRefusedCredentials` when the user edits the settings.
+ * grows with each attempt (measured on a C210: minutes, then half an hour).
+ * Retrying is therefore not merely useless — it is what keeps the camera locked,
+ * and the lockout blocks the local paths that do work. Any refusal is recorded,
+ * whatever its reason. Cleared by `forgetRefusedCredentials` when the user edits
+ * the settings.
  * @type {Set<string>}
  */
 const authRefused = new Set();
@@ -246,22 +243,11 @@ export function forgetRefusedCredentials() {
  * recorded in `NO_LOCAL_ACCESS_MODELS`: a capability guessed from a model string
  * is a capability guessed wrong.
  *
- * The CAMERA account authenticates this API, not the TP-Link one. In pytapo —
- * where this protocol comes from — the login digest is built from the first
- * credential passed to the client, which Home Assistant fills with the camera
- * account; the cloud password it also passes is used elsewhere, for the media
- * stream. Sending the TP-Link password here is what a camera with a real camera
- * account rejects, and it is rejected rightly.
- *
- * The TP-Link password remains the fallback for the cameras that have no camera
- * account saved — one credential is tried per scan, never two, since two failed
- * logins in a row is what arms the brute-force protection.
- *
- * A refusal is REMEMBERED and never retried (see `authRefused`). Tapo cameras
- * lock an address out after a few failed logins, and the penalty escalates —
- * measured: 5 minutes, then 29, then 27 more from a single further scan. A probe
- * that ran on every scan therefore turned a wrong password into a camera locked
- * out for good, which costs far more than a missing switch.
+ * Authenticated with the TP-Link account password (username "admin"), one
+ * attempt per scan. Measured: a C500 opens its local API with it; some cameras
+ * refuse it and simply get no switch. A refusal is remembered and never retried
+ * (see `authRefused`) — the single most important guard here, because retrying
+ * is what walks a camera into an escalating lockout.
  * @param {object} camera - The resolved camera.
  * @param {object} config - The normalized configuration.
  * @returns {Promise<boolean|null>} The current state, or null when the camera
@@ -281,17 +267,11 @@ export async function probePrivacyMode(camera, config) {
     return null;
   }
 
-  // ONE login attempt per scan, with the TP-Link account password.
-  //
-  // MEASURED, twice: a C500 gets its switch with this password and loses it the
-  // moment the camera account is preferred instead. Reading the reference
-  // implementations suggested the opposite twice over, and the camera disagreed
-  // both times — so the measurement wins, and this comment exists so the change
-  // is not made a third time.
-  //
-  // What the camera account is for is still unresolved for the cameras that
-  // refuse this password (a C210 here); what is certain is that swapping the
-  // order is not the answer.
+  // The TP-Link account password, with "admin" as the username. Measured: a C500
+  // opens its local API with it. Some cameras (a C210 here) refuse it and expose
+  // no privacy switch — see the catch below; preferring their camera account was
+  // tried and takes the switch away from the cameras the password suits, so it
+  // is deliberately not attempted.
   if (!config.password) {
     return null;
   }
@@ -314,40 +294,24 @@ export async function probePrivacyMode(camera, config) {
   } catch (e) {
     api.close();
 
-    // Logged at INFO, not debug. This decides whether a camera gets a switch at
-    // all, and hiding it left the only symptom being a control that never
-    // appeared — undiagnosable without attaching a debugger to the integration.
-    // Any refusal of the session stops the probe for good, not just a rejected
-    // password. Guarding `BAD_PASSWORD` alone was not enough: a camera that has
-    // already locked the address out answers `NO_NONCE:-40401` instead, so the
-    // one case that most needs stopping was the one still retrying — measured, a
-    // single scan re-locked a C210 for 27 minutes.
-    //
-    // A timeout is the exception: an unreachable camera says nothing about its
-    // credentials, and a camera that was merely asleep must be probed again.
+    // The refusal is remembered so the probe is not retried. This is the point
+    // that matters most: Tapo cameras lock an address out after a few failed
+    // logins, and retrying every scan is what turns a one-off refusal into a
+    // camera locked out for good. A timeout is the exception — an unreachable
+    // camera has said nothing about its credentials, and one that was merely
+    // asleep must be probed again.
     const unreachable = e.message.includes('TIMEOUT') || e.message.includes('ECONN');
     if (!unreachable) {
       authRefused.add(camera.ip);
     }
 
+    // Logged at INFO/WARN, not debug: this decides whether a camera gets a
+    // switch, and hiding it left a control that simply never appeared, with no
+    // reason anywhere.
     if (e.message.includes('BAD_PASSWORD')) {
-      // No action is suggested, because there is none. The Tapo password is
-      // provably right — the same one lists these cameras on the cloud — and the
-      // camera account does not drive this API (measured: preferring it costs
-      // the switch on a camera that had one). Such a camera simply keeps its
-      // local API to itself.
       logger.warn(
         `"${camera.name}" rejected the Tapo password on its local API: no privacy switch. ` +
           `This camera does not open its local API to Gladys; its other features are unaffected.`,
-      );
-    } else if (e.message.includes('NO_NONCE')) {
-      // The camera locks an address out after failed logins, and every further
-      // attempt extends the penalty — so saying "wait" is the actionable advice,
-      // and not retrying is what makes the wait finite.
-      logger.warn(
-        `"${camera.name}" refused the local session (${e.message}): no privacy switch. ` +
-          `The camera locks out an address after failed logins — leave it alone for ~30 minutes, ` +
-          `check its camera account, then scan again.`,
       );
     } else {
       logger.info(
