@@ -291,7 +291,8 @@ export async function buildDiscoveredDevices(gladys, cloudCameras, config) {
  * added before its ports answered, or a mode that changed since).
  * @param {object} device - The Gladys device.
  * @param {object} config - The normalized configuration.
- * @returns {Promise<object>} The resolved camera.
+ * @returns {Promise<object>} The resolved camera. `unreachable` is set when a
+ * probe ran and found no open port, telling the caller not to try a capture.
  * @example
  * const camera = await cameraFromDevice(device, config);
  */
@@ -318,9 +319,19 @@ export async function cameraFromDevice(device, config) {
 
   if (!camera.captureMode && camera.ip) {
     camera.captureMode = await detectCaptureMode(camera, config);
+    // The probe just found neither port open. Falling back to a mode here would
+    // mean opening a connection the camera has already refused — which is what
+    // used to happen: an unplugged camera was retried on the proprietary
+    // protocol every cycle, each attempt running until its timeout. Remember the
+    // refusal so the caller can report it instead of hammering the camera.
+    if (!camera.captureMode) {
+      camera.unreachable = true;
+      return camera;
+    }
   }
   // Without a known mode, the proprietary protocol is the safer guess: it is the
-  // one that works without a camera account.
+  // one that works without a camera account. This covers the camera that was
+  // never probed, not the one that failed its probe just above.
   if (!camera.captureMode) {
     camera.captureMode = CAPTURE_MODES.PROPRIETARY;
   }
