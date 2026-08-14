@@ -203,15 +203,36 @@ test('a camera that answered gets a privacy switch, in either state', () => {
   });
 });
 
-test('a camera that could not be asked gets no privacy switch', () => {
+test('a camera that was NEVER asked gets no privacy switch', () => {
   // `null` is "unknown", and an unknown capability must not become a switch
-  // wired to nothing.
+  // wired to nothing. A cloud id of its own: a camera that answered once is
+  // remembered, and reusing that id here would be testing the opposite case.
+  const unknown = { ...camera, cloudDeviceId: 'NEVER_ASKED' };
   assert.ok(
-    !buildFeatures(gladys, { ...camera, hasPrivacyMode: null }).some(
+    !buildFeatures(gladys, { ...unknown, hasPrivacyMode: null }).some(
       (feature) => feature.category === 'switch',
     ),
   );
-  assert.ok(!buildFeatures(gladys, camera).some((feature) => feature.category === 'switch'));
+  assert.ok(!buildFeatures(gladys, unknown).some((feature) => feature.category === 'switch'));
+});
+
+test('a camera that answered once keeps its privacy switch when a later scan fails', () => {
+  // The regression that cost a working switch: a camera serving a temporary
+  // lockout answers `null`, and the switch used to vanish from the device —
+  // breaking the scenes built on it until the container was restarted.
+  const locked = { ...camera, cloudDeviceId: 'LOCKED_LATER' };
+  assert.ok(
+    buildFeatures(gladys, { ...locked, hasPrivacyMode: false }).some(
+      (feature) => feature.category === 'switch',
+    ),
+    'the camera answers first, so it publishes the switch',
+  );
+  assert.ok(
+    buildFeatures(gladys, { ...locked, hasPrivacyMode: null }).some(
+      (feature) => feature.category === 'switch',
+    ),
+    'an unanswered probe must not remove a switch the camera already had',
+  );
 });
 
 test('the privacy switch is told apart from the motion sensor', () => {
@@ -385,6 +406,37 @@ test('a locked-out camera is left alone rather than probed again', async () => {
     await probePrivacyMode(probed, cloudOnly);
     assert.equal(attempts, 1, 'a locked-out camera must be touched once, not every scan');
   } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+    forgetRefusedCredentials();
+  }
+});
+
+test('a locked-out camera is probed again once the penalty has lapsed', async () => {
+  // The half of the guard that was missing: the pause used to last for the life
+  // of the process, so a five-minute lockout cost the switch until someone
+  // restarted the container — which is what users hit, and reported as a bug.
+  let attempts = 0;
+  const probed = { ...camera, ip: '10.0.0.11' };
+  const cloudOnly = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  const realNow = Date.now;
+  TapoLocalApi.prototype.getPrivacyMode = async function refuse() {
+    attempts += 1;
+    // The camera says it is locked out, not that the password is wrong.
+    throw new Error('TAPO_LOCAL_NO_RESPONSE:-40214');
+  };
+  try {
+    await probePrivacyMode(probed, cloudOnly);
+    await probePrivacyMode(probed, cloudOnly);
+    assert.equal(attempts, 1, 'still one attempt while the penalty runs');
+
+    // Well past the backoff: the camera has had its quiet and gets another turn.
+    Date.now = () => realNow() + 40 * 60 * 1000;
+    await probePrivacyMode(probed, cloudOnly);
+    assert.equal(attempts, 2, 'the probe must come back on its own');
+  } finally {
+    Date.now = realNow;
     TapoLocalApi.prototype.getPrivacyMode = original;
     forgetRefusedCredentials();
   }
