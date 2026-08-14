@@ -23,14 +23,17 @@ import http from 'node:http';
 import { logger } from '@gladysassistant/integration-sdk';
 import { ONVIF_PORT, ONVIF_PULL_TIMEOUT_SECONDS, ONVIF_REQUEST_TIMEOUT_MS } from './constants.js';
 
-/** XML namespaces of the three services this module talks to. */
-const NS = {
+/** XML namespaces of the services this module and the PTZ client talk to. */
+export const NS = {
   soap: 'http://www.w3.org/2003/05/soap-envelope',
   wsse: 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd',
   wsu: 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd',
   device: 'http://www.onvif.org/ver10/device/wsdl',
   events: 'http://www.onvif.org/ver10/events/wsdl',
   addressing: 'http://www.w3.org/2005/08/addressing',
+  media: 'http://www.onvif.org/ver10/media/wsdl',
+  ptz: 'http://www.onvif.org/ver20/ptz/wsdl',
+  schema: 'http://www.onvif.org/ver10/schema',
 };
 
 /** Password type declared by the UsernameToken digest profile. */
@@ -98,11 +101,15 @@ export function buildSecurityHeader(username, password) {
  * @example
  * buildEnvelope('<tds:GetServices/>', header);
  */
-function buildEnvelope(body, securityHeader, extraHeader = '') {
+export function buildEnvelope(body, securityHeader, extraHeader = '') {
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<s:Envelope xmlns:s="${NS.soap}" xmlns:tds="${NS.device}" ` +
-    `xmlns:tev="${NS.events}" xmlns:wsa="${NS.addressing}">` +
+    `xmlns:tev="${NS.events}" xmlns:wsa="${NS.addressing}" ` +
+    // Media and PTZ travel with the same envelope: the PTZ client below reuses
+    // this builder, and a body referencing an undeclared prefix is answered with
+    // a parse fault rather than a usable error.
+    `xmlns:trt="${NS.media}" xmlns:tptz="${NS.ptz}" xmlns:tt="${NS.schema}">` +
     `<s:Header>${securityHeader}${extraHeader}</s:Header>` +
     `<s:Body>${body}</s:Body></s:Envelope>`
   );
@@ -224,6 +231,40 @@ export function classifyTopic(topic) {
     return 'motion';
   }
   return null;
+}
+
+/**
+ * Tell whether a `GetEventProperties` response declares a doorbell topic.
+ *
+ * This is how a camera says it HAS a button: the topic set lists everything the
+ * firmware can ever emit, so a camera with no visitor/doorbell topic in it will
+ * never ring — and a doorbell feature on such a device is a row that stays empty
+ * forever, and a scene trigger that can never fire.
+ *
+ * Absence is only trusted when the response is a real topic set. An empty body,
+ * a fault, or anything unparseable yields null rather than false: "the camera
+ * said no" and "the camera did not answer" must not lead to the same decision,
+ * since dropping the feature of a real doorbell breaks the user's scenes.
+ * @param {string} xml - The response body.
+ * @returns {boolean|null} True/false when known, null when undeterminable.
+ * @example
+ * hasDoorbellTopic(xml); // true on a D230
+ */
+export function hasDoorbellTopic(xml) {
+  const text = String(xml || '');
+  // The topic set is what makes the answer meaningful; without it there is
+  // nothing to conclude from.
+  const section = /<(?:[\w.-]+:)?TopicSet\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?TopicSet>/i.exec(text);
+  if (!section) {
+    return null;
+  }
+
+  // Topics are ELEMENT NAMES in the hierarchy, not text: a doorbell hangs under
+  // something like `<tns1:Device><Trigger><Visitor wstop:topic="true"/>`. Every
+  // tag name is therefore collected and classified with the same rules as a
+  // live event, so the two paths cannot drift apart.
+  const names = section[1].match(/<(?:[\w.-]+:)?([\w.-]+)/g) || [];
+  return names.some((name) => classifyTopic(name) === 'doorbell');
 }
 
 /**
@@ -386,6 +427,34 @@ export class TapoOnvif {
       this.eventsUrl = `http://${this.ip}:${ONVIF_PORT}${target.pathname}${target.search}`;
     }
     return { eventsUrl: this.eventsUrl, pullPoint };
+  }
+
+  /**
+   * Ask the camera whether it can ever report a doorbell press.
+   *
+   * Answered from the topic set rather than from the model name: TP-Link ships
+   * doorbells and plain cameras under neighbouring references, and this project
+   * already learned (see `NO_LOCAL_ACCESS_MODELS`) that a capability guessed
+   * from a model string is a capability guessed wrong.
+   * @returns {Promise<boolean|null>} True/false when known, null when the camera
+   * could not be asked.
+   * @example
+   * const hasButton = await client.hasDoorbell();
+   */
+  async hasDoorbell() {
+    try {
+      if (!this.eventsUrl) {
+        await this.getCapabilities();
+      }
+      const xml = await this.call(this.eventsUrl || this.deviceUrl, '<tev:GetEventProperties/>');
+      return hasDoorbellTopic(xml);
+    } catch (e) {
+      // Null, never false: a camera that refused the call has said nothing about
+      // its button, and dropping the feature of a real doorbell would silently
+      // break the scenes built on it.
+      logger.debug(`Reading the event topics of ${this.ip} failed: ${e.message}`);
+      return null;
+    }
   }
 
   /**

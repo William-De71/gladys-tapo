@@ -132,6 +132,18 @@ Pendant que le mode privé est actif, la caméra continue de diffuser mais ne mo
 
 Si une caméra ne propose pas cette fonction, l'interrupteur n'est simplement pas créé.
 
+## Orienter une caméra motorisée (PTZ)
+
+Les caméras motorisées (C200, C210, C225, C500…) peuvent être orientées depuis Gladys : les flèches apparaissent directement sur le widget caméra du tableau de bord, à côté de l'image.
+
+Comme pour les événements, cela passe par ONVIF et demande donc que le **compte caméra** soit renseigné. L'intégration demande à chaque caméra ce qu'elle sait faire : une caméra qui pivote sans zoom motorisé n'affiche que les quatre flèches, et une caméra fixe n'affiche rien du tout. Vous n'avez aucune capacité à déclarer vous-même.
+
+**Les positions enregistrées** que vous avez créées dans l'application Tapo sont reprises telles quelles, avec leurs noms. Elles apparaissent dans une liste déroulante sous les flèches, et sont utilisables dans une scène — c'est l'usage le plus courant : « quand je pars, oriente la caméra vers la porte ». Gladys ne crée ni ne renomme les positions : cela reste du ressort de l'application Tapo. Si vous en ajoutez une, elle apparaît au prochain scan.
+
+Un appui sur une flèche déplace la caméra **d'un pas**, pas en continu. C'est délibéré : une commande envoyée depuis une scène, ou un appui dont le relâchement se perd, doit rester un petit mouvement et non plusieurs secondes de rotation. Chaque pas s'arrête donc de lui-même : même si Gladys perd le contact avec la caméra juste après, aucun mouvement ne reste en cours.
+
+Une remarque sur la vitesse : les firmwares Tapo ignorent largement la vitesse demandée et déduisent l'allure de la distance à parcourir. Un pas peut donc paraître lent — c'est le comportement de la caméra, pas un réglage manquant.
+
 ## Options
 
 - **Qualité de l'image** — HD donne une image plus nette, SD est plus légère et plus rapide à capturer.

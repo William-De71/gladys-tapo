@@ -23,14 +23,20 @@ import {
 import { TapoCloud, TapoAuthError } from './src/tapo/cloud.js';
 import { EventWatcher } from './src/tapo/events.js';
 import { captureImage } from './src/tapo/snapshot.js';
-import { normalizeConfig, isConfigured, hasRtspAccount } from './src/config.js';
+import { normalizeConfig, isConfigured, hasRtspAccount, resolveRtspAccount } from './src/config.js';
 import {
   buildDiscoveredDevices,
   cameraFromDevice,
   parseCloudDeviceId,
   forgetRefusedCredentials,
 } from './src/devices.js';
-import { CAPTURE_MODES, DEVICE_PARAMS } from './src/tapo/constants.js';
+import { TapoPtz } from './src/tapo/ptz.js';
+import {
+  CAPTURE_MODES,
+  DEVICE_PARAMS,
+  CAMERA_MOVE,
+  CAMERA_FEATURE_TYPES,
+} from './src/tapo/constants.js';
 import { BatteryGuard } from './src/tapo/batteryGuard.js';
 import { isBatteryModel } from './src/tapo/rtsp.js';
 
@@ -44,6 +50,9 @@ let config = normalizeConfig();
 
 /** When each device was last captured, to honour its own refresh interval. */
 const lastCaptureAt = new Map();
+
+/** One PTZ client per device, keyed by external id. */
+const ptzClients = new Map();
 
 /**
  * Tell whether a device is one of the battery/solar cameras.
@@ -65,6 +74,73 @@ function isBatteryDevice(device) {
   }
   const model = (device.params || []).find((param) => param.name === DEVICE_PARAMS.MODEL);
   return isBatteryModel(model?.value || '');
+}
+
+/**
+ * The PTZ client of a device, built once and kept.
+ *
+ * Reused across commands on purpose: the client caches the PTZ service address
+ * and the media profile, which cost two round trips to discover — rediscovering
+ * them on every arrow press would make the camera feel sluggish.
+ *
+ * The device is RE-READ rather than used as handed over: a command payload
+ * carries only the external id, the selector and the params — no `name`. The
+ * camera account is indexed BY NAME (the Tapo app creates one per camera), so
+ * building the client from the payload alone looked up an account for
+ * "undefined" and every movement was refused.
+ * @param {object} device - The Gladys device, as the command payload carries it.
+ * @returns {Promise<object|null>} The client, or null without a camera account.
+ * @example
+ * const ptz = await getPtzClient(device);
+ */
+async function getPtzClient(device) {
+  const existing = ptzClients.get(device.external_id);
+  if (existing) {
+    return existing;
+  }
+
+  // Only on the first command of a camera: the client is then cached, so the
+  // arrows that follow cost nothing extra.
+  const known = await gladys
+    .getDevices()
+    .then((devices) => devices.find((entry) => entry.external_id === device.external_id))
+    .catch(() => null);
+  const name = known?.name || device.name;
+
+  // The params of the payload are authoritative — they are the ones Gladys just
+  // sent — but a re-read device carries them too when the payload has none.
+  const params = device.params || known?.params || [];
+  const ip = params.find((param) => param.name === DEVICE_PARAMS.IP)?.value;
+  const account = resolveRtspAccount(config, name);
+  if (!ip || !account.username || !account.password) {
+    return null;
+  }
+
+  const client = new TapoPtz(ip, account.username, account.password);
+  ptzClients.set(device.external_id, client);
+  return client;
+}
+
+/**
+ * Map a preset option value back to the camera's own token.
+ *
+ * The feature carries an integer because Gladys options are integers; ONVIF
+ * identifies a preset by free text. The device params hold the tokens in option
+ * order, which is what makes the translation a lookup rather than a call to the
+ * camera.
+ * @param {object} device - The Gladys device.
+ * @param {number} value - The option value received.
+ * @returns {string|null} The token, or null when out of range.
+ * @example
+ * presetTokenFor(device, 0); // '1'
+ */
+function presetTokenFor(device, value) {
+  const raw = (device.params || []).find((param) => param.name === DEVICE_PARAMS.PRESET_TOKENS);
+  const tokens = String(raw?.value || '')
+    .split(',')
+    .filter(Boolean);
+  const index = Number(value);
+  return tokens[index] || null;
 }
 
 /**
@@ -314,36 +390,87 @@ gladys.onGetImage(async (device) => {
   }
 });
 
-// --- Privacy mode: Gladys asks to mask or unmask the lens --------------------
+// --- Commands: Gladys writes a value on one of our features ------------------
+// ONE handler for the whole integration, on purpose: the SDK stores a single
+// `setValue` callback, so a second `onSetValue` would silently replace this one
+// and take the other feature down with it. Everything writable routes from here.
 gladys.onSetValue(async (device, deviceFeature, value) => {
-  // Routed on the CATEGORY, not on the type: `binary` is the same string for
-  // eight categories in Gladys, and the motion sensor of these very cameras
-  // already uses `sensor.binary`. Matching on the type alone would make a
-  // privacy command indistinguishable from a write to the motion sensor.
-  if (deviceFeature.category !== DEVICE_FEATURE_CATEGORIES.SWITCH) {
-    logger.debug(`onSetValue <- ignoring ${deviceFeature.category} on ${device.external_id}`);
+  // The privacy switch is routed on the CATEGORY, not on the type: `binary` is
+  // the same string for eight categories in Gladys, and the motion sensor of
+  // these very cameras already uses `sensor.binary`. Matching on the type alone
+  // would make a privacy command indistinguishable from a write to the motion
+  // sensor.
+  if (deviceFeature.category === DEVICE_FEATURE_CATEGORIES.SWITCH) {
+    // The selector, not the name: a command payload carries no `name`.
+    const label = device.selector || device.external_id;
+    const ip = (device.params || []).find((param) => param.name === DEVICE_PARAMS.IP)?.value;
+    if (!ip) {
+      throw new Error(`No local address known for "${label}"`);
+    }
+
+    const enabled = Number(value) === 1;
+    logger.info(`onSetValue <- privacy ${enabled ? 'on' : 'off'} on "${label}"`);
+
+    // Through the watcher's client, never a fresh one: the firmware only accepts
+    // a handful of sessions and a second client would eventually get every login
+    // refused.
+    await watcher.getLocalApi(ip).setPrivacyMode(enabled);
+
+    // Remembered right away rather than at the next poll: otherwise a camera the
+    // user just un-masked would keep being skipped by the capture guard for up
+    // to a minute, which looks like the switch did nothing.
+    watcher.setPrivacyMode(device.external_id, enabled);
     return;
   }
 
-  // The selector, not the name: a command payload carries no `name`.
-  const label = device.selector || device.external_id;
-  const ip = (device.params || []).find((param) => param.name === DEVICE_PARAMS.IP)?.value;
-  if (!ip) {
-    throw new Error(`No local address known for "${label}"`);
+  // PTZ: one scalar value per command (spec `docs/specs/camera-ptz-control.md`).
+  // Routed on the TYPE, because both features live under the `camera` category.
+  const type = deviceFeature.type;
+  if (type !== CAMERA_FEATURE_TYPES.MOVE && type !== CAMERA_FEATURE_TYPES.PRESET) {
+    // Every other feature of a camera is read-only; a value written to one is a
+    // caller mistake worth surfacing rather than a command to guess at.
+    logger.debug(
+      `onSetValue <- ignoring ${deviceFeature.category}/${type} on ${device.external_id}`,
+    );
+    return;
   }
 
-  const enabled = Number(value) === 1;
-  logger.info(`onSetValue <- privacy ${enabled ? 'on' : 'off'} on "${label}"`);
+  // The selector, not the name: a command payload carries no `name`, and every
+  // message here used to read "undefined" — which is exactly what made the
+  // first failure unreadable.
+  const label = device.selector || device.external_id;
 
-  // Through the watcher's client, never a fresh one: the firmware only accepts a
-  // handful of sessions and a second client would eventually get every login
-  // refused.
-  await watcher.getLocalApi(ip).setPrivacyMode(enabled);
+  const ptz = await getPtzClient(device);
+  if (!ptz) {
+    throw new Error(`No camera account configured for "${label}"`);
+  }
 
-  // Remembered right away rather than at the next poll: otherwise a camera the
-  // user just un-masked would keep being skipped by the capture guard for up to
-  // a minute, which looks like the switch did nothing.
-  watcher.setPrivacyMode(device.external_id, enabled);
+  if (type === CAMERA_FEATURE_TYPES.PRESET) {
+    const token = presetTokenFor(device, value);
+    if (!token) {
+      throw new Error(`Unknown preset ${value} on "${label}"`);
+    }
+    logger.info(`onSetValue <- preset ${value} on "${label}"`);
+    await ptz.gotoPreset(token);
+    return;
+  }
+
+  if (Number(value) === CAMERA_MOVE.STOP) {
+    logger.info(`onSetValue <- stop on "${label}"`);
+    await ptz.stop();
+    return;
+  }
+
+  // A bounded step, not a continuous move. Gladys sends the release `0` right
+  // after a quick tap, but a value can also arrive ALONE — from a scene, or when
+  // the release is lost — and the spec is explicit that such a value must mean a
+  // nudge rather than seconds of rotation. The step is what makes both callers
+  // correct, and the stop that may follow is then a no-op.
+  //
+  // Logged at INFO, not debug: a PTZ command is a user gesture that either
+  // reaches the camera or does not, and the debug level hid that entirely.
+  logger.info(`onSetValue <- move ${value} on "${label}"`);
+  await ptz.step(Number(value));
 });
 
 // --- Polling: Gladys asks to refresh a device --------------------------------
@@ -566,6 +693,9 @@ gladys.onConfigUpdated(async () => {
   // came here to fix exactly that, and the re-publish below must try again
   // rather than keep skipping them until a restart.
   forgetRefusedCredentials();
+  // Same reasoning for the PTZ clients: each holds the credentials it was built
+  // with, so a corrected camera password would never reach the camera.
+  ptzClients.clear();
   await publishDevices().catch((e) => logger.error('Re-publish after config update failed', e));
   if (isConfigured(config)) {
     // Thresholds first: the watcher polls straight away, and a tick landing

@@ -6,6 +6,7 @@ import {
   readTag,
   classifyTopic,
   parsePullMessages,
+  hasDoorbellTopic,
   TapoOnvif,
 } from '../src/tapo/onvif.js';
 
@@ -150,4 +151,42 @@ test('a pull point address is reached on the IP we know, keeping its path', () =
   const target = new URL(address);
   const rebuilt = `http://${client.ip}:2020${target.pathname}${target.search}`;
   assert.equal(rebuilt, 'http://10.0.50.11:2020/onvif/Subscription?Idx=7');
+});
+
+// --- Doorbell capability ------------------------------------------------------
+
+test('a topic set listing a visitor topic means the camera has a button', () => {
+  const xml = `<tev:GetEventPropertiesResponse><wstop:TopicSet>
+<tns1:Device><Trigger><Visitor wstop:topic="true"/></Trigger></tns1:Device>
+</wstop:TopicSet></tev:GetEventPropertiesResponse>`;
+  assert.equal(hasDoorbellTopic(xml), true);
+});
+
+test('a topic set without any visitor topic means no button', () => {
+  // A plain camera: it reports motion and nothing else, so a doorbell feature on
+  // it would stay empty forever and its scene trigger could never fire.
+  const xml = `<tev:GetEventPropertiesResponse><wstop:TopicSet>
+<tns1:RuleEngine><CellMotionDetector><Motion wstop:topic="true"/></CellMotionDetector></tns1:RuleEngine>
+</wstop:TopicSet></tev:GetEventPropertiesResponse>`;
+  assert.equal(hasDoorbellTopic(xml), false);
+});
+
+test('an unreadable answer says NOTHING rather than "no button"', () => {
+  // The distinction that matters: "the camera said no" and "the camera did not
+  // answer" must not lead to the same decision. Dropping the button of a real
+  // doorbell silently breaks every scene built on it.
+  assert.equal(hasDoorbellTopic(''), null);
+  assert.equal(hasDoorbellTopic(undefined), null);
+  assert.equal(
+    hasDoorbellTopic('<soap:Fault><faultstring>denied</faultstring></soap:Fault>'),
+    null,
+  );
+});
+
+test('the doorbell topic is classified by the same rules as a live event', () => {
+  // Both paths share `classifyTopic`, so a spelling accepted at runtime is
+  // accepted at discovery too — they cannot drift apart.
+  const xml =
+    '<wstop:TopicSet><tns1:Device><IsDoorbell wstop:topic="true"/></tns1:Device></wstop:TopicSet>';
+  assert.equal(hasDoorbellTopic(xml), true);
 });
