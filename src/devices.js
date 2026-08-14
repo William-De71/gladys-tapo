@@ -166,7 +166,6 @@ export function buildFeatures(gladys, camera) {
 
   if (camera.hasEvents) {
     features.push({
-      name: `${camera.name} - Motion`,
       external_id: ids.feature(FEATURE_SUFFIXES.MOTION),
       category: DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
       type: DEVICE_FEATURE_TYPES.SENSOR.BINARY,
