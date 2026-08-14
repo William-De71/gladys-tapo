@@ -6,20 +6,21 @@
 // values (CAMERA_MOVE) this module maps onto ONVIF operations, and a preset
 // feature whose `supported_options` are read from the camera itself.
 //
-// Two movement modes, and the choice between them matters:
+// Movements are sent as RelativeMove: one bounded step that the camera ends on
+// its own. A movement value arriving alone — a scene action, a dashboard tap
+// whose release was lost — is the common case, and the spec is explicit that it
+// must not mean five seconds of rotation. Nothing here starts a motion that
+// depends on a later message to stop, so the spec's watchdog (A.2) has nothing
+// to guard: `stop()` exists for the STOP command itself, not as a safety net.
 //
-//   RelativeMove   — one bounded step, the DEFAULT. A movement value arriving
-//                    alone (a scene action, a dashboard tap whose release was
-//                    lost) is the common case, and the spec is explicit that it
-//                    must not mean five seconds of rotation.
-//   ContinuousMove — used only while a press is actually held, and always armed
-//                    with a local watchdog (spec A.2, a MUST): a stop that never
-//                    arrives must never leave the camera against its stop.
+// ContinuousMove is deliberately NOT implemented. It would only earn its place
+// once Gladys sends a real press/release pair, and it cannot be added without
+// the watchdog that bounds it.
 //
-// Measured on Tapo firmwares (C200/C210/C225): both modes work, presets created
-// in the Tapo app are returned by GetPresets, but the SPEED of a RelativeMove is
-// largely ignored — the firmware derives the pace from the distance instead.
-// That is why the step size, not the speed, is what this module tunes.
+// Measured on Tapo firmwares: presets created in the Tapo app are returned by
+// GetPresets, but the SPEED of a RelativeMove is largely ignored — the firmware
+// derives the pace from the distance instead. That is why the step size, not the
+// speed, is what this module tunes.
 //
 // SOAP is written out by hand here for the same reason as in `onvif.js`: the
 // integration needs a handful of operations out of a standard covering hundreds.
@@ -30,7 +31,6 @@ import { buildEnvelope, buildSecurityHeader, postSoap, readTag, escapeXml } from
 import {
   ONVIF_PORT,
   CAMERA_MOVE,
-  PTZ_WATCHDOG_MS,
   PTZ_STEP,
   PTZ_SPEED,
   PTZ_REQUEST_TIMEOUT_MS,
@@ -133,13 +133,12 @@ export function parsePresets(xml) {
 /**
  * PTZ client for ONE camera.
  *
- * Holds the profile token and the capabilities discovered once, plus the
- * watchdog guarding an in-flight continuous move. Nothing is shared between
- * cameras: a profile token is meaningless on another camera, and a camera that
- * stopped answering must not hold up the others.
+ * Holds the profile token and the capabilities discovered once. Nothing is
+ * shared between cameras: a profile token is meaningless on another camera, and
+ * a camera that stopped answering must not hold up the others.
  * @example
  * const ptz = new TapoPtz('192.168.1.20', 'gladys', 'secret');
- * await ptz.move(CAMERA_MOVE.PAN_LEFT);
+ * await ptz.step(CAMERA_MOVE.PAN_LEFT);
  */
 export class TapoPtz {
   /**
@@ -164,8 +163,6 @@ export class TapoPtz {
     this.profileToken = null;
     /** What the camera declares it can move. @type {object|null} */
     this.capabilities = null;
-    /** Timer stopping an in-flight continuous move. @type {NodeJS.Timeout|null} */
-    this.watchdog = null;
   }
 
   /**
@@ -391,72 +388,24 @@ export class TapoPtz {
   }
 
   /**
-   * Start moving continuously in a direction, bounded by the watchdog.
-   *
-   * Used while a press is held. The watchdog is armed BEFORE the call returns so
-   * that a response lost on the way back still leaves the camera guarded — the
-   * failure mode this exists for is precisely the one where nothing comes back.
-   * @param {number} movement - A CAMERA_MOVE value (1..6).
-   * @returns {Promise<void>} Resolves once the camera accepted the command.
-   * @example
-   * await ptz.startContinuous(CAMERA_MOVE.PAN_LEFT);
-   */
-  async startContinuous(movement) {
-    const vector = MOVE_VECTORS[movement];
-    if (!vector) {
-      throw new Error(`PTZ_UNKNOWN_MOVEMENT_${movement}`);
-    }
-    if (!this.serviceUrl) {
-      await this.discover();
-    }
-    if (!this.serviceUrl) {
-      throw new Error('ONVIF_NO_PTZ');
-    }
-
-    const velocity =
-      vector.z === 0
-        ? `<tt:PanTilt x="${formatNumber(vector.x * PTZ_SPEED)}" y="${formatNumber(vector.y * PTZ_SPEED)}"/>`
-        : `<tt:Zoom x="${formatNumber(vector.z * PTZ_SPEED)}"/>`;
-
-    // Armed first, on purpose: if the request below throws after the camera
-    // actually started moving, the timer is what stops it.
-    this.armWatchdog();
-
-    try {
-      await this.call(
-        this.serviceUrl,
-        `<tptz:ContinuousMove>` +
-          `<tptz:ProfileToken>${escapeXml(this.profileToken)}</tptz:ProfileToken>` +
-          `<tptz:Velocity>${velocity}</tptz:Velocity>` +
-          `</tptz:ContinuousMove>`,
-      );
-    } catch (e) {
-      // The camera refused the move, so there is nothing to guard — but a stop
-      // is still sent, because "refused" and "started then failed to answer"
-      // are indistinguishable from here.
-      this.clearWatchdog();
-      await this.stop().catch(() => {});
-      throw e;
-    }
-  }
-
-  /**
    * Stop every ongoing movement.
    *
    * Stops pan, tilt AND zoom in one call: the spec defines STOP as halting
    * everything, and a camera that was zooming while panning must not keep one
    * axis running.
+   *
+   * Nothing this client sends needs stopping — a RelativeMove ends on its own —
+   * so this serves the STOP command itself, and covers a movement started
+   * elsewhere (the Tapo app, a preset still travelling).
    * @returns {Promise<void>} Resolves once the camera accepted the command.
    * @example
    * await ptz.stop();
    */
   async stop() {
-    this.clearWatchdog();
-
     if (!this.serviceUrl) {
-      // Nothing was ever started through this client, so there is nothing to
-      // stop — and discovering a service just to stop an idle camera would turn
-      // a harmless stop into a network round trip.
+      // Never discovered, so no command was ever sent through this client —
+      // and discovering a service just to stop an idle camera would turn a
+      // harmless stop into a network round trip.
       return;
     }
 
@@ -468,44 +417,5 @@ export class TapoPtz {
         `<tptz:Zoom>true</tptz:Zoom>` +
         `</tptz:Stop>`,
     );
-  }
-
-  /**
-   * Arm the watchdog that bounds a continuous move.
-   *
-   * The spec's safety rule (A.2, a MUST): a lost stop must never leave the
-   * camera rotating. Re-arming replaces any previous timer, so holding a press
-   * through several commands does not stack timers.
-   * @example
-   * ptz.armWatchdog();
-   */
-  armWatchdog() {
-    this.clearWatchdog();
-    this.watchdog = setTimeout(() => {
-      this.watchdog = null;
-      logger.debug(`PTZ watchdog stopping ${this.ip} after ${PTZ_WATCHDOG_MS / 1000}s`);
-      // Best effort by construction: this fires precisely when the normal stop
-      // path did not, so there is nobody left to report a failure to.
-      this.stop().catch((e) =>
-        logger.debug(`PTZ watchdog stop of ${this.ip} failed: ${e.message}`),
-      );
-    }, PTZ_WATCHDOG_MS);
-    // The timer must not hold the process open: a camera left mid-move at
-    // shutdown is stopped by the camera's own firmware timeout anyway.
-    if (typeof this.watchdog.unref === 'function') {
-      this.watchdog.unref();
-    }
-  }
-
-  /**
-   * Disarm the watchdog.
-   * @example
-   * ptz.clearWatchdog();
-   */
-  clearWatchdog() {
-    if (this.watchdog) {
-      clearTimeout(this.watchdog);
-      this.watchdog = null;
-    }
   }
 }

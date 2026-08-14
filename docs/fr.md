@@ -140,7 +140,7 @@ Comme pour les événements, cela passe par ONVIF et demande donc que le **compt
 
 **Les positions enregistrées** que vous avez créées dans l'application Tapo sont reprises telles quelles, avec leurs noms. Elles apparaissent dans une liste déroulante sous les flèches, et sont utilisables dans une scène — c'est l'usage le plus courant : « quand je pars, oriente la caméra vers la porte ». Gladys ne crée ni ne renomme les positions : cela reste du ressort de l'application Tapo. Si vous en ajoutez une, elle apparaît au prochain scan.
 
-Un appui sur une flèche déplace la caméra **d'un pas**, pas en continu. C'est délibéré : une commande envoyée depuis une scène, ou un appui dont le relâchement se perd, doit rester un petit mouvement et non plusieurs secondes de rotation. Par sécurité, tout mouvement continu est de toute façon arrêté automatiquement au bout de cinq secondes, même si Gladys perd le contact avec la caméra entre-temps.
+Un appui sur une flèche déplace la caméra **d'un pas**, pas en continu. C'est délibéré : une commande envoyée depuis une scène, ou un appui dont le relâchement se perd, doit rester un petit mouvement et non plusieurs secondes de rotation. Chaque pas s'arrête donc de lui-même : même si Gladys perd le contact avec la caméra juste après, aucun mouvement ne reste en cours.
 
 Une remarque sur la vitesse : les firmwares Tapo ignorent largement la vitesse demandée et déduisent l'allure de la distance à parcourir. Un pas peut donc paraître lent — c'est le comportement de la caméra, pas un réglage manquant.
 

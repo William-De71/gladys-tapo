@@ -117,22 +117,13 @@ export const CAMERA_FEATURE_TYPES = {
 };
 
 /**
- * Safety bound on a continuous move, in milliseconds.
- *
- * The spec makes this a MUST: a stop that never arrives — browser tab killed
- * mid-press, Wi-Fi drop between the move and its release — must never leave the
- * camera grinding against its mechanical stop. Every `ContinuousMove` this
- * integration sends is therefore armed with a timer that stops it locally.
- */
-export const PTZ_WATCHDOG_MS = 5 * 1000;
-
-/**
  * How far one `RelativeMove` step travels, in ONVIF normalized units (-1..1).
  *
- * Relative is the DEFAULT mode, because a lone movement value — a scene action,
- * a dashboard tap whose release is lost — is the common case, and the spec warns
- * it would otherwise mean the full watchdog of motion (~5 s) where the user
- * expects a nudge.
+ * Relative is the ONLY mode this integration sends, because a lone movement
+ * value — a scene action, a dashboard tap whose release is lost — is the common
+ * case, and a continuous move would then mean seconds of rotation where the user
+ * expects a nudge. A step also ends on its own, so no movement here depends on a
+ * later message to stop it (which is what the spec's watchdog, A.2, guards).
  *
  * The size is EMPIRICAL, not geometric. Deriving it from the axis range (0.05
  * for ~9° of pan) produced a camera that answered every command with a 200 and

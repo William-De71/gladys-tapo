@@ -140,7 +140,7 @@ Like the events, this goes through ONVIF and therefore needs the **camera accoun
 
 **The saved positions** you created in the Tapo app are picked up as they are, with their names. They appear in a dropdown below the arrows, and can be used in a scene — the most common use by far: "when I leave, point the camera at the door". Gladys neither creates nor renames positions: that stays in the Tapo app. If you add one, it shows up at the next scan.
 
-Pressing an arrow moves the camera **one step**, not continuously. This is deliberate: a command sent from a scene, or a press whose release is lost, must stay a small movement rather than several seconds of rotation. As a safety net, any continuous movement is stopped automatically after five seconds anyway, even if Gladys loses contact with the camera in the meantime.
+Pressing an arrow moves the camera **one step**, not continuously. This is deliberate: a command sent from a scene, or a press whose release is lost, must stay a small movement rather than several seconds of rotation. Each step therefore ends on its own: even if Gladys loses contact with the camera right after, no movement is left running.
 
 One note on speed: Tapo firmwares largely ignore the requested speed and derive the pace from the distance to travel. A step may therefore feel slow — that is the camera's behaviour, not a missing setting.
 

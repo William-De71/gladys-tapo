@@ -81,8 +81,7 @@ function isBatteryDevice(device) {
  *
  * Reused across commands on purpose: the client caches the PTZ service address
  * and the media profile, which cost two round trips to discover — rediscovering
- * them on every arrow press would make the camera feel sluggish. It also owns
- * the watchdog, which only bounds a movement if the same client sees the stop.
+ * them on every arrow press would make the camera feel sluggish.
  *
  * The device is RE-READ rather than used as handed over: a command payload
  * carries only the external id, the selector and the params — no `name`. The
@@ -465,8 +464,8 @@ gladys.onSetValue(async (device, deviceFeature, value) => {
   // A bounded step, not a continuous move. Gladys sends the release `0` right
   // after a quick tap, but a value can also arrive ALONE — from a scene, or when
   // the release is lost — and the spec is explicit that such a value must mean a
-  // nudge rather than the full watchdog of rotation. The step is what makes both
-  // callers correct, and the stop that may follow is then a no-op.
+  // nudge rather than seconds of rotation. The step is what makes both callers
+  // correct, and the stop that may follow is then a no-op.
   //
   // Logged at INFO, not debug: a PTZ command is a user gesture that either
   // reaches the camera or does not, and the debug level hid that entirely.
@@ -696,7 +695,6 @@ gladys.onConfigUpdated(async () => {
   forgetRefusedCredentials();
   // Same reasoning for the PTZ clients: each holds the credentials it was built
   // with, so a corrected camera password would never reach the camera.
-  ptzClients.forEach((client) => client.clearWatchdog());
   ptzClients.clear();
   await publishDevices().catch((e) => logger.error('Re-publish after config update failed', e));
   if (isConfigured(config)) {

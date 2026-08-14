@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatNumber, parsePtzSpaces, parsePresets, TapoPtz } from '../src/tapo/ptz.js';
-import { CAMERA_MOVE, PTZ_WATCHDOG_MS } from '../src/tapo/constants.js';
+import { CAMERA_MOVE } from '../src/tapo/constants.js';
 
 // What a C200 answers `GetPresets` with, trimmed. Kept verbatim — the `tptz:`
 // prefix, the token attribute and the nested Name element are exactly what a
@@ -84,10 +84,11 @@ test('numbers are formatted as plain decimals, never exponential', () => {
   assert.equal(formatNumber(1), '1');
 });
 
-test('a continuous move arms the watchdog, and a stop disarms it', async () => {
+test('no command ever starts a movement that needs a later message to stop it', async () => {
+  // The invariant the whole module rests on: every movement sent here ends on
+  // its own. A ContinuousMove would need the spec's watchdog (A.2) to bound it,
+  // so it must not be reintroduced without one — this is what would catch that.
   const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
-  // Pretend discovery already happened, so the call path is the only thing under
-  // test here.
   ptz.serviceUrl = 'http://10.0.0.1:2020/onvif/service';
   ptz.profileToken = 'profile_1';
 
@@ -97,61 +98,14 @@ test('a continuous move arms the watchdog, and a stop disarms it', async () => {
     return '<ok/>';
   };
 
-  await ptz.startContinuous(CAMERA_MOVE.PAN_LEFT);
-  assert.ok(sent[0].includes('ContinuousMove'));
-  assert.ok(sent[0].includes('PanTilt'));
-  // The safety rule of the spec is a MUST: a movement with no timer is exactly
-  // the failure this guards against.
-  assert.ok(ptz.watchdog, 'a continuous move must be bounded by the watchdog');
-
+  await ptz.step(CAMERA_MOVE.PAN_LEFT);
+  await ptz.gotoPreset('1');
   await ptz.stop();
-  assert.ok(sent[1].includes('Stop'));
-  assert.equal(ptz.watchdog, null, 'the stop must disarm the watchdog');
-});
 
-test('the watchdog stops the camera when no release ever arrives', async () => {
-  const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
-  ptz.serviceUrl = 'http://10.0.0.1:2020/onvif/service';
-  ptz.profileToken = 'profile_1';
-
-  const sent = [];
-  ptz.call = async (url, body) => {
-    sent.push(body);
-    return '<ok/>';
-  };
-
-  await ptz.startContinuous(CAMERA_MOVE.PAN_RIGHT);
-  sent.length = 0;
-
-  // This is the browser-tab-killed case: nothing else will ever call stop().
-  await new Promise((resolve) => setTimeout(resolve, PTZ_WATCHDOG_MS + 200));
-
-  assert.equal(sent.length, 1, 'the watchdog must send exactly one stop');
-  assert.ok(sent[0].includes('Stop'));
-});
-
-test('a refused continuous move still sends a stop', async () => {
-  const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
-  ptz.serviceUrl = 'http://10.0.0.1:2020/onvif/service';
-  ptz.profileToken = 'profile_1';
-
-  const sent = [];
-  ptz.call = async (url, body) => {
-    sent.push(body);
-    if (body.includes('ContinuousMove')) {
-      throw new Error('ONVIF_HTTP_500:refused');
-    }
-    return '<ok/>';
-  };
-
-  // "Refused" and "started, then failed to answer" look identical from here, so
-  // the stop is sent either way.
-  await assert.rejects(() => ptz.startContinuous(CAMERA_MOVE.PAN_LEFT));
   assert.ok(
-    sent.some((body) => body.includes('Stop')),
-    'a failed move must still be stopped',
+    !sent.some((body) => body.includes('ContinuousMove')),
+    'an unbounded move must never be sent without a watchdog to stop it',
   );
-  assert.equal(ptz.watchdog, null);
 });
 
 test('a step is bounded by construction and carries only the axis it moves', async () => {
@@ -175,8 +129,6 @@ test('a step is bounded by construction and carries only the axis it moves', asy
   // Sending a zoom translation to a camera whose zoom is not being moved is
   // answered with a fault on some firmwares.
   assert.ok(!sent[0].includes('<tt:Zoom'));
-  // A relative step needs no timer: the camera stops on its own.
-  assert.equal(ptz.watchdog, null);
 
   sent.length = 0;
   await ptz.step(CAMERA_MOVE.ZOOM_IN);
@@ -192,7 +144,7 @@ test('an unknown movement value is refused rather than guessed at', async () => 
 
   // Moving a camera in a direction nobody asked for is worse than doing nothing.
   await assert.rejects(() => ptz.step(42), /PTZ_UNKNOWN_MOVEMENT/);
-  await assert.rejects(() => ptz.startContinuous(99), /PTZ_UNKNOWN_MOVEMENT/);
+  await assert.rejects(() => ptz.step(99), /PTZ_UNKNOWN_MOVEMENT/);
 });
 
 test('stopping a camera that never moved costs no network call', async () => {
@@ -224,9 +176,6 @@ test('recalling a preset sends the token the camera handed out', async () => {
   await ptz.gotoPreset('2');
   assert.ok(sent[0].includes('GotoPreset'));
   assert.ok(sent[0].includes('<tptz:PresetToken>2</tptz:PresetToken>'));
-  // An absolute move is bounded by construction: the camera travels to a known
-  // position and stops there.
-  assert.equal(ptz.watchdog, null);
 });
 
 test('a preset token carrying XML characters is escaped', async () => {
