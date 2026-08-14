@@ -376,11 +376,21 @@ export class EventWatcher {
     }
     this.running = true;
     try {
-      const devices = this.gladys.devices || [];
+      // Asked, for the same reason as the ONVIF setup: `gladys.devices` is only
+      // resynchronized when the WebSocket (re)connects, so after a config change
+      // it is stale — and empty until the first reconnection. This loop is what
+      // the CLOUD path relies on, so a stale list here means a battery camera,
+      // which has no ONVIF to fall back on, reports nothing at all.
+      const devices = await this.gladys.getDevices().catch((e) => {
+        logger.debug(`Listing the devices for the event tick failed: ${e.message}`);
+        return [];
+      });
       // Only the cameras Gladys knows about are worth polling.
       const eventDevices = devices.filter((device) =>
         (device.features || []).some(
-          (feature) => feature.category === 'button' || feature.category === 'motion-sensor',
+          (feature) =>
+            feature.category === DEVICE_FEATURE_CATEGORIES.BUTTON ||
+            feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
         ),
       );
       for (const device of eventDevices) {
