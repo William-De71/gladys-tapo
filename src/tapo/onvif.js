@@ -36,6 +36,16 @@ export const NS = {
   schema: 'http://www.onvif.org/ver10/schema',
 };
 
+/**
+ * Consecutive failed pulls before the outage is reported at warn level.
+ *
+ * Three, because the first two are the ordinary ones: a subscription that
+ * expired and a camera that rebooted both cost a pull, and both are recovered
+ * from without anyone needing to know. By the third the camera is not answering
+ * at all, and a silent motion sensor is worse than a noisy log.
+ */
+const ONVIF_FAILURES_BEFORE_WARNING = 3;
+
 /** Password type declared by the UsernameToken digest profile. */
 const PASSWORD_DIGEST_TYPE =
   'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordDigest';
@@ -582,6 +592,12 @@ export class TapoOnvif {
     while (this.running) {
       try {
         const events = await this.pull();
+        // Pair of the warning above: an outage that was announced must have its
+        // recovery announced too, or the log leaves the camera looking broken
+        // long after it came back.
+        if (this.failures >= ONVIF_FAILURES_BEFORE_WARNING) {
+          logger.info(`ONVIF events are being read from ${this.ip} again`);
+        }
         // A successful pull clears the backoff: a camera that answered once is
         // healthy again, whether or not it had anything to report.
         this.failures = 0;
@@ -605,6 +621,22 @@ export class TapoOnvif {
         logger.debug(
           `ONVIF pull on ${this.ip} failed (${this.failures}): ${e.message} — retrying in ${waitMs / 1000}s`,
         );
+        // Said ONCE, out loud, when the failures stop looking accidental. A
+        // single failure is ordinary — a camera rebooting, a subscription that
+        // expired — and the loop recovers from it by itself. A run of them means
+        // motion detection is DEAD on that camera, and that used to be visible
+        // only at debug level: the sensor silently stopped reporting, with
+        // nothing anywhere to say so. Logged once per outage rather than per
+        // pull, so a camera that is off for the night costs one line, not one a
+        // minute; `failures` is reset to 0 by the first successful pull, which
+        // re-arms the warning for the next outage.
+        if (this.failures === ONVIF_FAILURES_BEFORE_WARNING) {
+          logger.warn(
+            `No ONVIF event could be read from ${this.ip} after ${this.failures} attempts ` +
+              `(${e.message}). Motion detection is not working on this camera; ` +
+              `it keeps retrying every ${Math.round(waitMs / 1000)}s.`,
+          );
+        }
         await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
     }

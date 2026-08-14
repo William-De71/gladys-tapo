@@ -190,3 +190,48 @@ test('the doorbell topic is classified by the same rules as a live event', () =>
     '<wstop:TopicSet><tns1:Device><IsDoorbell wstop:topic="true"/></tns1:Device></wstop:TopicSet>';
   assert.equal(hasDoorbellTopic(xml), true);
 });
+
+// --- Pull loop reporting ------------------------------------------------------
+
+test('a run of failed pulls is reported once, and so is the recovery', async () => {
+  // Motion detection dying used to be a debug-level event: the sensor stopped
+  // reporting and nothing anywhere said why. A single failure stays quiet — a
+  // camera rebooting recovers on its own — but a run of them must be visible,
+  // and exactly once, or a camera off for the night writes a line a minute.
+  const client = new TapoOnvif('10.0.0.5', 'user', 'pass');
+  const warnings = [];
+  const infos = [];
+  const { logger } = await import('@gladysassistant/integration-sdk');
+  const realWarn = logger.warn;
+  const realInfo = logger.info;
+  logger.warn = (message) => warnings.push(message);
+  logger.info = (message) => infos.push(message);
+
+  let pulls = 0;
+  client.pull = async () => {
+    pulls += 1;
+    // Fails four times, then recovers.
+    if (pulls <= 4) {
+      throw new Error('TIMEOUT');
+    }
+    client.running = false;
+    return [];
+  };
+
+  const realSetTimeout = globalThis.setTimeout;
+  // The loop backs off between attempts; the waits are not what is under test.
+  globalThis.setTimeout = (fn) => realSetTimeout(fn, 0);
+  try {
+    client.running = true;
+    await client.loop();
+    assert.equal(warnings.length, 1, 'one warning per outage, not one per pull');
+    assert.match(warnings[0], /10\.0\.0\.5/);
+    assert.match(warnings[0], /Motion detection is not working/);
+    assert.equal(infos.length, 1, 'the recovery must be announced too');
+    assert.match(infos[0], /again/);
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    logger.warn = realWarn;
+    logger.info = realInfo;
+  }
+});

@@ -34,6 +34,17 @@ COPY gladys-assistant-integration.json ./
 ENV NODE_ENV=production
 VOLUME ["/data"]
 
+# Verbosity of the integration logs, read by the SDK logger on every call.
+#
+# `info` for the published image: debug logs one line per ONVIF pull per camera,
+# which would bury the messages that matter. Built as an ARG so a development
+# image can ship the verbose default without a separate Dockerfile:
+#   docker build --build-arg LOG_LEVEL=debug -t ghcr.io/william-de71/gladys-tapo:dev .
+# Gladys supervises the container itself, so passing an env var by hand is not
+# an option: it recreates it from the manifest and the variable would be lost.
+ARG LOG_LEVEL=info
+ENV LOG_LEVEL=${LOG_LEVEL}
+
 # Run as an unprivileged user (already present in the node image).
 USER node
 
