@@ -166,6 +166,12 @@ export function buildFeatures(gladys, camera) {
 
   if (camera.hasEvents) {
     features.push({
+      // MANDATORY, whatever the SDK types say. `index.d.ts` declares
+      // `name?: string`, but Gladys answers 422 UNPROCESSABLE and refuses to
+      // register the whole DEVICE when a feature carries none — it derives the
+      // internal selector from the name, so both fields come back missing.
+      // Measured: publishing without it left the camera impossible to add back.
+      name: camera.name,
       external_id: ids.feature(FEATURE_SUFFIXES.MOTION),
       category: DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
       type: DEVICE_FEATURE_TYPES.SENSOR.BINARY,
