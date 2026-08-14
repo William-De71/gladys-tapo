@@ -579,15 +579,30 @@ export class TapoOnvif {
       }
     }
 
-    const xml = await this.call(
-      this.eventsUrl || this.deviceUrl,
-      // The initial termination time is a bound, not a promise: every pull
-      // renews it, and a subscription the integration stops pulling expires on
-      // its own instead of lingering on the camera.
+    // The initial termination time is a bound, not a promise: every pull renews
+    // it, and a subscription the integration stops pulling expires on its own
+    // instead of lingering on the camera.
+    //
+    // Some firmwares reject it outright — measured on a C500, which answers
+    // `ter:InvalidArgVal` to the very same request another Tapo camera accepts.
+    // The element is OPTIONAL in the standard, so a camera that refuses it gets
+    // asked again without it and picks its own default. Without this fallback
+    // that camera got no subscription at all, and its motion sensor stayed dead
+    // while its neighbour worked.
+    const subscribe = (body) => this.call(this.eventsUrl || this.deviceUrl, body);
+    const xml = await subscribe(
       '<tev:CreatePullPointSubscription>' +
         '<tev:InitialTerminationTime>PT10M</tev:InitialTerminationTime>' +
         '</tev:CreatePullPointSubscription>',
-    );
+    ).catch((e) => {
+      if (!String(e.message).includes('InvalidArgVal')) {
+        throw e;
+      }
+      logger.debug(
+        `${this.ip} refused the subscription termination time, asking without it: ${e.message}`,
+      );
+      return subscribe('<tev:CreatePullPointSubscription/>');
+    });
 
     const address = readTag(xml, 'Address');
     if (!address) {

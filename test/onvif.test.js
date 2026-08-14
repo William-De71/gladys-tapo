@@ -331,3 +331,42 @@ test('a quiet pull keeps the subscription and pulls again', async () => {
     globalThis.setTimeout = realSetTimeout;
   }
 });
+
+test('a camera refusing the termination time is subscribed without it', async () => {
+  // Measured on a C500: `ter:InvalidArgVal` to the very CreatePullPointSubscription
+  // another Tapo camera accepts. The element is optional in the standard, and
+  // without this fallback that camera got no subscription at all — its motion
+  // sensor stayed dead while its neighbour worked.
+  const client = new TapoOnvif('10.0.0.9', 'user', 'pass');
+  client.eventsUrl = 'http://10.0.0.9:2020/onvif/service';
+
+  const bodies = [];
+  client.call = async (url, body) => {
+    bodies.push(body);
+    if (body.includes('InitialTerminationTime')) {
+      throw new Error('ONVIF_HTTP_400:ter:InvalidArgVal: error');
+    }
+    return '<tev:SubscriptionReference><wsa:Address>http://10.0.0.9:2020/onvif/sub9</wsa:Address></tev:SubscriptionReference>';
+  };
+
+  await client.subscribe();
+  assert.equal(bodies.length, 2, 'it retries without the termination time');
+  assert.match(bodies[1], /CreatePullPointSubscription\/>/);
+  assert.ok(client.pullPointUrl.endsWith('/onvif/sub9'), 'the subscription is usable');
+});
+
+test('a subscription refused for another reason is not retried', async () => {
+  // A wrong account must surface, not be masked by a second attempt that fails
+  // the same way.
+  const client = new TapoOnvif('10.0.0.10', 'user', 'pass');
+  client.eventsUrl = 'http://10.0.0.10:2020/onvif/service';
+
+  let calls = 0;
+  client.call = async () => {
+    calls += 1;
+    throw new Error('ONVIF_HTTP_401:ter:NotAuthorized');
+  };
+
+  await assert.rejects(() => client.subscribe(), /NotAuthorized/);
+  assert.equal(calls, 1, 'no pointless second attempt');
+});
