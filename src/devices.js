@@ -167,11 +167,19 @@ export function buildFeatures(gladys, camera) {
   if (camera.hasEvents) {
     features.push({
       // MANDATORY, whatever the SDK types say. `index.d.ts` declares
-      // `name?: string`, but Gladys answers 422 UNPROCESSABLE and refuses to
-      // register the whole DEVICE when a feature carries none — it derives the
-      // internal selector from the name, so both fields come back missing.
-      // Measured: publishing without it left the camera impossible to add back.
-      name: camera.name,
+      // `name?: string`, but the column is `allowNull: false` and Gladys answers
+      // 422 UNPROCESSABLE, refusing to register the whole DEVICE — the internal
+      // selector is derived from the name, so both come back missing. Measured:
+      // publishing without it left the camera impossible to add back.
+      //
+      // The English suffix stays, and no translated label can replace it. Gladys
+      // shows its own translated label only for a feature that is UNIQUE on the
+      // device, and `matchFeature` (front/src/utils/device.js) compares the TYPE
+      // alone: `motion-sensor/binary` and the privacy `switch/binary` collide, so
+      // any camera carrying both falls back to this name whatever it contains.
+      // That is why the one camera without a privacy switch reads "Détection
+      // mouvement Oui/Non" while its neighbours do not.
+      name: `${camera.name} - Motion`,
       external_id: ids.feature(FEATURE_SUFFIXES.MOTION),
       category: DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
       type: DEVICE_FEATURE_TYPES.SENSOR.BINARY,
