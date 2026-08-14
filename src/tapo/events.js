@@ -111,6 +111,15 @@ export class EventWatcher {
     this.localApis = new Map();
     /** When each camera was last looked at, to bound the search window. */
     this.lastLookAt = new Map();
+    /**
+     * Last known privacy mode per device external id.
+     *
+     * Kept because a masked camera does not FAIL a capture — it serves a black
+     * frame reading "Privacy Mode is on" — so this is the only thing that lets
+     * the capture path tell "masked" from "working".
+     * @type {Map<string, boolean>}
+     */
+    this.privacyModes = new Map();
     /** One ONVIF client per camera IP, for the cameras that support it. */
     this.onvifClients = new Map();
     /**
@@ -379,7 +388,7 @@ export class EventWatcher {
       return;
     }
 
-    const { events, battery } = await this.fetchDeviceEvents(device);
+    const { events, battery, privacy } = await this.fetchDeviceEvents(device);
 
     if (this.batteryGuard) {
       // Feed the guard first: it decides whether captures may run at all, and
@@ -392,6 +401,19 @@ export class EventWatcher {
         .publishState(
           cameraIds(this.gladys, cloudDeviceId).feature(FEATURE_SUFFIXES.BATTERY),
           battery,
+        )
+        .catch(() => {});
+    }
+
+    if (privacy !== null) {
+      // Remembered as well as published: capturing a masked camera returns a
+      // black frame instead of failing, so the capture path has no way of
+      // noticing on its own (see `isPrivacyModeOn`).
+      this.privacyModes.set(device.external_id, privacy);
+      await this.gladys
+        .publishState(
+          cameraIds(this.gladys, cloudDeviceId).feature(FEATURE_SUFFIXES.PRIVACY),
+          privacy ? 1 : 0,
         )
         .catch(() => {});
     }
@@ -465,36 +487,71 @@ export class EventWatcher {
   }
 
   /**
-   * Fetch the recent events and the battery level of one camera.
+   * Tell whether a camera is known to be masked right now.
    *
-   * The cloud exposes this through a passthrough call whose payload varies across
-   * models and firmwares, so every field is read defensively: a shape we do not
-   * recognize yields no event rather than a crash.
-   * @param {object} device - The Gladys device, carrying the camera address.
-   * @returns {Promise<{ events: object[], battery: number|null }>} What was found.
+   * Only ever true when the camera SAID so: a device never polled, or one whose
+   * firmware has no lens mask, reads as false and is captured as usual.
+   * @param {string} externalId - The device external id.
+   * @returns {boolean} True when the lens is known to be masked.
    * @example
-   * const { events, battery } = await watcher.fetchDeviceEvents(device);
+   * if (watcher.isPrivacyModeOn(device.external_id)) { ... }
    */
-  async fetchDeviceEvents(device) {
-    const ip = getParam(device, DEVICE_PARAMS.IP);
-    if (!ip) {
-      return { events: [], battery: null };
-    }
+  isPrivacyModeOn(externalId) {
+    return this.privacyModes.get(externalId) === true;
+  }
 
-    // One long-lived client per camera: the firmware only accepts a handful of
-    // sessions at a time, so opening one per round would exhaust them and every
-    // later login would be refused with -40413.
+  /**
+   * Record the privacy mode of a camera after a command changed it.
+   *
+   * The command path calls this so the capture guard does not keep skipping a
+   * camera the user just un-masked, instead of waiting for the next poll.
+   * @param {string} externalId - The device external id.
+   * @param {boolean} enabled - The new state.
+   * @example
+   * watcher.setPrivacyMode(device.external_id, true);
+   */
+  setPrivacyMode(externalId, enabled) {
+    this.privacyModes.set(externalId, enabled);
+  }
+
+  /**
+   * The local API client of one camera, opened once and kept.
+   *
+   * Public because the command path needs it too: the firmware only accepts a
+   * handful of sessions at a time, so a second client opened alongside this one
+   * would eventually get every login refused with -40413. Everything talking to
+   * a camera locally goes through here.
+   * @param {string} ip - The camera address.
+   * @returns {object} The client.
+   * @example
+   * const api = watcher.getLocalApi('192.168.1.20');
+   */
+  getLocalApi(ip) {
     let api = this.localApis.get(ip);
     if (!api) {
       api = new TapoLocalApi(ip, this.config.password);
       this.localApis.set(ip, api);
     }
+    return api;
+  }
 
-    // Only the window since the last look matters, and the camera stores far
-    // more than that — asking for everything would return hundreds of entries.
-    const now = Math.floor(Date.now() / 1000);
-    const since = this.lastLookAt.get(ip) ?? now - LOCAL_EVENT_WINDOW_SECONDS;
-    this.lastLookAt.set(ip, now);
+  /**
+   * Fetch the recent events, the battery level and the privacy mode of one
+   * camera.
+   *
+   * The cloud exposes this through a passthrough call whose payload varies across
+   * models and firmwares, so every field is read defensively: a shape we do not
+   * recognize yields no event rather than a crash.
+   * @param {object} device - The Gladys device, carrying the camera address.
+   * @returns {Promise<{ events: object[], battery: number|null, privacy: boolean|null }>} What was found.
+   * @example
+   * const { events, battery, privacy } = await watcher.fetchDeviceEvents(device);
+   */
+  async fetchDeviceEvents(device) {
+    const ip = getParam(device, DEVICE_PARAMS.IP);
+    if (!ip) {
+      return { events: [], battery: null, privacy: null };
+    }
 
     // A camera pushing its events over ONVIF is not asked for its detections:
     // the answer would be discarded anyway, and every skipped request is one
@@ -503,19 +560,55 @@ export class EventWatcher {
       getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
     const skipDetections = this.onvifCovered.has(cloudDeviceId);
 
-    const [battery, events] = await Promise.all([
-      api.getBatteryLevel().catch((e) => {
-        logger.debug(`Reading the battery of ${ip} failed: ${e.message}`);
-        return null;
-      }),
+    // Nothing to read on this camera: an ONVIF-covered wired camera with no
+    // battery and no privacy switch has no local question left. Opening a
+    // session anyway is not free — on a camera that refuses these credentials it
+    // is a failed login every tick, which is what keeps such a camera locked out
+    // permanently instead of for a few minutes.
+    const features = device.features || [];
+    const wants = (suffix) =>
+      features.some((feature) => String(feature.external_id || '').endsWith(`:${suffix}`));
+    const wantsBattery = wants(FEATURE_SUFFIXES.BATTERY);
+    const wantsPrivacy = wants(FEATURE_SUFFIXES.PRIVACY);
+    if (skipDetections && !wantsBattery && !wantsPrivacy) {
+      return { events: [], battery: null, privacy: null };
+    }
+
+    const api = this.getLocalApi(ip);
+
+    // Only the window since the last look matters, and the camera stores far
+    // more than that — asking for everything would return hundreds of entries.
+    const now = Math.floor(Date.now() / 1000);
+    const since = this.lastLookAt.get(ip) ?? now - LOCAL_EVENT_WINDOW_SECONDS;
+    this.lastLookAt.set(ip, now);
+
+    // Only what this device actually exposes is asked for: reading a battery
+    // level from a wired camera, or a lens mask from a camera that has no
+    // switch, is pure cost with nothing to gain.
+    const [battery, events, privacy] = await Promise.all([
+      wantsBattery
+        ? api.getBatteryLevel().catch((e) => {
+            logger.debug(`Reading the battery of ${ip} failed: ${e.message}`);
+            return null;
+          })
+        : Promise.resolve(null),
       skipDetections
         ? Promise.resolve([])
         : api.getDetections(since, now).catch((e) => {
             logger.debug(`Reading the detections of ${ip} failed: ${e.message}`);
             return [];
           }),
+      // Re-read every round so a toggle made from the Tapo app reaches Gladys:
+      // a switch that only reflects what Gladys itself did is a switch that
+      // lies. Only for the cameras that HAVE the switch, though.
+      wantsPrivacy
+        ? api.getPrivacyMode().catch((e) => {
+            logger.debug(`Reading the privacy mode of ${ip} failed: ${e.message}`);
+            return null;
+          })
+        : Promise.resolve(null),
     ]);
 
-    return { events, battery };
+    return { events, battery, privacy };
   }
 }

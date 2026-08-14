@@ -450,6 +450,61 @@ export class TapoLocalApi {
   }
 
   /**
+   * Read the privacy mode ("lens mask": the camera physically covers its lens).
+   *
+   * Not an ONVIF feature — it is TP-Link's own, which is why it travels on this
+   * API rather than on port 2020. The firmware calls it `lens_mask`, and the
+   * response nests it exactly like the request.
+   *
+   * Null means "this camera never said": an older firmware without the method
+   * answers with an empty result rather than an error (`callMethod` returns `{}`
+   * in that case), so an unreadable shape must not be mistaken for "privacy is
+   * off" — that would show the user a switch that does nothing.
+   * @returns {Promise<boolean|null>} True when the lens is masked, null when the
+   * camera does not support it.
+   * @example
+   * const isPrivate = await api.getPrivacyMode();
+   */
+  async getPrivacyMode() {
+    const result = await this.callMethod('getLensMaskConfig', {
+      lens_mask: { name: ['lens_mask_info'] },
+    });
+
+    // `lens_mask_info` is an OBJECT on some firmwares and a one-entry ARRAY on
+    // others — measured: a C500 answers with the object, a C210 does not, and
+    // reading `.enabled` straight off the array yielded undefined, which dropped
+    // the switch of a camera that supports the feature perfectly well.
+    const raw = result?.lens_mask?.lens_mask_info;
+    const info = Array.isArray(raw) ? raw[0] : raw;
+    const enabled = info?.enabled;
+
+    if (enabled === 'on') {
+      return true;
+    }
+    if (enabled === 'off') {
+      return false;
+    }
+    return null;
+  }
+
+  /**
+   * Turn the privacy mode on or off.
+   *
+   * The camera keeps streaming while masked — it serves a black frame reading
+   * "Privacy Mode is on" instead of failing — so nothing downstream detects this
+   * state on its own. That is what the state published by the caller is for.
+   * @param {boolean} enabled - True to mask the lens.
+   * @returns {Promise<void>} Resolves once the camera accepted the command.
+   * @example
+   * await api.setPrivacyMode(true);
+   */
+  async setPrivacyMode(enabled) {
+    await this.callMethod('setLensMaskConfig', {
+      lens_mask: { lens_mask_info: { enabled: enabled ? 'on' : 'off' } },
+    });
+  }
+
+  /**
    * Close the session so the camera frees it.
    * @example
    * api.close();

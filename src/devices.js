@@ -26,6 +26,7 @@ import {
 } from './tapo/rtsp.js';
 import { hasRtspAccount } from './config.js';
 import { discoverLocalAddresses } from './tapo/discovery.js';
+import { TapoLocalApi } from './tapo/localApi.js';
 import {
   EXTERNAL_ID_TYPE,
   DEVICE_PARAMS,
@@ -135,6 +136,28 @@ export function buildFeatures(gladys, camera) {
     );
   }
 
+  // Created unless the camera EXPLICITLY answered that it has no lens mask.
+  // `hasPrivacyMode` is null when the question could not be asked — no local
+  // address, camera asleep, firmware without the method — and a switch that is
+  // missing is worse than one that is briefly unresponsive: the scenes built on
+  // it would break silently.
+  if (camera.hasPrivacyMode !== null && camera.hasPrivacyMode !== undefined) {
+    features.push({
+      name: `${camera.name} - Privacy mode`,
+      external_id: ids.feature(FEATURE_SUFFIXES.PRIVACY),
+      category: DEVICE_FEATURE_CATEGORIES.SWITCH,
+      type: DEVICE_FEATURE_TYPES.SWITCH.BINARY,
+      read_only: false,
+      keep_history: true,
+      // The only feature here whose state is genuinely readable back from the
+      // camera: the poll re-reads it, so a toggle made in the Tapo app shows up
+      // in Gladys instead of leaving the switch lying.
+      has_feedback: true,
+      min: 0,
+      max: 1,
+    });
+  }
+
   if (camera.hasBattery) {
     features.push({
       name: `${camera.name} - Battery`,
@@ -188,6 +211,121 @@ export function buildDevice(gladys, camera) {
 }
 
 /**
+ * Cameras that refused a local session, by IP.
+ *
+ * Tapo firmwares lock an address out after a few failed logins, and the penalty
+ * grows with each attempt (measured on a C210: minutes, then half an hour).
+ * Retrying is therefore not merely useless — it is what keeps the camera locked,
+ * and the lockout blocks the local paths that do work. Any refusal is recorded,
+ * whatever its reason. Cleared by `forgetRefusedCredentials` when the user edits
+ * the settings.
+ * @type {Set<string>}
+ */
+const authRefused = new Set();
+
+/**
+ * Forget the rejected credentials, so a corrected account is tried again.
+ *
+ * Called when the configuration changes: the user's fix must take effect at the
+ * next scan rather than requiring a restart.
+ * @example
+ * forgetRefusedCredentials();
+ */
+export function forgetRefusedCredentials() {
+  authRefused.clear();
+}
+
+/**
+ * Ask a camera whether it supports the privacy mode, and what its current state
+ * is.
+ *
+ * Asked rather than deduced from the model, for the reason this project already
+ * recorded in `NO_LOCAL_ACCESS_MODELS`: a capability guessed from a model string
+ * is a capability guessed wrong.
+ *
+ * Authenticated with the TP-Link account password (username "admin"), one
+ * attempt per scan. Measured: a C500 opens its local API with it; some cameras
+ * refuse it and simply get no switch. A refusal is remembered and never retried
+ * (see `authRefused`) — the single most important guard here, because retrying
+ * is what walks a camera into an escalating lockout.
+ * @param {object} camera - The resolved camera.
+ * @param {object} config - The normalized configuration.
+ * @returns {Promise<boolean|null>} The current state, or null when the camera
+ * does not support it or could not be asked.
+ * @example
+ * const isPrivate = await probePrivacyMode(camera, config);
+ */
+export async function probePrivacyMode(camera, config) {
+  if (!camera.ip) {
+    return null;
+  }
+
+  if (authRefused.has(camera.ip)) {
+    // Deliberately silent about the credentials themselves: the user already got
+    // one explicit message, and repeating it every scan would be noise.
+    logger.debug(`Skipping the privacy probe of "${camera.name}": credentials already refused`);
+    return null;
+  }
+
+  // The TP-Link account password, with "admin" as the username. Measured: a C500
+  // opens its local API with it. Some cameras (a C210 here) refuse it and expose
+  // no privacy switch — see the catch below; preferring their camera account was
+  // tried and takes the switch away from the cameras the password suits, so it
+  // is deliberately not attempted.
+  if (!config.password) {
+    return null;
+  }
+  const credentials = { username: 'admin', password: config.password };
+
+  // A short-lived session of its own: the watcher's cache is keyed by IP and
+  // owned by the event loop, and borrowing from it here — during a scan, before
+  // any device exists — would race with it. Closed below so the camera frees the
+  // slot right away rather than in a few minutes; the firmware only keeps a few.
+  const api = new TapoLocalApi(camera.ip, credentials.password, credentials.username);
+  try {
+    const state = await api.getPrivacyMode();
+    api.close();
+    if (state === null) {
+      // The call went through and the camera answered with a shape carrying no
+      // lens mask — an older firmware without the feature.
+      logger.info(`"${camera.name}" reports no privacy mode: no switch created`);
+    }
+    return state;
+  } catch (e) {
+    api.close();
+
+    // The refusal is remembered so the probe is not retried. This is the point
+    // that matters most: Tapo cameras lock an address out after a few failed
+    // logins, and retrying every scan is what turns a one-off refusal into a
+    // camera locked out for good. A timeout is the exception — an unreachable
+    // camera has said nothing about its credentials, and one that was merely
+    // asleep must be probed again.
+    const unreachable = e.message.includes('TIMEOUT') || e.message.includes('ECONN');
+    if (!unreachable) {
+      authRefused.add(camera.ip);
+    }
+
+    // Logged at INFO/WARN, not debug: this decides whether a camera gets a
+    // switch, and hiding it left a control that simply never appeared, with no
+    // reason anywhere.
+    if (e.message.includes('BAD_PASSWORD')) {
+      logger.warn(
+        `"${camera.name}" rejected the Tapo password on its local API: no privacy switch. ` +
+          `This camera does not open its local API to Gladys; its other features are unaffected.`,
+      );
+    } else {
+      logger.info(
+        `"${camera.name}" refused the local session (${e.message}): no privacy switch created`,
+      );
+    }
+    // Never `false`: "the camera refused the call" and "the camera has no lens
+    // mask" must not lead to the same conclusion, since one of them would
+    // silently drop the switch of a camera that has one.
+    return null;
+  }
+}
+
+/**
  * Resolve a cloud camera into everything needed to talk to it: its capabilities,
  * and the capture mode its open ports reveal.
  * @param {object} cloudCamera - The camera as returned by the cloud.
@@ -226,14 +364,18 @@ export async function resolveCamera(cloudCamera, config) {
     return camera;
   }
 
-  // Both probes are independent round trips on the same camera, so they run
-  // together rather than one after the other.
-  const [captureMode, onvif] = await Promise.all([
+  // Independent round trips on the same camera, so they run together rather than
+  // one after the other. The privacy probe joins them because it depends on
+  // neither: it speaks the local API, not ONVIF, so a battery camera without any
+  // ONVIF at all still gets its switch.
+  const [captureMode, onvif, privacyMode] = await Promise.all([
     detectCaptureMode(camera, config),
     hasOnvif(camera),
+    probePrivacyMode(camera, config),
   ]);
   camera.captureMode = captureMode;
   camera.hasOnvif = onvif;
+  camera.hasPrivacyMode = privacyMode;
 
   // A camera serving ONVIF can report motion, whether or not it runs on battery
   // — which is what gives a wired camera a motion sensor it never had. The

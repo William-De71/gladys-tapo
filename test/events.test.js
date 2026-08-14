@@ -22,16 +22,23 @@ const doorbellCamera = {
  * @example
  * const { watcher, device, gladys } = buildWatcher({ events: [] });
  */
-function buildWatcher({ events = [], battery = null, onDoorbell } = {}) {
+function buildWatcher({ events = [], battery = null, privacy = null, onDoorbell } = {}) {
   const gladys = fakeGladys();
-  const device = buildDevice(gladys, doorbellCamera);
+  // The privacy state is only read for a camera that HAS the switch — the local
+  // session is not opened for questions the device cannot answer — so the fake
+  // camera must declare it whenever the test cares about it.
+  const device = buildDevice(gladys, {
+    ...doorbellCamera,
+    hasPrivacyMode: privacy === null ? undefined : privacy,
+  });
   gladys.devices = [device];
   const watcher = new EventWatcher({ gladys, cloud: fakeCloud(), onDoorbell });
   watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
   // The events now come from the LOCAL API of the camera, not from the cloud:
   // the cloud passthrough answers -20571 on every camera.
-  watcher.localApis.set(doorbellCamera.ip, fakeLocalApi({ events, battery }));
-  return { watcher, device, gladys };
+  const api = fakeLocalApi({ events, battery, privacy });
+  watcher.localApis.set(doorbellCamera.ip, api);
+  return { watcher, device, gladys, api };
 }
 
 test('event types are classified from whatever field carries them', () => {
@@ -326,4 +333,93 @@ test('stopping the watcher releases every ONVIF subscription', () => {
   assert.deepEqual(stopped.sort(), ['a', 'b']);
   assert.equal(watcher.onvifClients.size, 0);
   assert.equal(watcher.onvifCovered.size, 0);
+});
+
+// --- Privacy mode -------------------------------------------------------------
+
+test('the privacy mode is published and remembered on every check', async () => {
+  const { watcher, device, gladys } = buildWatcher({ privacy: true });
+  await watcher.checkDevice(device);
+
+  const published = gladys.published.states.filter((state) =>
+    state.featureExternalId.endsWith(':privacy'),
+  );
+  assert.equal(published.length, 1);
+  assert.equal(published[0].value, 1, 'a masked lens publishes 1');
+  // Remembered too: the capture path has no other way of knowing, since a masked
+  // camera answers with a black frame instead of failing.
+  assert.equal(watcher.isPrivacyModeOn(device.external_id), true);
+});
+
+test('a camera without a lens mask publishes no privacy state', async () => {
+  // `null` means the camera never said. Publishing 0 would light up a switch the
+  // camera does not have.
+  const { watcher, device, gladys } = buildWatcher({ privacy: null });
+  await watcher.checkDevice(device);
+
+  assert.equal(
+    gladys.published.states.filter((state) => state.featureExternalId.endsWith(':privacy')).length,
+    0,
+  );
+  assert.equal(watcher.isPrivacyModeOn(device.external_id), false);
+});
+
+test('an unmasked camera is not held back from being captured', async () => {
+  const { watcher, device, gladys } = buildWatcher({ privacy: false });
+  await watcher.checkDevice(device);
+
+  const published = gladys.published.states.filter((state) =>
+    state.featureExternalId.endsWith(':privacy'),
+  );
+  assert.equal(published[0].value, 0);
+  assert.equal(watcher.isPrivacyModeOn(device.external_id), false);
+});
+
+test('a command updates the remembered state without waiting for a poll', async () => {
+  // Otherwise a camera the user just un-masked would keep being skipped by the
+  // capture guard for up to a minute, which reads as a switch that did nothing.
+  const { watcher, device } = buildWatcher({ privacy: true });
+  await watcher.checkDevice(device);
+  assert.equal(watcher.isPrivacyModeOn(device.external_id), true);
+
+  watcher.setPrivacyMode(device.external_id, false);
+  assert.equal(watcher.isPrivacyModeOn(device.external_id), false);
+});
+
+test('the local client is shared rather than opened twice', async () => {
+  // The firmware only accepts a handful of sessions: a second client would
+  // eventually get every login refused with -40413.
+  const { watcher, api } = buildWatcher({});
+  assert.equal(watcher.getLocalApi(doorbellCamera.ip), api);
+  assert.equal(watcher.getLocalApi(doorbellCamera.ip), watcher.getLocalApi(doorbellCamera.ip));
+});
+
+test('a camera with nothing local to answer is not logged into at all', async () => {
+  // The bug this pins: every tick opened a session on a wired, ONVIF-covered
+  // camera just to ask questions it has no features for. On a camera that
+  // refuses those credentials, that is a failed login every 20 seconds — which
+  // held a C210 in a permanent lockout instead of a few minutes.
+  const gladys = fakeGladys();
+  const wired = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID3',
+    hasBattery: false,
+    hasEvents: true,
+  });
+  gladys.devices = [wired];
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+  // Its events arrive over ONVIF, so the detections are skipped too: nothing at
+  // all is left to ask.
+  watcher.onvifCovered.add('ID3');
+
+  let opened = false;
+  watcher.getLocalApi = () => {
+    opened = true;
+    return fakeLocalApi({});
+  };
+
+  await watcher.checkDevice(wired);
+  assert.equal(opened, false, 'no local session must be opened with nothing to read');
 });

@@ -253,6 +253,7 @@ export const FEATURE_SUFFIXES = {
   BUTTON: 'button',
   MOTION: 'motion',
   BATTERY: 'battery',
+  PRIVACY: 'privacy',
 };
 
 /**

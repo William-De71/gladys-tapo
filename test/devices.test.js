@@ -8,11 +8,14 @@ import {
   buildFeatures,
   buildDevice,
   cameraFromDevice,
+  probePrivacyMode,
+  forgetRefusedCredentials,
 } from '../src/devices.js';
 import { isBatteryModel, hasNoLocalAccess, buildRtspUrl } from '../src/tapo/rtsp.js';
 import { normalizeConfig } from '../src/config.js';
 import { fakeGladys } from './helpers/fakeGladys.js';
 import { DEVICE_PARAMS, CAPTURE_MODES } from '../src/tapo/constants.js';
+import { TapoLocalApi } from '../src/tapo/localApi.js';
 
 const gladys = fakeGladys();
 
@@ -181,4 +184,230 @@ test('a camera with no stream URL publishes an empty one, never a broken one', (
   // would hand a bogus URL to ffmpeg and fail in a confusing way.
   const device = buildDevice(gladys, { ...camera, streamUrl: undefined });
   assert.equal(getParam(device, DEVICE_PARAMS.CAMERA_URL), '');
+});
+
+// --- Privacy mode feature -----------------------------------------------------
+
+test('a camera that answered gets a privacy switch, in either state', () => {
+  [true, false].forEach((state) => {
+    const features = buildFeatures(gladys, { ...camera, hasPrivacyMode: state });
+    const privacy = features.find((feature) => feature.category === 'switch');
+    assert.ok(privacy, `a camera reporting ${state} must expose the switch`);
+    assert.equal(privacy.type, 'binary');
+    assert.equal(privacy.read_only, false);
+    // The one feature here whose state is genuinely readable back, which is what
+    // lets a toggle made in the Tapo app show up in Gladys.
+    assert.equal(privacy.has_feedback, true);
+    assert.equal(privacy.min, 0);
+    assert.equal(privacy.max, 1);
+  });
+});
+
+test('a camera that could not be asked gets no privacy switch', () => {
+  // `null` is "unknown", and an unknown capability must not become a switch
+  // wired to nothing.
+  assert.ok(
+    !buildFeatures(gladys, { ...camera, hasPrivacyMode: null }).some(
+      (feature) => feature.category === 'switch',
+    ),
+  );
+  assert.ok(!buildFeatures(gladys, camera).some((feature) => feature.category === 'switch'));
+});
+
+test('the privacy switch is told apart from the motion sensor', () => {
+  // Both are typed `binary` in Gladys — only the category separates them, which
+  // is exactly why the command path routes on the category.
+  const features = buildFeatures(gladys, {
+    ...camera,
+    hasEvents: true,
+    hasPrivacyMode: false,
+  });
+  const binaries = features.filter((feature) => feature.type === 'binary');
+  assert.equal(binaries.length, 2, 'motion and privacy both type as binary');
+  assert.deepEqual(binaries.map((feature) => feature.category).sort(), ['motion-sensor', 'switch']);
+  // Only one of the two is writable.
+  assert.deepEqual(binaries.map((feature) => feature.read_only).sort(), [false, true]);
+});
+
+// --- Privacy probe credentials and lockout ------------------------------------
+
+test('one login per scan, with the Tapo password, and never twice', async () => {
+  // It cannot drive this API at all: it opens a session whose user_group is not
+  // root, which pytapo — the origin of this protocol — rejects outright
+  // ("encrypted control via 3rd party account does not seem to be supported").
+  // Trying it as a fallback bought nothing and cost a second failed login per
+  // scan, which is what armed the camera's brute-force protection.
+  const seen = [];
+  const probed = { ...camera, ip: '10.0.0.5' };
+  const withAccount = normalizeConfig({
+    email: 'a@b.c',
+    password: 'cloud-secret',
+    camera_accounts: 'jardin|william|camera-secret',
+  });
+
+  // The probe opens its own client, so the constructor is what has to be
+  // observed; recording the arguments is enough to pin which account is used.
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  TapoLocalApi.prototype.getPrivacyMode = async function record() {
+    seen.push({ username: this.username, password: this.password });
+    throw new Error('TAPO_LOCAL_BAD_PASSWORD');
+  };
+  try {
+    assert.equal(await probePrivacyMode(probed, withAccount), null);
+    // And no further scan touches it either.
+    assert.equal(await probePrivacyMode(probed, withAccount), null);
+  } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+    forgetRefusedCredentials();
+  }
+
+  // One login, with the Tapo password — never a second one with the other.
+  assert.deepEqual(seen, [{ username: 'admin', password: 'cloud-secret' }]);
+});
+
+test('the Tapo password is what drives this API, even when a camera account exists', async () => {
+  // MEASURED twice on a C500: it gets its switch with the Tapo password and
+  // loses it the moment the camera account is preferred. Home Assistant does the
+  // same — it controls cameras with "admin" + the cloud password
+  // (async_step_auth_cloud_password, "Cloud password works for control"), and
+  // keeps the camera account for the RTSP stream.
+  const seen = [];
+  const probed = { ...camera, ip: '10.0.0.10' };
+  const withAccount = normalizeConfig({
+    email: 'a@b.c',
+    password: 'cloud-secret',
+    camera_accounts: 'jardin|william|camera-secret',
+  });
+
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  TapoLocalApi.prototype.getPrivacyMode = async function record() {
+    seen.push({ username: this.username, password: this.password });
+    return true;
+  };
+  try {
+    assert.equal(await probePrivacyMode(probed, withAccount), true);
+  } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+    forgetRefusedCredentials();
+  }
+
+  assert.deepEqual(seen, [{ username: 'admin', password: 'cloud-secret' }]);
+});
+
+test('a locked-out camera is touched once, not twice', async () => {
+  // A second login would add a failed attempt to a camera that is already
+  // counting them, which is what deepens the lockout.
+  const seen = [];
+  const probed = { ...camera, ip: '10.0.0.11' };
+  const withAccount = normalizeConfig({
+    email: 'a@b.c',
+    password: 'cloud-secret',
+    camera_accounts: 'jardin|william|camera-secret',
+  });
+
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  TapoLocalApi.prototype.getPrivacyMode = async function locked() {
+    seen.push(this.password);
+    throw new Error('TAPO_LOCAL_NO_NONCE:-40401');
+  };
+  try {
+    assert.equal(await probePrivacyMode(probed, withAccount), null);
+  } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+    forgetRefusedCredentials();
+  }
+
+  assert.deepEqual(seen, ['cloud-secret'], 'one login only');
+});
+
+test('a camera with no camera account falls back to the Tapo password', async () => {
+  const seen = [];
+  const probed = { ...camera, ip: '10.0.0.6' };
+  const cloudOnly = normalizeConfig({ email: 'a@b.c', password: 'cloud-secret' });
+
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  TapoLocalApi.prototype.getPrivacyMode = async function record() {
+    seen.push({ username: this.username, password: this.password });
+    return true;
+  };
+  try {
+    await probePrivacyMode(probed, cloudOnly);
+  } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+  }
+
+  assert.deepEqual(seen, [{ username: 'admin', password: 'cloud-secret' }]);
+});
+
+test('a camera with no camera account is given up on after one rejection', async () => {
+  // Retrying is what walks a camera into an escalating lockout: measured on a
+  // C210, five minutes after a few attempts and twenty-nine after a few more.
+  // A missing switch costs far less than a camera locked out of every path.
+  let attempts = 0;
+  const probed = { ...camera, ip: '10.0.0.7' };
+  const cloudOnly = normalizeConfig({ email: 'a@b.c', password: 'wrong' });
+
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  TapoLocalApi.prototype.getPrivacyMode = async function refuse() {
+    attempts += 1;
+    throw new Error('TAPO_LOCAL_BAD_PASSWORD');
+  };
+  try {
+    assert.equal(await probePrivacyMode(probed, cloudOnly), null);
+    assert.equal(await probePrivacyMode(probed, cloudOnly), null);
+    assert.equal(attempts, 1, 'the second scan must not touch the camera again');
+
+    // The user fixing their settings is exactly the moment to try again.
+    forgetRefusedCredentials();
+    await probePrivacyMode(probed, cloudOnly);
+    assert.equal(attempts, 2);
+  } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+    forgetRefusedCredentials();
+  }
+});
+
+test('a locked-out camera is left alone rather than probed again', async () => {
+  // The case the first guard missed: a camera that already locked the address
+  // out answers NO_NONCE, not BAD_PASSWORD. Retrying is what KEEPS it locked —
+  // measured, one further scan bought a C210 another 27 minutes.
+  let attempts = 0;
+  const probed = { ...camera, ip: '10.0.0.8' };
+  const cloudOnly = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  TapoLocalApi.prototype.getPrivacyMode = async function refuse() {
+    attempts += 1;
+    throw new Error('TAPO_LOCAL_NO_NONCE:-40401');
+  };
+  try {
+    await probePrivacyMode(probed, cloudOnly);
+    await probePrivacyMode(probed, cloudOnly);
+    assert.equal(attempts, 1, 'a locked-out camera must be touched once, not every scan');
+  } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+    forgetRefusedCredentials();
+  }
+});
+
+test('an unreachable camera is retried, since it said nothing about its account', async () => {
+  // A timeout is not a refusal: a camera that was asleep or briefly off the
+  // network must be probed again, or it would lose its switch until a restart.
+  let attempts = 0;
+  const probed = { ...camera, ip: '10.0.0.9' };
+  const cloudOnly = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  TapoLocalApi.prototype.getPrivacyMode = async function timeout() {
+    attempts += 1;
+    throw new Error('TAPO_LOCAL_TIMEOUT');
+  };
+  try {
+    await probePrivacyMode(probed, cloudOnly);
+    await probePrivacyMode(probed, cloudOnly);
+    assert.equal(attempts, 2);
+  } finally {
+    TapoLocalApi.prototype.getPrivacyMode = original;
+    forgetRefusedCredentials();
+  }
 });
