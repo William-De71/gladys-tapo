@@ -7,6 +7,7 @@ import {
   classifyTopic,
   parsePullMessages,
   hasDoorbellTopic,
+  faultSummary,
   TapoOnvif,
 } from '../src/tapo/onvif.js';
 
@@ -234,4 +235,40 @@ test('a run of failed pulls is reported once, and so is the recovery', async () 
     logger.warn = realWarn;
     logger.info = realInfo;
   }
+});
+
+// --- SOAP fault reporting -----------------------------------------------------
+
+test('the fault subcode survives a camera that only says "error"', () => {
+  // Measured shape: a Tapo firmware rejects a pull with HTTP 400 and a Text of
+  // just "error", which reported nothing anyone could act on. The subcode is
+  // what names the failure, and the innermost one is the ONVIF-specific one.
+  const xml =
+    '<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope">' +
+    '<env:Body><env:Fault><env:Code><env:Value>env:Sender</env:Value>' +
+    '<env:Subcode><env:Value>ter:InvalidArgVal</env:Value>' +
+    '<env:Subcode><env:Value>ter:UnknownSubscription</env:Value></env:Subcode>' +
+    '</env:Subcode></env:Code>' +
+    '<env:Reason><env:Text xml:lang="en">error</env:Text></env:Reason>' +
+    '</env:Fault></env:Body></env:Envelope>';
+  const summary = faultSummary(xml);
+  assert.match(summary, /ter:UnknownSubscription/, 'the innermost subcode identifies the fault');
+  assert.match(summary, /ter:InvalidArgVal/, 'the outer subcode is kept as context');
+  assert.match(summary, /error/, 'the text is appended when it adds anything');
+});
+
+test('a fault with no subcode still reports its text', () => {
+  const xml =
+    '<env:Envelope><env:Body><env:Fault>' +
+    '<env:Reason><env:Text>Action not supported</env:Text></env:Reason>' +
+    '</env:Fault></env:Body></env:Envelope>';
+  assert.equal(faultSummary(xml), 'Action not supported');
+});
+
+test('a body carrying no fault at all summarizes to nothing', () => {
+  // Which is what makes the caller fall back to the raw body: an unparsed shape
+  // must not be reported as an empty reason, the failure this whole change is
+  // about.
+  assert.equal(faultSummary('<html><body>Bad Request</body></html>'), '');
+  assert.equal(faultSummary(''), '');
 });

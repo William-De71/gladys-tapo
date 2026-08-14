@@ -149,6 +149,52 @@ export function readTag(xml, localName) {
 }
 
 /**
+ * Summarize a SOAP fault into something a log line can carry.
+ *
+ * `<Text>` alone is not enough: Tapo firmwares answer a rejected pull with a
+ * bare "error", which says only that something went wrong — the whole reason
+ * this was unreadable in production. What identifies the failure is the fault
+ * SUBCODE (`ter:InvalidMessage`, `ter:ResourceUnknown`…), so the subcodes are
+ * read first and the text is appended when it adds anything.
+ *
+ * Subcodes nest — `env:Subcode > env:Value` repeated — and it is the innermost
+ * that names the ONVIF error, so every Value is collected in order.
+ * @param {string} xml - The response body.
+ * @returns {string} The summary, empty when the body carries no fault.
+ * @example
+ * faultSummary(xml); // 'ter:InvalidArgVal/ter:UnknownSubscription: error'
+ */
+export function faultSummary(xml) {
+  const body = String(xml || '');
+  const codes = [];
+  // Walked as a token stream rather than matched as a block: subcodes NEST, and
+  // a non-greedy `<Subcode>...</Subcode>` stops at the first closing tag — which
+  // drops the innermost subcode, the one that actually names the ONVIF error.
+  //
+  // Only the Values under a Subcode are kept: the top-level `env:Code > Value`
+  // is always Sender/Receiver and never tells two failures apart.
+  const tokenPattern = /<(\/?)(?:[\w.-]+:)?(Subcode|Value)\b[^>]*>([\s\S]*?)(?=<)/gi;
+  let depth = 0;
+  let token = tokenPattern.exec(body);
+  while (token !== null) {
+    const [, closing, name, text] = token;
+    if (name.toLowerCase() === 'subcode') {
+      depth += closing ? -1 : 1;
+    } else if (!closing && depth > 0 && text.trim()) {
+      codes.push(text.trim());
+    }
+    token = tokenPattern.exec(body);
+  }
+
+  const text = readTag(body, 'Text') || readTag(body, 'faultstring') || '';
+  const code = codes.join('/');
+  if (code && text) {
+    return `${code}: ${text}`;
+  }
+  return code || text;
+}
+
+/**
  * POST a SOAP envelope and return the raw response body.
  *
  * A SOAP fault comes back with HTTP 500 and a body explaining why, so the body
@@ -185,8 +231,14 @@ export function postSoap(url, envelope, timeoutMs = ONVIF_REQUEST_TIMEOUT_MS) {
         response.on('end', () => {
           if (response.statusCode >= 400) {
             // The fault reason is the actionable part; the status alone is not.
-            const reason = readTag(body, 'Text') || readTag(body, 'faultstring') || '';
-            reject(new Error(`ONVIF_HTTP_${response.statusCode}:${reason.slice(0, 120)}`));
+            // A camera that answers a bare "error" leaves nothing to act on, so
+            // the raw body is the last resort — trimmed, but enough to identify
+            // a shape this code does not know how to read.
+            const reason =
+              faultSummary(body) ||
+              body.replace(/\s+/g, ' ').trim().slice(0, 200) ||
+              '(empty body)';
+            reject(new Error(`ONVIF_HTTP_${response.statusCode}:${reason.slice(0, 200)}`));
             return;
           }
           resolve(body);
