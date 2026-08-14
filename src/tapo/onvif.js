@@ -398,7 +398,17 @@ export function parsePullMessages(xml) {
     // IsPeople…), so the VALUE is what is read: ONVIF constrains it to a
     // boolean for these topics, and its absence means a stateless event — a
     // doorbell ring — which is always an activation.
-    const valueMatch = /<(?:[\w.-]+:)?SimpleItem\b[^>]*\bValue="([^"]*)"/i.exec(chunk);
+    //
+    // Read from `<tt:Data>` SPECIFICALLY, never from the first SimpleItem of the
+    // message. A notification also carries a `<tt:Source>` — the video source
+    // token, `VideoSourceConfigurationToken="000"` and the like — which comes
+    // FIRST and is a SimpleItem too. Matching the first one read the source
+    // token as the state: "000" is not "true", so every single event, real
+    // motions included, decoded as motion=false. Measured: 236 notifications
+    // from a camera, not one of them true.
+    const data = /<(?:[\w.-]+:)?Data\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?Data>/i.exec(chunk);
+    const scope = data ? data[1] : chunk;
+    const valueMatch = /<(?:[\w.-]+:)?SimpleItem\b[^>]*\bValue="([^"]*)"/i.exec(scope);
     const raw = valueMatch ? valueMatch[1].toLowerCase() : null;
     const active = raw === null ? true : raw === 'true' || raw === '1';
 

@@ -370,3 +370,34 @@ test('a subscription refused for another reason is not retried', async () => {
   await assert.rejects(() => client.subscribe(), /NotAuthorized/);
   assert.equal(calls, 1, 'no pointless second attempt');
 });
+
+test('the motion state is read from Data, not from the Source token', () => {
+  // The bug that made every event read false: a notification carries a
+  // `<tt:Source>` SimpleItem — the video source token — BEFORE the `<tt:Data>`
+  // one holding the state. Matching the first SimpleItem in the message read
+  // "000" as the state, so a real motion decoded as motion=false. Measured on a
+  // C500: 236 notifications, not one of them true.
+  const xml =
+    '<wsnt:NotificationMessage>' +
+    '<wsnt:Topic>tns1:RuleEngine/CellMotionDetector/Motion</wsnt:Topic>' +
+    '<wsnt:Message><tt:Message UtcTime="2026-08-14T23:24:41Z">' +
+    '<tt:Source><tt:SimpleItem Name="VideoSourceConfigurationToken" Value="000"/></tt:Source>' +
+    '<tt:Data><tt:SimpleItem Name="IsMotion" Value="true"/></tt:Data>' +
+    '</tt:Message></wsnt:Message></wsnt:NotificationMessage>';
+  const events = parsePullMessages(xml);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, 'motion');
+  assert.equal(events[0].active, true, 'the Source token must not be read as the state');
+});
+
+test('a motion ending is still read as inactive', () => {
+  // The falling edge must survive the fix, or the sensor would latch on.
+  const xml =
+    '<wsnt:NotificationMessage>' +
+    '<wsnt:Topic>tns1:RuleEngine/CellMotionDetector/Motion</wsnt:Topic>' +
+    '<wsnt:Message><tt:Message UtcTime="2026-08-14T23:24:41Z">' +
+    '<tt:Source><tt:SimpleItem Name="VideoSourceConfigurationToken" Value="000"/></tt:Source>' +
+    '<tt:Data><tt:SimpleItem Name="IsMotion" Value="false"/></tt:Data>' +
+    '</tt:Message></wsnt:Message></wsnt:NotificationMessage>';
+  assert.equal(parsePullMessages(xml)[0].active, false);
+});
