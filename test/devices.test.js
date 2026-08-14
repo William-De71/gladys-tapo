@@ -122,6 +122,21 @@ test('an unknown capture mode falls back to the proprietary protocol', async () 
   const device = buildDevice(gladys, { ...camera, ip: '', captureMode: null });
   const rebuilt = await cameraFromDevice(device, normalizeConfig());
   assert.equal(rebuilt.captureMode, CAPTURE_MODES.PROPRIETARY);
+  // Never probed, so nothing is known against the camera.
+  assert.notEqual(rebuilt.unreachable, true);
+});
+
+test('a camera that fails its probe is flagged rather than guessed', async () => {
+  // The bug this pins: an unplugged camera kept being "captured" over the
+  // proprietary protocol — a connection its own probe had just been refused —
+  // and every cycle spent its full timeout before failing.
+  //
+  // 192.0.2.x is the documentation range (RFC 5737): nothing answers there, so
+  // the probe fails the way an offline camera does.
+  const device = buildDevice(gladys, { ...camera, ip: '192.0.2.1', captureMode: null });
+  const rebuilt = await cameraFromDevice(device, normalizeConfig());
+  assert.equal(rebuilt.unreachable, true);
+  assert.equal(rebuilt.captureMode, null);
 });
 
 test('every published external id is namespaced, device and features alike', async () => {

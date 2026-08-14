@@ -464,7 +464,24 @@ export class TapoOnvif {
       },
     );
 
-    return parsePullMessages(xml);
+    const events = parsePullMessages(xml);
+
+    // A quiet pull returns an empty envelope, and logging those would drown the
+    // logs at one entry per timeout per camera. What is worth seeing is a camera
+    // that DID report something: either the events read from it, or — when
+    // nothing was understood — the payload itself, which is the only way to tell
+    // an unknown topic apart from a message shape this parser mishandles.
+    if (xml.includes('NotificationMessage')) {
+      if (events.length > 0) {
+        logger.debug(
+          `ONVIF events from ${this.ip}: ${events.map((event) => `${event.kind}=${event.active}`).join(', ')}`,
+        );
+      } else {
+        logger.debug(`ONVIF message from ${this.ip} yielded no event, raw payload: ${xml}`);
+      }
+    }
+
+    return events;
   }
 
   /**

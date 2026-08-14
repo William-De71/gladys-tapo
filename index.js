@@ -110,6 +110,12 @@ async function captureDeviceImage(device) {
   if (!camera.ip) {
     throw new Error('TAPO_CAMERA_IP_UNKNOWN');
   }
+  if (camera.unreachable) {
+    // The camera is addressable but answers on neither capture port — powered
+    // off, or third-party access turned off in the Tapo app. Give up now: the
+    // capture that follows would only wait for its timeout, once per cycle.
+    throw new Error('TAPO_NO_CAPTURE_MODE');
+  }
   if (camera.captureMode === CAPTURE_MODES.RTSP && !hasRtspAccount(config, camera.name)) {
     // Failing with a precise reason: the user has a fix to apply (fill in the
     // camera account), which a generic ffmpeg error would not convey.
