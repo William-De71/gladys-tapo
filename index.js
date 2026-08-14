@@ -19,6 +19,7 @@ import {
   GladysIntegration,
   logger,
   DEVICE_FEATURE_CATEGORIES,
+  DEVICE_FEATURE_TYPES,
 } from '@gladysassistant/integration-sdk';
 import { TapoCloud, TapoAuthError } from './src/tapo/cloud.js';
 import { EventWatcher } from './src/tapo/events.js';
@@ -31,12 +32,7 @@ import {
   forgetRefusedCredentials,
 } from './src/devices.js';
 import { TapoPtz } from './src/tapo/ptz.js';
-import {
-  CAPTURE_MODES,
-  DEVICE_PARAMS,
-  CAMERA_MOVE,
-  CAMERA_FEATURE_TYPES,
-} from './src/tapo/constants.js';
+import { CAPTURE_MODES, DEVICE_PARAMS, CAMERA_MOVE } from './src/tapo/constants.js';
 import { BatteryGuard } from './src/tapo/batteryGuard.js';
 import { isBatteryModel } from './src/tapo/rtsp.js';
 
@@ -426,7 +422,7 @@ gladys.onSetValue(async (device, deviceFeature, value) => {
   // PTZ: one scalar value per command (spec `docs/specs/camera-ptz-control.md`).
   // Routed on the TYPE, because both features live under the `camera` category.
   const type = deviceFeature.type;
-  if (type !== CAMERA_FEATURE_TYPES.MOVE && type !== CAMERA_FEATURE_TYPES.PRESET) {
+  if (type !== DEVICE_FEATURE_TYPES.CAMERA.MOVE && type !== DEVICE_FEATURE_TYPES.CAMERA.PRESET) {
     // Every other feature of a camera is read-only; a value written to one is a
     // caller mistake worth surfacing rather than a command to guess at.
     logger.debug(
@@ -445,7 +441,7 @@ gladys.onSetValue(async (device, deviceFeature, value) => {
     throw new Error(`No camera account configured for "${label}"`);
   }
 
-  if (type === CAMERA_FEATURE_TYPES.PRESET) {
+  if (type === DEVICE_FEATURE_TYPES.CAMERA.PRESET) {
     const token = presetTokenFor(device, value);
     if (!token) {
       throw new Error(`Unknown preset ${value} on "${label}"`);

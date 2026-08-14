@@ -95,10 +95,10 @@ export const ONVIF_MOTION_TIMEOUT_MS = 3 * 60 * 1000;
  * Canonical values of the Gladys `camera.move` feature.
  *
  * Mirrors `CAMERA_MOVE` in the core (`server/utils/constants.js`, spec
- * `docs/specs/camera-ptz-control.md` A.2). Declared here rather than imported
- * from the SDK because the published SDK still exposes `CAMERA.IMAGE` alone —
- * importing an undefined constant would break the integration at startup, while
- * these values are fixed by the spec.
+ * `docs/specs/camera-ptz-control.md` A.2). Still declared here rather than
+ * imported: SDK 0.12.0 publishes the `camera` feature TYPES (`move`, `preset`,
+ * the position ones) but no constant for the movement VALUES, which the spec
+ * fixes.
  */
 export const CAMERA_MOVE = {
   STOP: 0,
@@ -108,12 +108,6 @@ export const CAMERA_MOVE = {
   TILT_DOWN: 4,
   ZOOM_IN: 5,
   ZOOM_OUT: 6,
-};
-
-/** The `camera` feature types the PTZ contract adds, same reasoning as above. */
-export const CAMERA_FEATURE_TYPES = {
-  MOVE: 'move',
-  PRESET: 'preset',
 };
 
 /**

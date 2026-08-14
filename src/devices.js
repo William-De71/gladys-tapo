@@ -34,7 +34,6 @@ import {
   FEATURE_SUFFIXES,
   POLL_FREQUENCY_MS,
   CAMERA_MOVE,
-  CAMERA_FEATURE_TYPES,
 } from './tapo/constants.js';
 import { TapoPtz } from './tapo/ptz.js';
 import { TapoOnvif } from './tapo/onvif.js';
@@ -194,7 +193,7 @@ export function buildFeatures(gladys, camera) {
       name: `${camera.name} - Move`,
       external_id: ids.feature(FEATURE_SUFFIXES.MOVE),
       category: DEVICE_FEATURE_CATEGORIES.CAMERA,
-      type: CAMERA_FEATURE_TYPES.MOVE,
+      type: DEVICE_FEATURE_TYPES.CAMERA.MOVE,
       read_only: false,
       // A movement is a command, not a measurement: keeping it would fill the
       // history with values that describe nothing about the camera's state.
@@ -218,7 +217,7 @@ export function buildFeatures(gladys, camera) {
       name: `${camera.name} - Preset`,
       external_id: ids.feature(FEATURE_SUFFIXES.PRESET),
       category: DEVICE_FEATURE_CATEGORIES.CAMERA,
-      type: CAMERA_FEATURE_TYPES.PRESET,
+      type: DEVICE_FEATURE_TYPES.CAMERA.PRESET,
       read_only: false,
       keep_history: false,
       has_feedback: false,

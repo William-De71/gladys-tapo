@@ -20,6 +20,41 @@ test('the manifest declares the fields Gladys requires', () => {
   assert.equal(manifest.type, 'device');
 });
 
+test('the store categories match the vocabulary Gladys 4.86 publishes', () => {
+  // The catalog shelves the integration by these keys. Gladys drops an unknown
+  // one with a warning rather than rejecting the manifest, so a typo would
+  // silently take the integration off its shelf.
+  const STORE_CATEGORIES = [
+    'climate',
+    'lighting',
+    'energy',
+    'security',
+    'multimedia',
+    'appliances',
+    'environment',
+    'protocols',
+    'network',
+    'notifications',
+    'assistants',
+    'services',
+  ];
+  assert.ok(Array.isArray(manifest.categories), 'categories must be an array');
+  assert.ok(
+    manifest.categories.length >= 1 && manifest.categories.length <= 3,
+    '1 to 3 categories',
+  );
+  for (const category of manifest.categories) {
+    assert.ok(STORE_CATEGORIES.includes(category), `unknown store category: ${category}`);
+  }
+  // Older cores REJECT a manifest carrying a field they do not know, so
+  // declaring `categories` is what pins the floor at 4.86.
+  assert.match(
+    manifest.gladys_version,
+    /^>=4\.(8[6-9]|9\d|\d{3,})\./,
+    'declaring categories requires gladys_version >= 4.86.0',
+  );
+});
+
 test('the manifest respects the length limits Gladys enforces', () => {
   // Gladys rejects the whole manifest — with a generic "invalid manifest"
   // message — when these bounds are exceeded, so they are worth pinning.
