@@ -12,7 +12,7 @@
 //     detected" forever — the cloud only reports the rising edge.
 // -----------------------------------------------------------------------------
 
-import { logger } from '@gladysassistant/integration-sdk';
+import { logger, DEVICE_FEATURE_CATEGORIES } from '@gladysassistant/integration-sdk';
 import { parseCloudDeviceId, cameraIds, getParam } from '../devices.js';
 import {
   DEVICE_PARAMS,
@@ -300,12 +300,31 @@ export class EventWatcher {
    * await watcher.setupOnvifSubscriptions();
    */
   async setupOnvifSubscriptions() {
-    const devices = this.gladys.devices || [];
+    // ASKED, not read off `gladys.devices`. That property is only resynchronized
+    // when the WebSocket (re)connects, so on the `config-updated` path — where
+    // the watcher is restarted right after a re-publish — it still holds the
+    // list from the last connection. On a first setup that list is EMPTY, no
+    // camera is ever filtered in, and no subscription is opened: the motion
+    // sensor then stays silent for good, with nothing in the logs to say so,
+    // because the failure is an empty loop rather than an error.
+    const devices = await this.gladys.getDevices().catch((e) => {
+      logger.debug(`Listing the devices for the ONVIF setup failed: ${e.message}`);
+      return [];
+    });
     const cameras = devices.filter((device) =>
       (device.features || []).some(
-        (feature) => feature.category === 'button' || feature.category === 'motion-sensor',
+        (feature) =>
+          feature.category === DEVICE_FEATURE_CATEGORIES.BUTTON ||
+          feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
       ),
     );
+    if (cameras.length === 0) {
+      // Said out loud, because "no camera to subscribe" and "every subscription
+      // failed" produced the same silence before — and the first one is the
+      // symptom of the devices not being loaded at all.
+      logger.debug('No camera carries an event feature: no ONVIF subscription to open');
+      return;
+    }
     // Independent per camera, and each one is two round trips: doing them
     // together keeps the startup from growing with the number of cameras.
     await Promise.all(

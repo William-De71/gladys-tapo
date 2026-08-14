@@ -16,7 +16,12 @@ export function fakeGladys({ selector = 'ext-dev-tapo', devices = [], scanResult
 
   return {
     selector,
-    devices,
+    // EMPTY on purpose, while `getDevices()` below returns the real list. The
+    // SDK only refreshes this property when the WebSocket (re)connects, so on
+    // the `config-updated` path it is stale — and it was empty in production
+    // exactly when the code read it. Mirroring the list into it here is what
+    // made a broken ONVIF setup pass its tests.
+    devices: [],
     published,
     // Mirrors the SDK contract exactly: Gladys rejects any external id that does
     // not start with `ext:<selector>:`.

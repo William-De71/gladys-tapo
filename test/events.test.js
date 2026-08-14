@@ -423,3 +423,37 @@ test('a camera with nothing local to answer is not logged into at all', async ()
   await watcher.checkDevice(wired);
   assert.equal(opened, false, 'no local session must be opened with nothing to read');
 });
+
+// --- ONVIF subscriptions ------------------------------------------------------
+
+test('the ONVIF setup asks Gladys for the devices instead of reading a stale list', async () => {
+  // The regression that silently killed motion detection: the setup read
+  // `gladys.devices`, which the SDK only refreshes when the WebSocket
+  // (re)connects. On the `config-updated` path — a re-publish, then the watcher
+  // restarted — that list is stale, and empty on a first setup. No camera was
+  // ever filtered in, so no subscription was opened and no error was logged:
+  // the motion sensor simply never fired again.
+  const gladys = fakeGladys();
+  const camera = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID9' });
+  // Exactly the production shape: the property is stale/empty while the API
+  // serves the real list.
+  gladys.devices = [];
+  gladys.getDevices = async () => [camera];
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({
+    email: 'a@b.c',
+    password: 'x',
+    rtsp_username: 'gladys',
+    rtsp_password: 'secret',
+  });
+
+  const tried = [];
+  watcher.setupOnvif = async (device) => {
+    tried.push(device.external_id);
+    return true;
+  };
+
+  await watcher.setupOnvifSubscriptions();
+  assert.deepEqual(tried, [camera.external_id], 'the camera must be offered to ONVIF');
+});
