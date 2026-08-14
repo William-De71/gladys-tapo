@@ -46,6 +46,15 @@ export const NS = {
  */
 const ONVIF_FAILURES_BEFORE_WARNING = 3;
 
+/**
+ * Pause before reissuing a pull the camera ended quietly.
+ *
+ * Small enough to stay invisible on a motion — the next pull is waiting well
+ * before anyone walks past — and large enough that a firmware closing the
+ * connection immediately cannot turn the loop into a busy wait.
+ */
+const ONVIF_QUIET_PULL_PAUSE_MS = 250;
+
 /** Password type declared by the UsernameToken digest profile. */
 const PASSWORD_DIGEST_TYPE =
   'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordDigest';
@@ -192,6 +201,37 @@ export function faultSummary(xml) {
     return `${code}: ${text}`;
   }
   return code || text;
+}
+
+/**
+ * Tell whether a failed pull is the camera ending a quiet poll rather than a
+ * real fault.
+ *
+ * Tapo firmwares close a `PullMessages` connection when they have nothing to
+ * report, instead of answering the empty envelope the standard describes. Some
+ * write a few bytes after their own `Connection: close`, which Node's HTTP
+ * parser rejects. Both mean "nothing happened", and both used to be counted as
+ * failures — tearing down a healthy subscription every few seconds.
+ *
+ * Deliberately narrow: a refused connection, a DNS failure or a SOAP fault are
+ * NOT benign, and treating them as such would hide a camera that is genuinely
+ * unreachable or rejecting the account behind an endless quiet loop.
+ * @param {Error} error - The error the pull rejected with.
+ * @returns {boolean} True when the pull can simply be reissued.
+ * @example
+ * isBenignDisconnect(new Error('socket hang up')); // true
+ */
+export function isBenignDisconnect(error) {
+  const message = String(error?.message || '');
+  if (error?.code === 'ECONNRESET') {
+    return true;
+  }
+  return (
+    message.includes('socket hang up') ||
+    // Node's parser, on a firmware that trails bytes after its close header.
+    message.includes('Data after `Connection: close`') ||
+    message.includes('ONVIF_TIMEOUT')
+  );
 }
 
 /**
@@ -662,6 +702,27 @@ export class TapoOnvif {
         if (!this.running) {
           return;
         }
+
+        // A Tapo firmware ends a quiet pull by cutting the connection instead of
+        // answering an empty envelope — sometimes writing bytes after its own
+        // `Connection: close`, which Node's parser refuses. That is not a
+        // failure: nothing was lost, the camera simply had nothing to report.
+        //
+        // Treating it as one is what broke motion detection. Every cut tore the
+        // subscription down (`pullPointUrl = null`) and backed off for seconds,
+        // so the camera spent its time re-subscribing instead of watching, and a
+        // motion arriving in that gap was never seen. The subscription is KEPT
+        // and the next pull goes straight back out.
+        if (isBenignDisconnect(e)) {
+          logger.debug(`ONVIF pull on ${this.ip} ended quietly (${e.message}), pulling again`);
+          // A short breath before reissuing. The camera normally holds the pull
+          // for seconds, so this costs nothing — but a firmware that closed
+          // INSTANTLY would otherwise spin this loop as fast as the network
+          // allows, burning CPU and hammering the camera.
+          await new Promise((resolve) => setTimeout(resolve, ONVIF_QUIET_PULL_PAUSE_MS));
+          continue;
+        }
+
         this.failures += 1;
         // The subscription is the first suspect: it expires, and a rebooted
         // camera forgets it. Dropping it forces the next round to open a new one.

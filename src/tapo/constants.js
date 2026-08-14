@@ -71,10 +71,22 @@ export const ONVIF_PORT = 2020;
  *
  * This is what makes the events near-instant: the request stays open, and the
  * camera answers the moment it detects something instead of at the next poll.
- * Long enough that a quiet camera is not constantly reconnecting, short enough
- * that a dropped connection is noticed while it still matters.
+ *
+ * FIVE, not the sixty the standard invites, because Tapo firmwares do not honor
+ * the value they are given. Measured on a C210 and a C500: whatever `Timeout`
+ * is asked for, the camera drops the connection after about ten seconds — and
+ * drops it badly, writing bytes after announcing `Connection: close`, which
+ * Node's HTTP parser rejects outright ("Data after `Connection: close`"). Asking
+ * for sixty therefore produced a failure every eleven seconds, each one tearing
+ * the subscription down and rebuilding it, so the window in which a motion could
+ * be caught was almost nil.
+ *
+ * Staying under the firmware's own limit means the request completes normally,
+ * the subscription survives, and the next pull is already waiting when the
+ * camera has something to say. It costs more requests than a real long poll —
+ * the only mode these firmwares actually support.
  */
-export const ONVIF_PULL_TIMEOUT_SECONDS = 60;
+export const ONVIF_PULL_TIMEOUT_SECONDS = 5;
 
 /** Budget for the short ONVIF calls (probe, subscribe), which answer at once. */
 export const ONVIF_REQUEST_TIMEOUT_MS = 10 * 1000;

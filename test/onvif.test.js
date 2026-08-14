@@ -8,6 +8,7 @@ import {
   parsePullMessages,
   hasDoorbellTopic,
   faultSummary,
+  isBenignDisconnect,
   TapoOnvif,
 } from '../src/tapo/onvif.js';
 
@@ -271,4 +272,62 @@ test('a body carrying no fault at all summarizes to nothing', () => {
   // about.
   assert.equal(faultSummary('<html><body>Bad Request</body></html>'), '');
   assert.equal(faultSummary(''), '');
+});
+
+// --- Quiet pulls --------------------------------------------------------------
+
+test('a camera closing a quiet pull is not treated as a failure', () => {
+  // Measured on a C210/C500: instead of answering an empty envelope, the
+  // firmware cuts the connection — sometimes trailing bytes after its own
+  // `Connection: close`, which Node's parser rejects. Counting those as
+  // failures tore down a healthy subscription every few seconds, which is what
+  // left motion detection dead.
+  assert.equal(isBenignDisconnect(new Error('socket hang up')), true);
+  assert.equal(isBenignDisconnect(new Error('Parse Error: Data after `Connection: close`')), true);
+  assert.equal(isBenignDisconnect(new Error('ONVIF_TIMEOUT')), true);
+  const reset = new Error('read ECONNRESET');
+  reset.code = 'ECONNRESET';
+  assert.equal(isBenignDisconnect(reset), true);
+});
+
+test('a real fault is never mistaken for a quiet pull', () => {
+  // The other half of the rule: hiding these behind an endless quiet loop would
+  // bury a camera that is unreachable or refusing the account.
+  assert.equal(isBenignDisconnect(new Error('connect ECONNREFUSED 10.0.0.5:2020')), false);
+  assert.equal(isBenignDisconnect(new Error('ONVIF_HTTP_401:ter:NotAuthorized')), false);
+  assert.equal(isBenignDisconnect(new Error('getaddrinfo ENOTFOUND camera')), false);
+  assert.equal(isBenignDisconnect(undefined), false);
+});
+
+test('a quiet pull keeps the subscription and pulls again', async () => {
+  // The point of the fix: the pull point must SURVIVE, or the camera spends its
+  // time re-subscribing instead of watching.
+  const client = new TapoOnvif('10.0.0.7', 'user', 'pass');
+  client.pullPointUrl = 'http://10.0.0.7:2020/onvif/sub1';
+
+  let pulls = 0;
+  client.pull = async () => {
+    pulls += 1;
+    if (pulls === 1) {
+      throw new Error('socket hang up');
+    }
+    client.running = false;
+    return [];
+  };
+
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => realSetTimeout(fn, 0);
+  try {
+    client.running = true;
+    await client.loop();
+    assert.equal(pulls, 2, 'the pull is reissued');
+    assert.equal(client.failures, 0, 'a quiet pull is not a failure');
+    assert.equal(
+      client.pullPointUrl,
+      'http://10.0.0.7:2020/onvif/sub1',
+      'the subscription must not be torn down',
+    );
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
 });
