@@ -132,6 +132,18 @@ export class EventWatcher {
      * @type {Set<string>}
      */
     this.onvifCovered = new Set();
+    /**
+     * Last motion state published per camera, to publish only the CHANGES.
+     *
+     * A camera repeats its state for as long as the motion lasts — measured at
+     * ~15 notifications a second on a C500, so one person walking past is
+     * hundreds of identical `motion=true`. The host API rate-limits states at
+     * 300 per minute per integration, sized for changes rather than snapshots,
+     * so republishing each one burns the whole budget on a single camera and
+     * the dashboard ends up showing nothing at all.
+     * @type {Map<string, boolean>}
+     */
+    this.motionStates = new Map();
     this.config = null;
     this.running = false;
   }
@@ -254,9 +266,20 @@ export class EventWatcher {
       return;
     }
 
-    await this.gladys
-      .publishState(ids.feature(FEATURE_SUFFIXES.MOTION), event.active ? 1 : 0)
-      .catch((e) => logger.debug(`Publishing the motion failed: ${e.message}`));
+    // Only on a CHANGE. The camera repeats its state for as long as the motion
+    // lasts, so publishing each notification sent hundreds of identical values
+    // and blew through the 300 states/minute the host API allows — after which
+    // nothing reached the dashboard at all, which is exactly how a motion that
+    // WAS detected still showed up as "no motion".
+    if (this.motionStates.get(cloudDeviceId) !== event.active) {
+      this.motionStates.set(cloudDeviceId, event.active);
+      if (event.active) {
+        logger.info(`Motion detected on "${device.name}" (ONVIF)`);
+      }
+      await this.gladys
+        .publishState(ids.feature(FEATURE_SUFFIXES.MOTION), event.active ? 1 : 0)
+        .catch((e) => logger.warn(`Publishing the motion failed: ${e.message}`));
+    }
 
     const pending = this.motionResets.get(cloudDeviceId);
     if (pending) {
@@ -508,6 +531,11 @@ export class EventWatcher {
     }
     const timer = setTimeout(async () => {
       this.motionResets.delete(cloudDeviceId);
+      // Kept in step with the deduplication: without this the map would still
+      // read `true` after the reset published 0, and the NEXT real motion would
+      // be filtered out as "no change" — a sensor that fires once and then never
+      // again.
+      this.motionStates.set(cloudDeviceId, false);
       await this.gladys
         .publishState(cameraIds(this.gladys, cloudDeviceId).feature(FEATURE_SUFFIXES.MOTION), 0)
         .catch((e) => logger.debug(`Resetting the motion failed: ${e.message}`));

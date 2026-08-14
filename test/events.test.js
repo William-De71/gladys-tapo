@@ -457,3 +457,45 @@ test('the ONVIF setup asks Gladys for the devices instead of reading a stale lis
   await watcher.setupOnvifSubscriptions();
   assert.deepEqual(tried, [camera.external_id], 'the camera must be offered to ONVIF');
 });
+
+// --- Motion deduplication -----------------------------------------------------
+
+test('a repeated motion state is published once, not on every notification', async () => {
+  // Measured at ~15 notifications a second on a C500: one person walking past is
+  // hundreds of identical `motion=true`. The host API allows 300 states a minute,
+  // so republishing each one burned the budget and the dashboard showed nothing.
+  const gladys = fakeGladys();
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID7' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  for (let i = 0; i < 20; i += 1) {
+    await watcher.handleOnvifEvent(device, 'ID7', { kind: 'motion', active: true, at: Date.now() });
+  }
+  const published = gladys.published.states.filter((state) =>
+    state.featureExternalId.endsWith(':motion'),
+  );
+  assert.equal(published.length, 1, 'twenty notifications, one state');
+  assert.equal(published[0].value, 1);
+  // The active motion armed a reset timer; without this the test process hangs
+  // until it fires.
+  watcher.stop();
+});
+
+test('a motion is reported again after it ended', async () => {
+  // The trap of deduplicating: a sensor that fires once and then never again.
+  const gladys = fakeGladys();
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID8' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  await watcher.handleOnvifEvent(device, 'ID8', { kind: 'motion', active: true, at: Date.now() });
+  await watcher.handleOnvifEvent(device, 'ID8', { kind: 'motion', active: false, at: Date.now() });
+  await watcher.handleOnvifEvent(device, 'ID8', { kind: 'motion', active: true, at: Date.now() });
+
+  const values = gladys.published.states
+    .filter((state) => state.featureExternalId.endsWith(':motion'))
+    .map((state) => state.value);
+  assert.deepEqual(values, [1, 0, 1], 'each real change is published');
+  watcher.stop();
+});
