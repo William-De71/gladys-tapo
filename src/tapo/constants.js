@@ -101,6 +101,22 @@ export const ONVIF_REQUEST_TIMEOUT_MS = 10 * 1000;
  */
 export const ONVIF_MOTION_TIMEOUT_MS = 3 * 60 * 1000;
 
+/**
+ * How long the end of an ONVIF motion is held back before it is published.
+ *
+ * Tapo firmwares slip a single `motion=false` into the middle of an ongoing
+ * detection — measured on a C500: runs of 50 to 150 `true` separated by exactly
+ * one `false`, repeatedly, while someone is still walking in front of the
+ * camera. Publishing that blip at once dropped the sensor a second after it
+ * rose, so the dashboard barely flickered while the logs showed half a minute
+ * of detection.
+ *
+ * Two seconds is well above the gap between two notifications (tens of
+ * milliseconds) and short enough that a motion which really ended is reported
+ * as over almost immediately.
+ */
+export const ONVIF_MOTION_FALL_DELAY_MS = 2000;
+
 // --- ONVIF PTZ (pan / tilt / zoom) -------------------------------------------
 
 /**

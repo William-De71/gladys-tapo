@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EventWatcher, classifyEvent, eventTimestamp } from '../src/tapo/events.js';
 import { buildDevice } from '../src/devices.js';
 import { normalizeConfig } from '../src/config.js';
+import { ONVIF_MOTION_FALL_DELAY_MS } from '../src/tapo/constants.js';
 import { fakeGladys, fakeCloud, fakeLocalApi } from './helpers/fakeGladys.js';
 
 const doorbellCamera = {
@@ -245,6 +246,9 @@ test('an ONVIF motion publishes its rising and falling edge', async () => {
 
   await watcher.handleOnvifEvent(device, 'ID1', { kind: 'motion', active: true, at: Date.now() });
   await watcher.handleOnvifEvent(device, 'ID1', { kind: 'motion', active: false, at: Date.now() });
+  // The fall is held back to swallow the blips these firmwares mix into an
+  // ongoing detection, so it lands a moment after the camera reported it.
+  await new Promise((resolve) => setTimeout(resolve, ONVIF_MOTION_FALL_DELAY_MS + 50));
 
   const motions = gladys.published.states.filter((state) =>
     state.featureExternalId.endsWith(':motion'),
@@ -253,6 +257,7 @@ test('an ONVIF motion publishes its rising and falling edge', async () => {
     motions.map((state) => state.value),
     [1, 0],
   );
+  watcher.stop();
 });
 
 test('the falling edge cancels the fallback timer', async () => {
@@ -264,7 +269,9 @@ test('the falling edge cancels the fallback timer', async () => {
   assert.ok(watcher.motionResets.has('ID1'), 'the safety net must be armed');
 
   await watcher.handleOnvifEvent(device, 'ID1', { kind: 'motion', active: false, at: Date.now() });
+  await new Promise((resolve) => setTimeout(resolve, ONVIF_MOTION_FALL_DELAY_MS + 50));
   assert.equal(watcher.motionResets.has('ID1'), false);
+  watcher.stop();
 });
 
 test('an ONVIF ring publishes the press and pushes an image', async () => {
@@ -490,12 +497,39 @@ test('a motion is reported again after it ended', async () => {
   watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
 
   await watcher.handleOnvifEvent(device, 'ID8', { kind: 'motion', active: true, at: Date.now() });
+  // The fall is held back, so it has to be let through for this test.
   await watcher.handleOnvifEvent(device, 'ID8', { kind: 'motion', active: false, at: Date.now() });
+  await new Promise((resolve) => setTimeout(resolve, ONVIF_MOTION_FALL_DELAY_MS + 50));
   await watcher.handleOnvifEvent(device, 'ID8', { kind: 'motion', active: true, at: Date.now() });
 
   const values = gladys.published.states
     .filter((state) => state.featureExternalId.endsWith(':motion'))
     .map((state) => state.value);
   assert.deepEqual(values, [1, 0, 1], 'each real change is published');
+  watcher.stop();
+});
+
+test('a lone false in the middle of a motion does not drop the sensor', async () => {
+  // Measured on a C500: runs of 50 to 150 `true` split by exactly ONE `false`,
+  // over and over, while someone is still walking past. Publishing that blip
+  // dropped the sensor a second after it rose — the detection showed for a
+  // blink on the dashboard while the logs showed half a minute of motion.
+  const gladys = fakeGladys();
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID10' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const motion = (active) =>
+    watcher.handleOnvifEvent(device, 'ID10', { kind: 'motion', active, at: Date.now() });
+
+  await motion(true);
+  await motion(false); // the blip
+  await motion(true); // the motion is still going on
+  await new Promise((resolve) => setTimeout(resolve, ONVIF_MOTION_FALL_DELAY_MS + 50));
+
+  const values = gladys.published.states
+    .filter((state) => state.featureExternalId.endsWith(':motion'))
+    .map((state) => state.value);
+  assert.deepEqual(values, [1], 'the blip must not reach Gladys');
   watcher.stop();
 });

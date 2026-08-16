@@ -19,6 +19,7 @@ import {
   FEATURE_SUFFIXES,
   LOCAL_EVENT_WINDOW_SECONDS,
   ONVIF_MOTION_TIMEOUT_MS,
+  ONVIF_MOTION_FALL_DELAY_MS,
 } from './constants.js';
 import { TapoLocalApi } from './localApi.js';
 import { TapoOnvif } from './onvif.js';
@@ -144,6 +145,8 @@ export class EventWatcher {
      * @type {Map<string, boolean>}
      */
     this.motionStates = new Map();
+    /** Pending falling edges, held back to swallow the firmware's blips. */
+    this.motionFalls = new Map();
     this.config = null;
     this.running = false;
   }
@@ -266,31 +269,67 @@ export class EventWatcher {
       return;
     }
 
-    // Only on a CHANGE. The camera repeats its state for as long as the motion
-    // lasts, so publishing each notification sent hundreds of identical values
-    // and blew through the 300 states/minute the host API allows — after which
-    // nothing reached the dashboard at all, which is exactly how a motion that
-    // WAS detected still showed up as "no motion".
-    if (this.motionStates.get(cloudDeviceId) !== event.active) {
-      this.motionStates.set(cloudDeviceId, event.active);
-      if (event.active) {
-        logger.info(`Motion detected on "${device.name}" (ONVIF)`);
+    // The rising edge is published straight away, and only on a CHANGE: the
+    // camera repeats its state for as long as the motion lasts, so publishing
+    // each notification sent hundreds of identical values and blew through the
+    // 300 states/minute the host API allows.
+    if (event.active) {
+      // A pending fall is cancelled: the motion is still going on.
+      const falling = this.motionFalls.get(cloudDeviceId);
+      if (falling) {
+        clearTimeout(falling);
+        this.motionFalls.delete(cloudDeviceId);
       }
-      await this.gladys
-        .publishState(ids.feature(FEATURE_SUFFIXES.MOTION), event.active ? 1 : 0)
-        .catch((e) => logger.warn(`Publishing the motion failed: ${e.message}`));
+
+      if (this.motionStates.get(cloudDeviceId) !== true) {
+        this.motionStates.set(cloudDeviceId, true);
+        logger.info(`Motion detected on "${device.name}" (ONVIF)`);
+        await this.gladys
+          .publishState(ids.feature(FEATURE_SUFFIXES.MOTION), 1)
+          .catch((e) => logger.warn(`Publishing the motion failed: ${e.message}`));
+      }
+
+      // Still armed as the fallback for a camera that never reports the end.
+      const pending = this.motionResets.get(cloudDeviceId);
+      if (pending) {
+        clearTimeout(pending);
+        this.motionResets.delete(cloudDeviceId);
+      }
+      this.scheduleMotionReset(cloudDeviceId, ONVIF_MOTION_TIMEOUT_MS);
+      return;
     }
 
-    const pending = this.motionResets.get(cloudDeviceId);
-    if (pending) {
-      clearTimeout(pending);
-      this.motionResets.delete(cloudDeviceId);
+    // The falling edge WAITS. These firmwares slip a single `motion=false` into
+    // the middle of an ongoing detection — measured on a C500: runs of 50 to 150
+    // `true` split by exactly one `false`, over and over, while someone is still
+    // walking in front of the camera. Publishing it at once dropped the sensor
+    // back to "no motion" a second after it rose, so the dashboard barely
+    // flickered while the logs showed a detection lasting half a minute.
+    //
+    // Holding the fall for a couple of seconds swallows those blips: a `true`
+    // arriving in the meantime cancels it (above), and a motion that really has
+    // ended has no more `true` to send, so the state falls a moment later.
+    if (this.motionStates.get(cloudDeviceId) !== true || this.motionFalls.has(cloudDeviceId)) {
+      return;
     }
-    if (event.active) {
-      // Longer than the polled reset: here the timer is only the fallback for a
-      // falling edge that never comes, so it must not cut a real motion short.
-      this.scheduleMotionReset(cloudDeviceId, ONVIF_MOTION_TIMEOUT_MS);
-    }
+    const timer = setTimeout(async () => {
+      this.motionFalls.delete(cloudDeviceId);
+      this.motionStates.set(cloudDeviceId, false);
+      // The camera reported the end itself, so the safety net has nothing left
+      // to catch: left armed it would publish a second, pointless 0 minutes
+      // later — and, worse, one that could land in the middle of a NEW motion.
+      const pending = this.motionResets.get(cloudDeviceId);
+      if (pending) {
+        clearTimeout(pending);
+        this.motionResets.delete(cloudDeviceId);
+      }
+      await this.gladys
+        .publishState(ids.feature(FEATURE_SUFFIXES.MOTION), 0)
+        .catch((e) => logger.warn(`Publishing the end of the motion failed: ${e.message}`));
+    }, ONVIF_MOTION_FALL_DELAY_MS);
+    // Same as the reset above: it must not hold the process open on its own.
+    timer.unref?.();
+    this.motionFalls.set(cloudDeviceId, timer);
   }
 
   /**
@@ -372,6 +411,8 @@ export class EventWatcher {
     }
     this.motionResets.forEach((timer) => clearTimeout(timer));
     this.motionResets.clear();
+    this.motionFalls.forEach((timer) => clearTimeout(timer));
+    this.motionFalls.clear();
     // Unsubscribe rather than just dropping the clients: the camera keeps the
     // subscription alive on its side for its full termination time, and only
     // accepts a few at once — a restart would find them all taken.
@@ -540,6 +581,11 @@ export class EventWatcher {
         .publishState(cameraIds(this.gladys, cloudDeviceId).feature(FEATURE_SUFFIXES.MOTION), 0)
         .catch((e) => logger.debug(`Resetting the motion failed: ${e.message}`));
     }, delayMs);
+    // Nothing waits on this: it publishes a state, it is not work to finish. Left
+    // referenced it holds the event loop open for its full delay — up to three
+    // minutes — which is what made the test suite hang rather than exit, and
+    // would delay a shutdown by as much.
+    timer.unref?.();
     this.motionResets.set(cloudDeviceId, timer);
   }
 
