@@ -5,3 +5,6 @@ npm-debug.log*
 data/
 *.log
 .DS_Store
+
+# Fichier temporaire produit par le workflow Release
+release-notes.md

@@ -8,8 +8,11 @@
 #   2. writes it into `package.json`, `package-lock.json` AND the manifest
 #      (`gladys-assistant-integration.json`: both `version` and the
 #      `docker_image` tag, so the indexer and the image stay in lockstep);
-#   3. commits the bump and pushes the `vX.Y.Z` tag;
-#   4. calls build.yml to publish the multi-arch image (`:X.Y.Z` + `:latest`).
+#   3. regenerates CHANGELOG.md from the Conventional Commits since the last
+#      tag (see changelog.config.mjs), so it ships in the release commit;
+#   4. commits the bump and pushes the `vX.Y.Z` tag;
+#   5. publishes a GitHub release carrying this version's changelog entry;
+#   6. calls build.yml to publish the multi-arch image (`:X.Y.Z` + `:latest`).
 #
 # Why call build.yml instead of relying on the tag push: a tag pushed with the
 # default GITHUB_TOKEN does NOT trigger other workflows, so we invoke the build
@@ -47,6 +50,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+
+      # conventional-changelog and its preset are devDependencies, pinned in
+      # package-lock.json so a release always renders the changelog the same way.
+      - name: Install dependencies
+        run: npm ci
 
       - name: Bump version and update the manifest
         id: bump
@@ -71,7 +80,35 @@ jobs:
             gladys-assistant-integration.json > "$tmp"
           mv "$tmp" gladys-assistant-integration.json
 
+          # jq reprints the whole file with its own style (it expands short
+          # arrays over several lines), which does not match .prettierrc.json
+          # and makes the `prettier --check .` gate of ci.yml fail on the very
+          # next push. Reformat what jq just wrote, with the same Prettier
+          # range as the devDependency so both jobs agree on the output.
+          npx --yes "prettier@$(node -p "require('./package.json').devDependencies.prettier")" \
+            --write gladys-assistant-integration.json
+
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
+
+      # Must run AFTER the bump: conventional-changelog reads the new version
+      # from package.json to title the section it prepends (the tag does not
+      # exist yet at this point).
+      - name: Update the changelog
+        run: |
+          set -euo pipefail
+          npm run changelog
+          # `-s` prepends and leaves a leading blank line behind; strip it so
+          # the file does not grow one extra blank line per release.
+          printf '%s\n' "$(cat CHANGELOG.md)" > CHANGELOG.md
+
+      # The notes for THIS version only: everything between the first heading
+      # and the next one. Feeds the GitHub release created below.
+      - name: Extract this version's notes
+        id: notes
+        run: |
+          set -euo pipefail
+          awk 'NR>1 && /^## /{exit} {print}' CHANGELOG.md > release-notes.md
+          cat release-notes.md
 
       # Note: if the branch you release from is protected against direct pushes,
       # GitHub rejects the push below (the default GITHUB_TOKEN cannot bypass
@@ -85,12 +122,23 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add package.json package-lock.json gladys-assistant-integration.json
+          git add package.json package-lock.json gladys-assistant-integration.json CHANGELOG.md
           git commit -m "chore(release): ${VERSION}"
           git tag -a "v${VERSION}" -m "Release ${VERSION}"
 
           git push origin "HEAD:${GITHUB_REF_NAME}"
           git push origin "v${VERSION}"
+
+      # Publish the release page for the tag just pushed, with the changelog
+      # entry as its body.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --notes-file release-notes.md
 
   # Build and publish the image for the version we just tagged.
   build:
