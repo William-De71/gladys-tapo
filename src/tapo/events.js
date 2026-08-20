@@ -793,13 +793,34 @@ export class EventWatcher {
       return { events: [], battery: null, privacy: null };
     }
 
+    // A camera too low to capture anything is cut back to its battery reading
+    // alone, and even that one is spaced out. Blocking the captures was never
+    // enough on its own: the poll itself woke the camera every round for three
+    // local calls, which is what kept draining a C610 that was already forbidden
+    // from capturing. The reading is the one call worth its cost — it is what
+    // lets the guard release the camera once the panel has refilled it.
+    let lowPower = false;
+    if (this.batteryGuard && !this.batteryGuard.allowsPolling(device.external_id)) {
+      if (!wantsBattery || !this.batteryGuard.dueForLowPoll(device.external_id)) {
+        // Not due yet: return without opening a session at all, since opening
+        // one is itself a wake-up.
+        return { events: [], battery: null, privacy: null };
+      }
+      lowPower = true;
+    }
+
     const api = this.getLocalApi(ip);
 
     // Only the window since the last look matters, and the camera stores far
     // more than that — asking for everything would return hundreds of entries.
     const now = Math.floor(Date.now() / 1000);
     const since = this.lastLookAt.get(ip) ?? now - LOCAL_EVENT_WINDOW_SECONDS;
-    this.lastLookAt.set(ip, now);
+    // Only advanced when the detections are actually read. A low-power pulse
+    // does not read them, and moving the cursor anyway would skip the whole
+    // window it stayed quiet for once the camera comes back.
+    if (!lowPower) {
+      this.lastLookAt.set(ip, now);
+    }
 
     // Only what this device actually exposes is asked for: reading a battery
     // level from a wired camera, or a lens mask from a camera that has no
@@ -811,7 +832,7 @@ export class EventWatcher {
             return null;
           })
         : Promise.resolve(null),
-      skipDetections
+      skipDetections || lowPower
         ? Promise.resolve([])
         : api.getDetections(since, now).catch((e) => {
             logger.debug(`Reading the detections of ${ip} failed: ${e.message}`);
@@ -820,7 +841,7 @@ export class EventWatcher {
       // Re-read every round so a toggle made from the Tapo app reaches Gladys:
       // a switch that only reflects what Gladys itself did is a switch that
       // lies. Only for the cameras that HAVE the switch, though.
-      wantsPrivacy
+      wantsPrivacy && !lowPower
         ? api.getPrivacyMode().catch((e) => {
             logger.debug(`Reading the privacy mode of ${ip} failed: ${e.message}`);
             return null;

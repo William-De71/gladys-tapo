@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { EventWatcher, classifyEvent, eventTimestamp } from '../src/tapo/events.js';
 import { buildDevice } from '../src/devices.js';
 import { normalizeConfig } from '../src/config.js';
-import { ONVIF_MOTION_FALL_DELAY_MS } from '../src/tapo/constants.js';
+import {
+  ONVIF_MOTION_FALL_DELAY_MS,
+  BATTERY_THRESHOLDS,
+  BATTERY_LOW_POLL_INTERVAL_MS,
+} from '../src/tapo/constants.js';
+import { BatteryGuard } from '../src/tapo/batteryGuard.js';
 import { fakeGladys, fakeCloud, fakeLocalApi } from './helpers/fakeGladys.js';
 
 const doorbellCamera = {
@@ -670,4 +675,89 @@ test('a camera without a subscription is retried on the next tick', async () => 
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(tried, [], 'a covered camera is not probed again');
   watcher.stop();
+});
+
+test('a flat camera is polled for its battery alone, and only now and then', async () => {
+  // The C610 on the cabin: blocked from capturing at all, and still losing
+  // charge visibly. Blocking the captures left the poll untouched, so the camera
+  // was woken every `event_poll_interval` for three local calls — 180 wake-ups
+  // an hour on a solar cell that only refills in bursts.
+  const gladys = fakeGladys();
+  const battery = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID15',
+    hasBattery: true,
+  });
+  gladys.devices = [battery];
+
+  const guard = new BatteryGuard();
+  guard.update(battery.external_id, BATTERY_THRESHOLDS.STOP_ALL - 1, 'Camera_cabane');
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud(), batteryGuard: guard });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  let opened = 0;
+  const api = fakeLocalApi({ battery: 12, events: [{ eventTime: 1 }] });
+  let detections = 0;
+  let privacyReads = 0;
+  api.getDetections = async () => {
+    detections += 1;
+    return [];
+  };
+  api.getPrivacyMode = async () => {
+    privacyReads += 1;
+    return null;
+  };
+  watcher.getLocalApi = () => {
+    opened += 1;
+    return api;
+  };
+
+  // First round: the pulse is due, so the battery is read — and nothing else.
+  await watcher.checkDevice(battery);
+  assert.equal(opened, 1, 'the battery is still read, or the camera could never recover');
+  assert.equal(detections, 0, 'a camera that cannot capture has no use for its detections');
+  assert.equal(privacyReads, 0, 'nor for its privacy mode');
+
+  // Every round that follows inside the interval must not touch the camera at
+  // all — not even opening a session, which is itself a wake-up.
+  await watcher.checkDevice(battery);
+  await watcher.checkDevice(battery);
+  assert.equal(opened, 1, 'no session may be opened between two pulses');
+
+  // Once the interval has passed it is woken again, so a camera charging back up
+  // is noticed.
+  guard.polledAt.set(battery.external_id, Date.now() - BATTERY_LOW_POLL_INTERVAL_MS - 1);
+  await watcher.checkDevice(battery);
+  assert.equal(opened, 2, 'the pulse resumes after the interval');
+});
+
+test('a healthy battery camera is polled in full', async () => {
+  // The throttling must not leak into the normal case: a camera with charge
+  // keeps its detections and its privacy mode every round.
+  const gladys = fakeGladys();
+  const battery = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID16',
+    hasBattery: true,
+  });
+  gladys.devices = [battery];
+
+  const guard = new BatteryGuard();
+  guard.update(battery.external_id, 95);
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud(), batteryGuard: guard });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  let detections = 0;
+  const api = fakeLocalApi({ battery: 95 });
+  api.getDetections = async () => {
+    detections += 1;
+    return [];
+  };
+  watcher.getLocalApi = () => api;
+
+  await watcher.checkDevice(battery);
+  await watcher.checkDevice(battery);
+  assert.equal(detections, 2, 'a charged camera keeps its full poll every round');
 });

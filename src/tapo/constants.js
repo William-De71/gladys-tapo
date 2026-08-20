@@ -333,6 +333,28 @@ export const BATTERY_THRESHOLDS = {
  */
 export const BATTERY_READING_MAX_AGE_MS = 30 * 60 * 1000;
 
+/**
+ * How often a camera below `STOP_ALL` is still woken for its battery, in ms.
+ *
+ * Under that level the local poll is cut down to this single reading: no
+ * detections, no privacy mode. Capturing an image is the expensive call, but it
+ * is not the only one — a camera with no ONVIF subscription was woken every
+ * `event_poll_interval` (20s by default) for three local calls, 180 wake-ups an
+ * hour, which is enough on its own to drain a solar camera faster than the panel
+ * refills it. Measured on a C610 that was blocked from capturing at all and
+ * still lost charge steadily.
+ *
+ * The reading itself is never dropped, because it is what lets the guard release
+ * the camera once the sun comes back: cut it entirely and a camera that dipped
+ * below the threshold could never report its way out of it.
+ *
+ * Deliberately half of `BATTERY_READING_MAX_AGE_MS`, so two pulses fit inside
+ * the freshness window. At exactly the max age the level would expire moments
+ * before its own refresh, flipping the camera between "known" and "stale" for
+ * nothing.
+ */
+export const BATTERY_LOW_POLL_INTERVAL_MS = 15 * 60 * 1000;
+
 // --- Features ----------------------------------------------------------------
 
 /** Suffixes of the feature external ids, appended to the device external id. */
