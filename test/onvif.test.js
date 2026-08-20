@@ -7,6 +7,8 @@ import {
   classifyTopic,
   parsePullMessages,
   hasDoorbellTopic,
+  faultSummary,
+  isBenignDisconnect,
   TapoOnvif,
 } from '../src/tapo/onvif.js';
 
@@ -189,4 +191,213 @@ test('the doorbell topic is classified by the same rules as a live event', () =>
   const xml =
     '<wstop:TopicSet><tns1:Device><IsDoorbell wstop:topic="true"/></tns1:Device></wstop:TopicSet>';
   assert.equal(hasDoorbellTopic(xml), true);
+});
+
+// --- Pull loop reporting ------------------------------------------------------
+
+test('a run of failed pulls is reported once, and so is the recovery', async () => {
+  // Motion detection dying used to be a debug-level event: the sensor stopped
+  // reporting and nothing anywhere said why. A single failure stays quiet — a
+  // camera rebooting recovers on its own — but a run of them must be visible,
+  // and exactly once, or a camera off for the night writes a line a minute.
+  const client = new TapoOnvif('10.0.0.5', 'user', 'pass');
+  const warnings = [];
+  const infos = [];
+  const { logger } = await import('@gladysassistant/integration-sdk');
+  const realWarn = logger.warn;
+  const realInfo = logger.info;
+  logger.warn = (message) => warnings.push(message);
+  logger.info = (message) => infos.push(message);
+
+  let pulls = 0;
+  client.pull = async () => {
+    pulls += 1;
+    // Fails four times, then recovers.
+    if (pulls <= 4) {
+      throw new Error('TIMEOUT');
+    }
+    client.running = false;
+    return [];
+  };
+
+  const realSetTimeout = globalThis.setTimeout;
+  // The loop backs off between attempts; the waits are not what is under test.
+  globalThis.setTimeout = (fn) => realSetTimeout(fn, 0);
+  try {
+    client.running = true;
+    await client.loop();
+    assert.equal(warnings.length, 1, 'one warning per outage, not one per pull');
+    assert.match(warnings[0], /10\.0\.0\.5/);
+    assert.match(warnings[0], /Motion detection is not working/);
+    assert.equal(infos.length, 1, 'the recovery must be announced too');
+    assert.match(infos[0], /again/);
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    logger.warn = realWarn;
+    logger.info = realInfo;
+  }
+});
+
+// --- SOAP fault reporting -----------------------------------------------------
+
+test('the fault subcode survives a camera that only says "error"', () => {
+  // Measured shape: a Tapo firmware rejects a pull with HTTP 400 and a Text of
+  // just "error", which reported nothing anyone could act on. The subcode is
+  // what names the failure, and the innermost one is the ONVIF-specific one.
+  const xml =
+    '<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope">' +
+    '<env:Body><env:Fault><env:Code><env:Value>env:Sender</env:Value>' +
+    '<env:Subcode><env:Value>ter:InvalidArgVal</env:Value>' +
+    '<env:Subcode><env:Value>ter:UnknownSubscription</env:Value></env:Subcode>' +
+    '</env:Subcode></env:Code>' +
+    '<env:Reason><env:Text xml:lang="en">error</env:Text></env:Reason>' +
+    '</env:Fault></env:Body></env:Envelope>';
+  const summary = faultSummary(xml);
+  assert.match(summary, /ter:UnknownSubscription/, 'the innermost subcode identifies the fault');
+  assert.match(summary, /ter:InvalidArgVal/, 'the outer subcode is kept as context');
+  assert.match(summary, /error/, 'the text is appended when it adds anything');
+});
+
+test('a fault with no subcode still reports its text', () => {
+  const xml =
+    '<env:Envelope><env:Body><env:Fault>' +
+    '<env:Reason><env:Text>Action not supported</env:Text></env:Reason>' +
+    '</env:Fault></env:Body></env:Envelope>';
+  assert.equal(faultSummary(xml), 'Action not supported');
+});
+
+test('a body carrying no fault at all summarizes to nothing', () => {
+  // Which is what makes the caller fall back to the raw body: an unparsed shape
+  // must not be reported as an empty reason, the failure this whole change is
+  // about.
+  assert.equal(faultSummary('<html><body>Bad Request</body></html>'), '');
+  assert.equal(faultSummary(''), '');
+});
+
+// --- Quiet pulls --------------------------------------------------------------
+
+test('a camera closing a quiet pull is not treated as a failure', () => {
+  // Measured on a C210/C500: instead of answering an empty envelope, the
+  // firmware cuts the connection — sometimes trailing bytes after its own
+  // `Connection: close`, which Node's parser rejects. Counting those as
+  // failures tore down a healthy subscription every few seconds, which is what
+  // left motion detection dead.
+  assert.equal(isBenignDisconnect(new Error('socket hang up')), true);
+  assert.equal(isBenignDisconnect(new Error('Parse Error: Data after `Connection: close`')), true);
+  assert.equal(isBenignDisconnect(new Error('ONVIF_TIMEOUT')), true);
+  const reset = new Error('read ECONNRESET');
+  reset.code = 'ECONNRESET';
+  assert.equal(isBenignDisconnect(reset), true);
+});
+
+test('a real fault is never mistaken for a quiet pull', () => {
+  // The other half of the rule: hiding these behind an endless quiet loop would
+  // bury a camera that is unreachable or refusing the account.
+  assert.equal(isBenignDisconnect(new Error('connect ECONNREFUSED 10.0.0.5:2020')), false);
+  assert.equal(isBenignDisconnect(new Error('ONVIF_HTTP_401:ter:NotAuthorized')), false);
+  assert.equal(isBenignDisconnect(new Error('getaddrinfo ENOTFOUND camera')), false);
+  assert.equal(isBenignDisconnect(undefined), false);
+});
+
+test('a quiet pull keeps the subscription and pulls again', async () => {
+  // The point of the fix: the pull point must SURVIVE, or the camera spends its
+  // time re-subscribing instead of watching.
+  const client = new TapoOnvif('10.0.0.7', 'user', 'pass');
+  client.pullPointUrl = 'http://10.0.0.7:2020/onvif/sub1';
+
+  let pulls = 0;
+  client.pull = async () => {
+    pulls += 1;
+    if (pulls === 1) {
+      throw new Error('socket hang up');
+    }
+    client.running = false;
+    return [];
+  };
+
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => realSetTimeout(fn, 0);
+  try {
+    client.running = true;
+    await client.loop();
+    assert.equal(pulls, 2, 'the pull is reissued');
+    assert.equal(client.failures, 0, 'a quiet pull is not a failure');
+    assert.equal(
+      client.pullPointUrl,
+      'http://10.0.0.7:2020/onvif/sub1',
+      'the subscription must not be torn down',
+    );
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+});
+
+test('a camera refusing the termination time is subscribed without it', async () => {
+  // Measured on a C500: `ter:InvalidArgVal` to the very CreatePullPointSubscription
+  // another Tapo camera accepts. The element is optional in the standard, and
+  // without this fallback that camera got no subscription at all — its motion
+  // sensor stayed dead while its neighbour worked.
+  const client = new TapoOnvif('10.0.0.9', 'user', 'pass');
+  client.eventsUrl = 'http://10.0.0.9:2020/onvif/service';
+
+  const bodies = [];
+  client.call = async (url, body) => {
+    bodies.push(body);
+    if (body.includes('InitialTerminationTime')) {
+      throw new Error('ONVIF_HTTP_400:ter:InvalidArgVal: error');
+    }
+    return '<tev:SubscriptionReference><wsa:Address>http://10.0.0.9:2020/onvif/sub9</wsa:Address></tev:SubscriptionReference>';
+  };
+
+  await client.subscribe();
+  assert.equal(bodies.length, 2, 'it retries without the termination time');
+  assert.match(bodies[1], /CreatePullPointSubscription\/>/);
+  assert.ok(client.pullPointUrl.endsWith('/onvif/sub9'), 'the subscription is usable');
+});
+
+test('a subscription refused for another reason is not retried', async () => {
+  // A wrong account must surface, not be masked by a second attempt that fails
+  // the same way.
+  const client = new TapoOnvif('10.0.0.10', 'user', 'pass');
+  client.eventsUrl = 'http://10.0.0.10:2020/onvif/service';
+
+  let calls = 0;
+  client.call = async () => {
+    calls += 1;
+    throw new Error('ONVIF_HTTP_401:ter:NotAuthorized');
+  };
+
+  await assert.rejects(() => client.subscribe(), /NotAuthorized/);
+  assert.equal(calls, 1, 'no pointless second attempt');
+});
+
+test('the motion state is read from Data, not from the Source token', () => {
+  // The bug that made every event read false: a notification carries a
+  // `<tt:Source>` SimpleItem — the video source token — BEFORE the `<tt:Data>`
+  // one holding the state. Matching the first SimpleItem in the message read
+  // "000" as the state, so a real motion decoded as motion=false. Measured on a
+  // C500: 236 notifications, not one of them true.
+  const xml =
+    '<wsnt:NotificationMessage>' +
+    '<wsnt:Topic>tns1:RuleEngine/CellMotionDetector/Motion</wsnt:Topic>' +
+    '<wsnt:Message><tt:Message UtcTime="2026-08-14T23:24:41Z">' +
+    '<tt:Source><tt:SimpleItem Name="VideoSourceConfigurationToken" Value="000"/></tt:Source>' +
+    '<tt:Data><tt:SimpleItem Name="IsMotion" Value="true"/></tt:Data>' +
+    '</tt:Message></wsnt:Message></wsnt:NotificationMessage>';
+  const events = parsePullMessages(xml);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, 'motion');
+  assert.equal(events[0].active, true, 'the Source token must not be read as the state');
+});
+
+test('a motion ending is still read as inactive', () => {
+  // The falling edge must survive the fix, or the sensor would latch on.
+  const xml =
+    '<wsnt:NotificationMessage>' +
+    '<wsnt:Topic>tns1:RuleEngine/CellMotionDetector/Motion</wsnt:Topic>' +
+    '<wsnt:Message><tt:Message UtcTime="2026-08-14T23:24:41Z">' +
+    '<tt:Source><tt:SimpleItem Name="VideoSourceConfigurationToken" Value="000"/></tt:Source>' +
+    '<tt:Data><tt:SimpleItem Name="IsMotion" Value="false"/></tt:Data>' +
+    '</tt:Message></wsnt:Message></wsnt:NotificationMessage>';
+  assert.equal(parsePullMessages(xml)[0].active, false);
 });

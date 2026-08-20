@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BatteryGuard, CAPTURE_POLICY } from '../src/tapo/batteryGuard.js';
-import { BATTERY_THRESHOLDS, BATTERY_READING_MAX_AGE_MS } from '../src/tapo/constants.js';
+import {
+  BATTERY_THRESHOLDS,
+  BATTERY_READING_MAX_AGE_MS,
+  BATTERY_LOW_POLL_INTERVAL_MS,
+} from '../src/tapo/constants.js';
 
 const ID = 'ext:ext-dev-tapo:camera:ID1';
 
@@ -178,4 +182,88 @@ test('a stop threshold above the pause one is clamped', () => {
   const guard = new BatteryGuard();
   guard.configure({ battery_pause_refresh: 50, battery_stop_all: 90 });
   assert.ok(guard.stopAll <= guard.pauseRefresh);
+});
+
+test('a camera too low to capture is also cut off from the full poll', () => {
+  // Blocking the captures was never enough on its own: the poll woke the camera
+  // every round for three local calls, which drained a C610 that was already
+  // forbidden from capturing anything.
+  const guard = new BatteryGuard();
+  guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL - 1);
+  assert.equal(guard.policyFor(ID), CAPTURE_POLICY.NONE);
+  assert.equal(guard.allowsPolling(ID), false);
+
+  // Everything above that band still polls normally: the on-demand band keeps
+  // its detections, it is only the captures that stop there.
+  guard.update(ID, BATTERY_THRESHOLDS.PAUSE_REFRESH - 1);
+  assert.equal(guard.policyFor(ID), CAPTURE_POLICY.ON_DEMAND);
+  assert.equal(guard.allowsPolling(ID), true);
+});
+
+test('the battery pulse is spaced out, and never dropped entirely', () => {
+  // The reading is what lets the guard release the camera once the panel has
+  // refilled it: cut it as well and a camera that dipped could never report its
+  // way out.
+  const guard = new BatteryGuard();
+  guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL - 1);
+
+  assert.equal(guard.dueForLowPoll(ID), true, 'the first pulse happens at once');
+  assert.equal(guard.dueForLowPoll(ID), false, 'a second one is refused straight away');
+
+  // Rewind the clock past the interval rather than waiting on it.
+  guard.polledAt.set(ID, Date.now() - BATTERY_LOW_POLL_INTERVAL_MS - 1);
+  assert.equal(guard.dueForLowPoll(ID), true, 'due again once the interval has passed');
+});
+
+test('the pulse interval leaves the reading fresh', () => {
+  // The interval is derived from the max age, so this guards against someone
+  // later writing a literal back in: two pulses must fit inside the freshness
+  // window, or the level expires moments before its own refresh.
+  assert.ok(
+    BATTERY_LOW_POLL_INTERVAL_MS * 2 <= BATTERY_READING_MAX_AGE_MS,
+    'a pulse must renew the level well before it expires',
+  );
+
+  // What the arithmetic is actually protecting: a camera pulsed on schedule
+  // still has a level the guard trusts, so it never flips back to "unknown"
+  // between two pulses.
+  const guard = new BatteryGuard();
+  guard.trackBatteryCamera(ID);
+  guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL - 1);
+
+  // One full interval later, just before the next pulse is due.
+  guard.readAt.set(ID, Date.now() - BATTERY_LOW_POLL_INTERVAL_MS);
+  assert.notEqual(
+    guard.freshLevel(ID),
+    undefined,
+    'the level must still be trusted when the next pulse comes round',
+  );
+});
+
+test('a battery camera that never reports its level is throttled too', () => {
+  // A battery camera whose readings stop coming — asleep, session refused,
+  // network down — is the one `policyFor` already calls out as more likely to be
+  // flat than fine. It answers ON_DEMAND there, protecting the captures while
+  // leaving an explicit request possible, so keying the poll on NONE alone would
+  // keep the full 20s round running against a camera of unknown charge.
+  const guard = new BatteryGuard();
+  guard.trackBatteryCamera(ID);
+
+  assert.equal(guard.policyFor(ID), CAPTURE_POLICY.ON_DEMAND);
+  assert.equal(guard.allowsOnDemand(ID), true, 'an explicit capture stays possible');
+  assert.equal(guard.allowsPolling(ID), false, 'but it is not woken every round for it');
+
+  // A level that has gone stale is the same case: the guard stops trusting it,
+  // so the poll must back off with it.
+  guard.update(ID, 95);
+  assert.equal(guard.allowsPolling(ID), true);
+  guard.readAt.set(ID, Date.now() - BATTERY_READING_MAX_AGE_MS - 1);
+  assert.equal(guard.allowsPolling(ID), false, 'a stale level throttles the poll again');
+});
+
+test('a wired camera with no level is never throttled', () => {
+  // Only battery models are protected: a wired camera has no battery feature to
+  // report, and cutting its poll would cost it its detections for nothing.
+  const guard = new BatteryGuard();
+  assert.equal(guard.allowsPolling('ext:ext-dev-tapo:camera:WIRED'), true);
 });

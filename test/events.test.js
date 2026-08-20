@@ -1,8 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { logger } from '@gladysassistant/integration-sdk';
 import { EventWatcher, classifyEvent, eventTimestamp } from '../src/tapo/events.js';
 import { buildDevice } from '../src/devices.js';
 import { normalizeConfig } from '../src/config.js';
+import {
+  ONVIF_MOTION_FALL_DELAY_MS,
+  BATTERY_THRESHOLDS,
+  BATTERY_LOW_POLL_INTERVAL_MS,
+} from '../src/tapo/constants.js';
+import { BatteryGuard } from '../src/tapo/batteryGuard.js';
 import { fakeGladys, fakeCloud, fakeLocalApi } from './helpers/fakeGladys.js';
 
 const doorbellCamera = {
@@ -245,6 +252,9 @@ test('an ONVIF motion publishes its rising and falling edge', async () => {
 
   await watcher.handleOnvifEvent(device, 'ID1', { kind: 'motion', active: true, at: Date.now() });
   await watcher.handleOnvifEvent(device, 'ID1', { kind: 'motion', active: false, at: Date.now() });
+  // The fall is held back to swallow the blips these firmwares mix into an
+  // ongoing detection, so it lands a moment after the camera reported it.
+  await new Promise((resolve) => setTimeout(resolve, ONVIF_MOTION_FALL_DELAY_MS + 50));
 
   const motions = gladys.published.states.filter((state) =>
     state.featureExternalId.endsWith(':motion'),
@@ -253,6 +263,7 @@ test('an ONVIF motion publishes its rising and falling edge', async () => {
     motions.map((state) => state.value),
     [1, 0],
   );
+  watcher.stop();
 });
 
 test('the falling edge cancels the fallback timer', async () => {
@@ -264,7 +275,9 @@ test('the falling edge cancels the fallback timer', async () => {
   assert.ok(watcher.motionResets.has('ID1'), 'the safety net must be armed');
 
   await watcher.handleOnvifEvent(device, 'ID1', { kind: 'motion', active: false, at: Date.now() });
+  await new Promise((resolve) => setTimeout(resolve, ONVIF_MOTION_FALL_DELAY_MS + 50));
   assert.equal(watcher.motionResets.has('ID1'), false);
+  watcher.stop();
 });
 
 test('an ONVIF ring publishes the press and pushes an image', async () => {
@@ -422,4 +435,384 @@ test('a camera with nothing local to answer is not logged into at all', async ()
 
   await watcher.checkDevice(wired);
   assert.equal(opened, false, 'no local session must be opened with nothing to read');
+});
+
+// --- ONVIF subscriptions ------------------------------------------------------
+
+test('the ONVIF setup asks Gladys for the devices instead of reading a stale list', async () => {
+  // The regression that silently killed motion detection: the setup read
+  // `gladys.devices`, which the SDK only refreshes when the WebSocket
+  // (re)connects. On the `config-updated` path — a re-publish, then the watcher
+  // restarted — that list is stale, and empty on a first setup. No camera was
+  // ever filtered in, so no subscription was opened and no error was logged:
+  // the motion sensor simply never fired again.
+  const gladys = fakeGladys();
+  const camera = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID9' });
+  // Exactly the production shape: the property is stale/empty while the API
+  // serves the real list.
+  gladys.devices = [];
+  gladys.getDevices = async () => [camera];
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({
+    email: 'a@b.c',
+    password: 'x',
+    rtsp_username: 'gladys',
+    rtsp_password: 'secret',
+  });
+
+  const tried = [];
+  watcher.setupOnvif = async (device) => {
+    tried.push(device.external_id);
+    return true;
+  };
+
+  await watcher.setupOnvifSubscriptions();
+  assert.deepEqual(tried, [camera.external_id], 'the camera must be offered to ONVIF');
+});
+
+// --- Motion deduplication -----------------------------------------------------
+
+test('a repeated motion state is published once, not on every notification', async () => {
+  // Measured at ~15 notifications a second on a C500: one person walking past is
+  // hundreds of identical `motion=true`. The host API allows 300 states a minute,
+  // so republishing each one burned the budget and the dashboard showed nothing.
+  const gladys = fakeGladys();
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID7' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  for (let i = 0; i < 20; i += 1) {
+    await watcher.handleOnvifEvent(device, 'ID7', { kind: 'motion', active: true, at: Date.now() });
+  }
+  const published = gladys.published.states.filter((state) =>
+    state.featureExternalId.endsWith(':motion'),
+  );
+  assert.equal(published.length, 1, 'twenty notifications, one state');
+  assert.equal(published[0].value, 1);
+  // The active motion armed a reset timer; without this the test process hangs
+  // until it fires.
+  watcher.stop();
+});
+
+test('a motion is reported again after it ended', async () => {
+  // The trap of deduplicating: a sensor that fires once and then never again.
+  const gladys = fakeGladys();
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID8' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  await watcher.handleOnvifEvent(device, 'ID8', { kind: 'motion', active: true, at: Date.now() });
+  // The fall is held back, so it has to be let through for this test.
+  await watcher.handleOnvifEvent(device, 'ID8', { kind: 'motion', active: false, at: Date.now() });
+  await new Promise((resolve) => setTimeout(resolve, ONVIF_MOTION_FALL_DELAY_MS + 50));
+  await watcher.handleOnvifEvent(device, 'ID8', { kind: 'motion', active: true, at: Date.now() });
+
+  const values = gladys.published.states
+    .filter((state) => state.featureExternalId.endsWith(':motion'))
+    .map((state) => state.value);
+  assert.deepEqual(values, [1, 0, 1], 'each real change is published');
+  watcher.stop();
+});
+
+test('a lone false in the middle of a motion does not drop the sensor', async () => {
+  // Measured on a C500: runs of 50 to 150 `true` split by exactly ONE `false`,
+  // over and over, while someone is still walking past. Publishing that blip
+  // dropped the sensor a second after it rose — the detection showed for a
+  // blink on the dashboard while the logs showed half a minute of motion.
+  const gladys = fakeGladys();
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID10' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const motion = (active) =>
+    watcher.handleOnvifEvent(device, 'ID10', { kind: 'motion', active, at: Date.now() });
+
+  await motion(true);
+  await motion(false); // the blip
+  await motion(true); // the motion is still going on
+  await new Promise((resolve) => setTimeout(resolve, ONVIF_MOTION_FALL_DELAY_MS + 50));
+
+  const values = gladys.published.states
+    .filter((state) => state.featureExternalId.endsWith(':motion'))
+    .map((state) => state.value);
+  assert.deepEqual(values, [1], 'the blip must not reach Gladys');
+  watcher.stop();
+});
+
+test('two notifications during one publish do not publish it twice', async () => {
+  // Measured in production, 13ms apart:
+  //   08:47:13.656 Motion detected on "Caméra_Salon" (ONVIF)
+  //   08:47:13.669 Motion detected on "Caméra_Salon" (ONVIF)
+  // `motionStates` only records what the host ACCEPTED, so while the first
+  // publish awaits its answer the map still reads the old value and the second
+  // notification passes the "is this a change?" test too. At ~15 notifications
+  // a second the window is hit constantly.
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  let first = true;
+  const gladys = fakeGladys({
+    delayPublishState: ({ featureExternalId }) => {
+      if (first && featureExternalId.endsWith(':motion')) {
+        first = false;
+        return held;
+      }
+      return undefined;
+    },
+  });
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID14' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const motion = (active) =>
+    watcher.handleOnvifEvent(device, 'ID14', { kind: 'motion', active, at: Date.now() });
+
+  // The second arrives while the first is still in flight, exactly as the
+  // camera sends them.
+  const inFlight = motion(true);
+  await motion(true);
+  release();
+  await inFlight;
+
+  const values = gladys.published.states
+    .filter((state) => state.featureExternalId.endsWith(':motion'))
+    .map((state) => state.value);
+  assert.deepEqual(values, [1], 'one rising edge is one published state');
+  watcher.stop();
+});
+
+test('a rejected motion is retried, not swallowed for good', async () => {
+  // The deduplication makes `motionStates` the record of what Gladys is showing.
+  // Recording a value the host never accepted silences the sensor until the
+  // process restarts: the map reads `true`, so every later notification is
+  // filtered out as "no change" — which is exactly why a camera came back
+  // working after a restart, with no code change.
+  let rejectNext = true;
+  const gladys = fakeGladys({
+    failPublishState: ({ featureExternalId }) => {
+      if (rejectNext && featureExternalId.endsWith(':motion')) {
+        rejectNext = false;
+        return true;
+      }
+      return false;
+    },
+  });
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID11' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const motion = (active) =>
+    watcher.handleOnvifEvent(device, 'ID11', { kind: 'motion', active, at: Date.now() });
+
+  await motion(true); // rejected by the host
+  assert.equal(
+    watcher.motionStates.get('ID11'),
+    undefined,
+    'a state the host refused must not be recorded as published',
+  );
+
+  await motion(true); // the camera is still reporting the same motion
+
+  const values = gladys.published.states
+    .filter((state) => state.featureExternalId.endsWith(':motion'))
+    .map((state) => state.value);
+  assert.deepEqual(values, [1], 'the next notification publishes the motion after all');
+  watcher.stop();
+});
+
+test('a rejected falling edge leaves the safety net armed', async () => {
+  // Disarming it on a fall the host refused leaves Gladys showing a motion that
+  // is over, with nothing left to bring the sensor back down.
+  const gladys = fakeGladys({
+    failPublishState: ({ featureExternalId, value }) =>
+      featureExternalId.endsWith(':motion') && value === 0,
+  });
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID12' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const motion = (active) =>
+    watcher.handleOnvifEvent(device, 'ID12', { kind: 'motion', active, at: Date.now() });
+
+  await motion(true);
+  await motion(false);
+  await new Promise((resolve) => setTimeout(resolve, ONVIF_MOTION_FALL_DELAY_MS + 50));
+
+  assert.ok(watcher.motionResets.has('ID12'), 'the fallback must survive a refused fall');
+  assert.equal(watcher.motionStates.get('ID12'), true, 'Gladys still shows the motion');
+  watcher.stop();
+});
+
+test('a camera without a subscription is retried on the next tick', async () => {
+  // The setup only runs at startup, so a camera unreachable at that moment
+  // stayed on the polled path for the whole life of the process — silently,
+  // since only the first failure was logged.
+  const gladys = fakeGladys({ devices: [] });
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID13', hasEvents: true });
+  gladys.getDevices = async () => [device];
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+  // Stand in for the real probe+subscribe, which needs a camera on the network.
+  const tried = [];
+  watcher.setupOnvif = async (target) => {
+    tried.push(target.name);
+    return false;
+  };
+  // The polled path must not run: it would need a live local API.
+  watcher.checkDevice = async () => {};
+
+  await watcher.tick();
+  // The retry is deliberately not awaited by the tick, so let it settle.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(tried, ['Sonnette'], 'the uncovered camera is retried');
+
+  // Once covered, it is left alone: no second subscription for the same camera.
+  tried.length = 0;
+  watcher.onvifCovered.add('ID13');
+  await watcher.tick();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(tried, [], 'a covered camera is not probed again');
+  watcher.stop();
+});
+
+test('a flat camera is polled for its battery alone, and only now and then', async () => {
+  // The C610 on the cabin: blocked from capturing at all, and still losing
+  // charge visibly. Blocking the captures left the poll untouched, so the camera
+  // was woken every `event_poll_interval` for three local calls — 180 wake-ups
+  // an hour on a solar cell that only refills in bursts.
+  const gladys = fakeGladys();
+  const battery = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID15',
+    hasBattery: true,
+  });
+  gladys.devices = [battery];
+
+  const guard = new BatteryGuard();
+  guard.update(battery.external_id, BATTERY_THRESHOLDS.STOP_ALL - 1, 'Camera_cabane');
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud(), batteryGuard: guard });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  let opened = 0;
+  const api = fakeLocalApi({ battery: 12, events: [{ eventTime: 1 }] });
+  let detections = 0;
+  let privacyReads = 0;
+  api.getDetections = async () => {
+    detections += 1;
+    return [];
+  };
+  api.getPrivacyMode = async () => {
+    privacyReads += 1;
+    return null;
+  };
+  watcher.getLocalApi = () => {
+    opened += 1;
+    return api;
+  };
+
+  // First round: the pulse is due, so the battery is read — and nothing else.
+  await watcher.checkDevice(battery);
+  assert.equal(opened, 1, 'the battery is still read, or the camera could never recover');
+  assert.equal(detections, 0, 'a camera that cannot capture has no use for its detections');
+  assert.equal(privacyReads, 0, 'nor for its privacy mode');
+
+  // Every round that follows inside the interval must not touch the camera at
+  // all — not even opening a session, which is itself a wake-up.
+  await watcher.checkDevice(battery);
+  await watcher.checkDevice(battery);
+  assert.equal(opened, 1, 'no session may be opened between two pulses');
+
+  // Once the interval has passed it is woken again, so a camera charging back up
+  // is noticed.
+  guard.polledAt.set(battery.external_id, Date.now() - BATTERY_LOW_POLL_INTERVAL_MS - 1);
+  await watcher.checkDevice(battery);
+  assert.equal(opened, 2, 'the pulse resumes after the interval');
+});
+
+test('a healthy battery camera is polled in full', async () => {
+  // The throttling must not leak into the normal case: a camera with charge
+  // keeps its detections and its privacy mode every round.
+  const gladys = fakeGladys();
+  const battery = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID16',
+    hasBattery: true,
+  });
+  gladys.devices = [battery];
+
+  const guard = new BatteryGuard();
+  guard.update(battery.external_id, 95);
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud(), batteryGuard: guard });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  let detections = 0;
+  const api = fakeLocalApi({ battery: 95 });
+  api.getDetections = async () => {
+    detections += 1;
+    return [];
+  };
+  watcher.getLocalApi = () => api;
+
+  await watcher.checkDevice(battery);
+  await watcher.checkDevice(battery);
+  assert.equal(detections, 2, 'a charged camera keeps its full poll every round');
+});
+
+test('a solar camera is not asked for a camera account it cannot have', async () => {
+  // Solar and wire-free models offer no camera account to create in the Tapo
+  // app, so the "ONVIF events unavailable" line sent the user looking for a
+  // setting that does not exist — every round, burying the messages that do ask
+  // for an action. They have no use for ONVIF either: their detections come
+  // from the local list.
+  const gladys = fakeGladys();
+  const solar = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID17',
+    name: 'Camera_cabane',
+    model: 'C610',
+    hasBattery: true,
+  });
+
+  const lines = [];
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  // No camera account anywhere in the config, exactly the production case.
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const debug = logger.debug;
+  logger.debug = (message) => lines.push(String(message));
+  try {
+    assert.equal(await watcher.setupOnvif(solar), false, 'it still declines ONVIF');
+  } finally {
+    logger.debug = debug;
+  }
+  assert.equal(
+    lines.some((line) => line.includes('No camera account')),
+    false,
+    'nothing must ask for an account this model cannot provide',
+  );
+
+  // A wired camera DOES have one to create, so it must keep being told.
+  const wired = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID18',
+    name: 'Caméra_Salon',
+    model: 'C210',
+    hasBattery: false,
+  });
+  lines.length = 0;
+  logger.debug = (message) => lines.push(String(message));
+  try {
+    await watcher.setupOnvif(wired);
+  } finally {
+    logger.debug = debug;
+  }
+  assert.ok(
+    lines.some((line) => line.includes('No camera account')),
+    'a wired camera is still told what is missing',
+  );
 });

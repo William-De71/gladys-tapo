@@ -36,6 +36,25 @@ export const NS = {
   schema: 'http://www.onvif.org/ver10/schema',
 };
 
+/**
+ * Consecutive failed pulls before the outage is reported at warn level.
+ *
+ * Three, because the first two are the ordinary ones: a subscription that
+ * expired and a camera that rebooted both cost a pull, and both are recovered
+ * from without anyone needing to know. By the third the camera is not answering
+ * at all, and a silent motion sensor is worse than a noisy log.
+ */
+const ONVIF_FAILURES_BEFORE_WARNING = 3;
+
+/**
+ * Pause before reissuing a pull the camera ended quietly.
+ *
+ * Small enough to stay invisible on a motion — the next pull is waiting well
+ * before anyone walks past — and large enough that a firmware closing the
+ * connection immediately cannot turn the loop into a busy wait.
+ */
+const ONVIF_QUIET_PULL_PAUSE_MS = 250;
+
 /** Password type declared by the UsernameToken digest profile. */
 const PASSWORD_DIGEST_TYPE =
   'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordDigest';
@@ -139,6 +158,83 @@ export function readTag(xml, localName) {
 }
 
 /**
+ * Summarize a SOAP fault into something a log line can carry.
+ *
+ * `<Text>` alone is not enough: Tapo firmwares answer a rejected pull with a
+ * bare "error", which says only that something went wrong — the whole reason
+ * this was unreadable in production. What identifies the failure is the fault
+ * SUBCODE (`ter:InvalidMessage`, `ter:ResourceUnknown`…), so the subcodes are
+ * read first and the text is appended when it adds anything.
+ *
+ * Subcodes nest — `env:Subcode > env:Value` repeated — and it is the innermost
+ * that names the ONVIF error, so every Value is collected in order.
+ * @param {string} xml - The response body.
+ * @returns {string} The summary, empty when the body carries no fault.
+ * @example
+ * faultSummary(xml); // 'ter:InvalidArgVal/ter:UnknownSubscription: error'
+ */
+export function faultSummary(xml) {
+  const body = String(xml || '');
+  const codes = [];
+  // Walked as a token stream rather than matched as a block: subcodes NEST, and
+  // a non-greedy `<Subcode>...</Subcode>` stops at the first closing tag — which
+  // drops the innermost subcode, the one that actually names the ONVIF error.
+  //
+  // Only the Values under a Subcode are kept: the top-level `env:Code > Value`
+  // is always Sender/Receiver and never tells two failures apart.
+  const tokenPattern = /<(\/?)(?:[\w.-]+:)?(Subcode|Value)\b[^>]*>([\s\S]*?)(?=<)/gi;
+  let depth = 0;
+  let token = tokenPattern.exec(body);
+  while (token !== null) {
+    const [, closing, name, text] = token;
+    if (name.toLowerCase() === 'subcode') {
+      depth += closing ? -1 : 1;
+    } else if (!closing && depth > 0 && text.trim()) {
+      codes.push(text.trim());
+    }
+    token = tokenPattern.exec(body);
+  }
+
+  const text = readTag(body, 'Text') || readTag(body, 'faultstring') || '';
+  const code = codes.join('/');
+  if (code && text) {
+    return `${code}: ${text}`;
+  }
+  return code || text;
+}
+
+/**
+ * Tell whether a failed pull is the camera ending a quiet poll rather than a
+ * real fault.
+ *
+ * Tapo firmwares close a `PullMessages` connection when they have nothing to
+ * report, instead of answering the empty envelope the standard describes. Some
+ * write a few bytes after their own `Connection: close`, which Node's HTTP
+ * parser rejects. Both mean "nothing happened", and both used to be counted as
+ * failures — tearing down a healthy subscription every few seconds.
+ *
+ * Deliberately narrow: a refused connection, a DNS failure or a SOAP fault are
+ * NOT benign, and treating them as such would hide a camera that is genuinely
+ * unreachable or rejecting the account behind an endless quiet loop.
+ * @param {Error} error - The error the pull rejected with.
+ * @returns {boolean} True when the pull can simply be reissued.
+ * @example
+ * isBenignDisconnect(new Error('socket hang up')); // true
+ */
+export function isBenignDisconnect(error) {
+  const message = String(error?.message || '');
+  if (error?.code === 'ECONNRESET') {
+    return true;
+  }
+  return (
+    message.includes('socket hang up') ||
+    // Node's parser, on a firmware that trails bytes after its close header.
+    message.includes('Data after `Connection: close`') ||
+    message.includes('ONVIF_TIMEOUT')
+  );
+}
+
+/**
  * POST a SOAP envelope and return the raw response body.
  *
  * A SOAP fault comes back with HTTP 500 and a body explaining why, so the body
@@ -175,8 +271,14 @@ export function postSoap(url, envelope, timeoutMs = ONVIF_REQUEST_TIMEOUT_MS) {
         response.on('end', () => {
           if (response.statusCode >= 400) {
             // The fault reason is the actionable part; the status alone is not.
-            const reason = readTag(body, 'Text') || readTag(body, 'faultstring') || '';
-            reject(new Error(`ONVIF_HTTP_${response.statusCode}:${reason.slice(0, 120)}`));
+            // A camera that answers a bare "error" leaves nothing to act on, so
+            // the raw body is the last resort — trimmed, but enough to identify
+            // a shape this code does not know how to read.
+            const reason =
+              faultSummary(body) ||
+              body.replace(/\s+/g, ' ').trim().slice(0, 200) ||
+              '(empty body)';
+            reject(new Error(`ONVIF_HTTP_${response.statusCode}:${reason.slice(0, 200)}`));
             return;
           }
           resolve(body);
@@ -296,7 +398,17 @@ export function parsePullMessages(xml) {
     // IsPeople…), so the VALUE is what is read: ONVIF constrains it to a
     // boolean for these topics, and its absence means a stateless event — a
     // doorbell ring — which is always an activation.
-    const valueMatch = /<(?:[\w.-]+:)?SimpleItem\b[^>]*\bValue="([^"]*)"/i.exec(chunk);
+    //
+    // Read from `<tt:Data>` SPECIFICALLY, never from the first SimpleItem of the
+    // message. A notification also carries a `<tt:Source>` — the video source
+    // token, `VideoSourceConfigurationToken="000"` and the like — which comes
+    // FIRST and is a SimpleItem too. Matching the first one read the source
+    // token as the state: "000" is not "true", so every single event, real
+    // motions included, decoded as motion=false. Measured: 236 notifications
+    // from a camera, not one of them true.
+    const data = /<(?:[\w.-]+:)?Data\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?Data>/i.exec(chunk);
+    const scope = data ? data[1] : chunk;
+    const valueMatch = /<(?:[\w.-]+:)?SimpleItem\b[^>]*\bValue="([^"]*)"/i.exec(scope);
     const raw = valueMatch ? valueMatch[1].toLowerCase() : null;
     const active = raw === null ? true : raw === 'true' || raw === '1';
 
@@ -477,15 +589,30 @@ export class TapoOnvif {
       }
     }
 
-    const xml = await this.call(
-      this.eventsUrl || this.deviceUrl,
-      // The initial termination time is a bound, not a promise: every pull
-      // renews it, and a subscription the integration stops pulling expires on
-      // its own instead of lingering on the camera.
+    // The initial termination time is a bound, not a promise: every pull renews
+    // it, and a subscription the integration stops pulling expires on its own
+    // instead of lingering on the camera.
+    //
+    // Some firmwares reject it outright — measured on a C500, which answers
+    // `ter:InvalidArgVal` to the very same request another Tapo camera accepts.
+    // The element is OPTIONAL in the standard, so a camera that refuses it gets
+    // asked again without it and picks its own default. Without this fallback
+    // that camera got no subscription at all, and its motion sensor stayed dead
+    // while its neighbour worked.
+    const subscribe = (body) => this.call(this.eventsUrl || this.deviceUrl, body);
+    const xml = await subscribe(
       '<tev:CreatePullPointSubscription>' +
         '<tev:InitialTerminationTime>PT10M</tev:InitialTerminationTime>' +
         '</tev:CreatePullPointSubscription>',
-    );
+    ).catch((e) => {
+      if (!String(e.message).includes('InvalidArgVal')) {
+        throw e;
+      }
+      logger.debug(
+        `${this.ip} refused the subscription termination time, asking without it: ${e.message}`,
+      );
+      return subscribe('<tev:CreatePullPointSubscription/>');
+    });
 
     const address = readTag(xml, 'Address');
     if (!address) {
@@ -582,6 +709,12 @@ export class TapoOnvif {
     while (this.running) {
       try {
         const events = await this.pull();
+        // Pair of the warning above: an outage that was announced must have its
+        // recovery announced too, or the log leaves the camera looking broken
+        // long after it came back.
+        if (this.failures >= ONVIF_FAILURES_BEFORE_WARNING) {
+          logger.info(`ONVIF events are being read from ${this.ip} again`);
+        }
         // A successful pull clears the backoff: a camera that answered once is
         // healthy again, whether or not it had anything to report.
         this.failures = 0;
@@ -594,6 +727,27 @@ export class TapoOnvif {
         if (!this.running) {
           return;
         }
+
+        // A Tapo firmware ends a quiet pull by cutting the connection instead of
+        // answering an empty envelope — sometimes writing bytes after its own
+        // `Connection: close`, which Node's parser refuses. That is not a
+        // failure: nothing was lost, the camera simply had nothing to report.
+        //
+        // Treating it as one is what broke motion detection. Every cut tore the
+        // subscription down (`pullPointUrl = null`) and backed off for seconds,
+        // so the camera spent its time re-subscribing instead of watching, and a
+        // motion arriving in that gap was never seen. The subscription is KEPT
+        // and the next pull goes straight back out.
+        if (isBenignDisconnect(e)) {
+          logger.debug(`ONVIF pull on ${this.ip} ended quietly (${e.message}), pulling again`);
+          // A short breath before reissuing. The camera normally holds the pull
+          // for seconds, so this costs nothing — but a firmware that closed
+          // INSTANTLY would otherwise spin this loop as fast as the network
+          // allows, burning CPU and hammering the camera.
+          await new Promise((resolve) => setTimeout(resolve, ONVIF_QUIET_PULL_PAUSE_MS));
+          continue;
+        }
+
         this.failures += 1;
         // The subscription is the first suspect: it expires, and a rebooted
         // camera forgets it. Dropping it forces the next round to open a new one.
@@ -605,6 +759,22 @@ export class TapoOnvif {
         logger.debug(
           `ONVIF pull on ${this.ip} failed (${this.failures}): ${e.message} — retrying in ${waitMs / 1000}s`,
         );
+        // Said ONCE, out loud, when the failures stop looking accidental. A
+        // single failure is ordinary — a camera rebooting, a subscription that
+        // expired — and the loop recovers from it by itself. A run of them means
+        // motion detection is DEAD on that camera, and that used to be visible
+        // only at debug level: the sensor silently stopped reporting, with
+        // nothing anywhere to say so. Logged once per outage rather than per
+        // pull, so a camera that is off for the night costs one line, not one a
+        // minute; `failures` is reset to 0 by the first successful pull, which
+        // re-arms the warning for the next outage.
+        if (this.failures === ONVIF_FAILURES_BEFORE_WARNING) {
+          logger.warn(
+            `No ONVIF event could be read from ${this.ip} after ${this.failures} attempts ` +
+              `(${e.message}). Motion detection is not working on this camera; ` +
+              `it keeps retrying every ${Math.round(waitMs / 1000)}s.`,
+          );
+        }
         await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
     }

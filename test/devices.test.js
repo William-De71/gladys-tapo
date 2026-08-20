@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import {
   cameraIds,
   buildDiscoveredDevices,
@@ -10,8 +11,9 @@ import {
   cameraFromDevice,
   probePrivacyMode,
   forgetRefusedCredentials,
+  resolveCamera,
 } from '../src/devices.js';
-import { isBatteryModel, hasNoLocalAccess, buildRtspUrl } from '../src/tapo/rtsp.js';
+import { isBatteryModel, hasNoLocalAccess, buildRtspUrl, probePort } from '../src/tapo/rtsp.js';
 import { normalizeConfig } from '../src/config.js';
 import { fakeGladys } from './helpers/fakeGladys.js';
 import { DEVICE_PARAMS, CAPTURE_MODES } from '../src/tapo/constants.js';
@@ -203,15 +205,36 @@ test('a camera that answered gets a privacy switch, in either state', () => {
   });
 });
 
-test('a camera that could not be asked gets no privacy switch', () => {
+test('a camera that was NEVER asked gets no privacy switch', () => {
   // `null` is "unknown", and an unknown capability must not become a switch
-  // wired to nothing.
+  // wired to nothing. A cloud id of its own: a camera that answered once is
+  // remembered, and reusing that id here would be testing the opposite case.
+  const unknown = { ...camera, cloudDeviceId: 'NEVER_ASKED' };
   assert.ok(
-    !buildFeatures(gladys, { ...camera, hasPrivacyMode: null }).some(
+    !buildFeatures(gladys, { ...unknown, hasPrivacyMode: null }).some(
       (feature) => feature.category === 'switch',
     ),
   );
-  assert.ok(!buildFeatures(gladys, camera).some((feature) => feature.category === 'switch'));
+  assert.ok(!buildFeatures(gladys, unknown).some((feature) => feature.category === 'switch'));
+});
+
+test('a camera that answered once keeps its privacy switch when a later scan fails', () => {
+  // The regression that cost a working switch: a camera serving a temporary
+  // lockout answers `null`, and the switch used to vanish from the device —
+  // breaking the scenes built on it until the container was restarted.
+  const locked = { ...camera, cloudDeviceId: 'LOCKED_LATER' };
+  assert.ok(
+    buildFeatures(gladys, { ...locked, hasPrivacyMode: false }).some(
+      (feature) => feature.category === 'switch',
+    ),
+    'the camera answers first, so it publishes the switch',
+  );
+  assert.ok(
+    buildFeatures(gladys, { ...locked, hasPrivacyMode: null }).some(
+      (feature) => feature.category === 'switch',
+    ),
+    'an unanswered probe must not remove a switch the camera already had',
+  );
 });
 
 test('the privacy switch is told apart from the motion sensor', () => {
@@ -390,6 +413,37 @@ test('a locked-out camera is left alone rather than probed again', async () => {
   }
 });
 
+test('a locked-out camera is probed again once the penalty has lapsed', async () => {
+  // The half of the guard that was missing: the pause used to last for the life
+  // of the process, so a five-minute lockout cost the switch until someone
+  // restarted the container — which is what users hit, and reported as a bug.
+  let attempts = 0;
+  const probed = { ...camera, ip: '10.0.0.11' };
+  const cloudOnly = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const original = TapoLocalApi.prototype.getPrivacyMode;
+  const realNow = Date.now;
+  TapoLocalApi.prototype.getPrivacyMode = async function refuse() {
+    attempts += 1;
+    // The camera says it is locked out, not that the password is wrong.
+    throw new Error('TAPO_LOCAL_NO_RESPONSE:-40214');
+  };
+  try {
+    await probePrivacyMode(probed, cloudOnly);
+    await probePrivacyMode(probed, cloudOnly);
+    assert.equal(attempts, 1, 'still one attempt while the penalty runs');
+
+    // Well past the backoff: the camera has had its quiet and gets another turn.
+    Date.now = () => realNow() + 40 * 60 * 1000;
+    await probePrivacyMode(probed, cloudOnly);
+    assert.equal(attempts, 2, 'the probe must come back on its own');
+  } finally {
+    Date.now = realNow;
+    TapoLocalApi.prototype.getPrivacyMode = original;
+    forgetRefusedCredentials();
+  }
+});
+
 test('an unreachable camera is retried, since it said nothing about its account', async () => {
   // A timeout is not a refusal: a camera that was asleep or briefly off the
   // network must be probed again, or it would lose its switch until a restart.
@@ -504,4 +558,44 @@ test('a camera that could not be asked keeps its button feature', () => {
 test('a camera that declared a doorbell topic keeps its button feature', () => {
   const features = buildFeatures(gladys, { ...camera, hasEvents: true, hasDoorbell: true });
   assert.ok(features.some((feature) => feature.category === 'button'));
+});
+
+test('a refused port and an unreachable host are not the same answer', async () => {
+  // The distinction is the whole point: a refusal is the camera answering "no",
+  // a timeout is it not answering at all. Collapsing both into false is what
+  // let one unreachable moment strip a camera of its motion sensor.
+  const server = net.createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const openPort = server.address().port;
+
+  assert.equal(await probePort('127.0.0.1', openPort), 'open');
+  await new Promise((resolve) => server.close(resolve));
+  // Nothing listens on it any more, and the loopback refuses rather than drops.
+  assert.equal(await probePort('127.0.0.1', openPort), 'closed');
+
+  // A black-holed address: the packets go nowhere and the socket times out.
+  assert.equal(await probePort('192.0.2.1', 2020), 'unreachable');
+});
+
+test('an unreachable camera keeps the motion feature it already had', async () => {
+  // Measured in production: `ONVIF probe of 10.0.50.10 failed: ONVIF_TIMEOUT`
+  // during one discovery, and from then on `No camera carries an event feature`
+  // on every restart — the ONVIF setup filters on that feature, so once it was
+  // dropped the camera was never probed again and its sensor stayed dead.
+  const gladys = fakeGladys();
+  const config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+  // 192.0.2.0/24 is reserved for documentation: every probe times out.
+  const camera = { cloudDeviceId: 'ID20', name: 'Salon', model: 'C210', ip: '192.0.2.1' };
+
+  const known = await resolveCamera(camera, config, true);
+  assert.equal(known.hasEvents, true, 'a known event camera keeps its events');
+  const motion = buildFeatures(gladys, known).filter((feature) =>
+    feature.external_id.endsWith(':motion'),
+  );
+  assert.equal(motion.length, 1, 'the motion feature survives an unanswered probe');
+
+  // A camera Gladys never gave the feature to is unchanged: the fix only
+  // PRESERVES, it never invents a capability that was never demonstrated.
+  const unknown = await resolveCamera(camera, config, false);
+  assert.equal(unknown.hasEvents, false);
 });

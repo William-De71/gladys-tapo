@@ -34,7 +34,6 @@ import {
   FEATURE_SUFFIXES,
   POLL_FREQUENCY_MS,
   CAMERA_MOVE,
-  CAMERA_FEATURE_TYPES,
 } from './tapo/constants.js';
 import { TapoPtz } from './tapo/ptz.js';
 import { TapoOnvif } from './tapo/onvif.js';
@@ -105,6 +104,22 @@ export function getParam(device, name) {
 }
 
 /**
+ * Cameras known to support the privacy mode, by cloud device id.
+ *
+ * A capability does not come and go: once a camera has answered that it has a
+ * lens mask, a later scan that cannot reach it says nothing to the contrary. The
+ * memory is what keeps a transient failure — a lockout, a sleeping camera — from
+ * REMOVING a switch the user has already built scenes on.
+ *
+ * Kept for the life of the process on purpose: it only ever adds a feature back,
+ * and the poll re-reads the real state anyway, so a camera that genuinely lost
+ * the capability (a firmware downgrade) publishes a switch that reports nothing
+ * rather than silently disappearing.
+ * @type {Set<string>}
+ */
+const knownPrivacyCameras = new Set();
+
+/**
  * Build the features of a camera. The doorbell and motion features only exist on
  * battery models, whose events the cloud reports; a wired camera would carry a
  * feature that never updates.
@@ -151,6 +166,19 @@ export function buildFeatures(gladys, camera) {
 
   if (camera.hasEvents) {
     features.push({
+      // MANDATORY, whatever the SDK types say. `index.d.ts` declares
+      // `name?: string`, but the column is `allowNull: false` and Gladys answers
+      // 422 UNPROCESSABLE, refusing to register the whole DEVICE — the internal
+      // selector is derived from the name, so both come back missing. Measured:
+      // publishing without it left the camera impossible to add back.
+      //
+      // The English suffix stays, and no translated label can replace it. Gladys
+      // shows its own translated label only for a feature that is UNIQUE on the
+      // device, and `matchFeature` (front/src/utils/device.js) compares the TYPE
+      // alone: `motion-sensor/binary` and the privacy `switch/binary` collide, so
+      // any camera carrying both falls back to this name whatever it contains.
+      // That is why the one camera without a privacy switch reads "Détection
+      // mouvement Oui/Non" while its neighbours do not.
       name: `${camera.name} - Motion`,
       external_id: ids.feature(FEATURE_SUFFIXES.MOTION),
       category: DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
@@ -165,10 +193,20 @@ export function buildFeatures(gladys, camera) {
 
   // Created unless the camera EXPLICITLY answered that it has no lens mask.
   // `hasPrivacyMode` is null when the question could not be asked — no local
-  // address, camera asleep, firmware without the method — and a switch that is
-  // missing is worse than one that is briefly unresponsive: the scenes built on
-  // it would break silently.
-  if (camera.hasPrivacyMode !== null && camera.hasPrivacyMode !== undefined) {
+  // address, camera asleep, locked out, firmware without the method — and a
+  // switch that is missing is worse than one that is briefly unresponsive: the
+  // scenes built on it would break silently.
+  //
+  // Which is why an unanswered probe falls back to what the camera answered
+  // BEFORE (`knownPrivacyCameras`). The comment above always claimed this, but
+  // the condition alone did the opposite: a camera serving a lockout answered
+  // null and lost a switch it had been publishing for weeks, and it only came
+  // back once the container was restarted into a scan that happened to succeed.
+  const answeredPrivacy = camera.hasPrivacyMode !== null && camera.hasPrivacyMode !== undefined;
+  if (answeredPrivacy) {
+    knownPrivacyCameras.add(camera.cloudDeviceId);
+  }
+  if (answeredPrivacy || knownPrivacyCameras.has(camera.cloudDeviceId)) {
     features.push({
       name: `${camera.name} - Privacy mode`,
       external_id: ids.feature(FEATURE_SUFFIXES.PRIVACY),
@@ -194,7 +232,7 @@ export function buildFeatures(gladys, camera) {
       name: `${camera.name} - Move`,
       external_id: ids.feature(FEATURE_SUFFIXES.MOVE),
       category: DEVICE_FEATURE_CATEGORIES.CAMERA,
-      type: CAMERA_FEATURE_TYPES.MOVE,
+      type: DEVICE_FEATURE_TYPES.CAMERA.MOVE,
       read_only: false,
       // A movement is a command, not a measurement: keeping it would fill the
       // history with values that describe nothing about the camera's state.
@@ -218,7 +256,7 @@ export function buildFeatures(gladys, camera) {
       name: `${camera.name} - Preset`,
       external_id: ids.feature(FEATURE_SUFFIXES.PRESET),
       category: DEVICE_FEATURE_CATEGORIES.CAMERA,
-      type: CAMERA_FEATURE_TYPES.PRESET,
+      type: DEVICE_FEATURE_TYPES.CAMERA.PRESET,
       read_only: false,
       keep_history: false,
       has_feedback: false,
@@ -380,17 +418,37 @@ export function buildDevice(gladys, camera) {
 }
 
 /**
- * Cameras that refused a local session, by IP.
+ * Cameras that refused a local session, by IP, with the time the probe may run
+ * again.
  *
  * Tapo firmwares lock an address out after a few failed logins, and the penalty
  * grows with each attempt (measured on a C210: minutes, then half an hour).
  * Retrying is therefore not merely useless — it is what keeps the camera locked,
- * and the lockout blocks the local paths that do work. Any refusal is recorded,
- * whatever its reason. Cleared by `forgetRefusedCredentials` when the user edits
- * the settings.
- * @type {Set<string>}
+ * and the lockout blocks the local paths that do work.
+ *
+ * The pause EXPIRES rather than lasting for the life of the process. A refusal
+ * used to be remembered for good, so a camera that was merely serving a
+ * five-minute lockout lost its privacy switch until the container was restarted
+ * — the guard written to avoid escalating a lockout was making its effects
+ * permanent instead. Backing off and coming back later protects the camera just
+ * as well, and the switch reappears on its own.
+ * @type {Map<string, number>}
  */
-const authRefused = new Set();
+const authRefused = new Map();
+
+/**
+ * How long the probe stays away after a refusal, by kind.
+ *
+ * A camera that is LOCKED OUT has said nothing about the credentials — only
+ * that it wants quiet — so it is retried after the longest penalty measured
+ * here (half an hour) has had time to lapse. A password the camera actually
+ * rejected is a user-side problem the retry cannot fix, so that one waits much
+ * longer: it only ever costs a missing switch, never a lockout.
+ */
+const AUTH_RETRY_DELAY_MS = {
+  LOCKED: 35 * 60 * 1000,
+  REFUSED: 6 * 60 * 60 * 1000,
+};
 
 /**
  * Forget the rejected credentials, so a corrected account is tried again.
@@ -429,10 +487,11 @@ export async function probePrivacyMode(camera, config) {
     return null;
   }
 
-  if (authRefused.has(camera.ip)) {
+  const retryAt = authRefused.get(camera.ip);
+  if (retryAt !== undefined && Date.now() < retryAt) {
     // Deliberately silent about the credentials themselves: the user already got
     // one explicit message, and repeating it every scan would be noise.
-    logger.debug(`Skipping the privacy probe of "${camera.name}": credentials already refused`);
+    logger.debug(`Skipping the privacy probe of "${camera.name}": backing off until ${retryAt}`);
     return null;
   }
 
@@ -463,21 +522,39 @@ export async function probePrivacyMode(camera, config) {
   } catch (e) {
     api.close();
 
-    // The refusal is remembered so the probe is not retried. This is the point
-    // that matters most: Tapo cameras lock an address out after a few failed
-    // logins, and retrying every scan is what turns a one-off refusal into a
-    // camera locked out for good. A timeout is the exception — an unreachable
-    // camera has said nothing about its credentials, and one that was merely
-    // asleep must be probed again.
+    // The refusal is remembered so the probe backs off. This is the point that
+    // matters most: Tapo cameras lock an address out after a few failed logins,
+    // and retrying every scan is what turns a one-off refusal into a camera
+    // locked out for good.
+    //
+    // WHICH refusal it is decides how long to wait, and the three cases used to
+    // be conflated into one permanent ban:
+    //   - unreachable: the camera said nothing at all about its credentials, and
+    //     one that was merely asleep must be probed again — no pause;
+    //   - locked out (-40214): the camera is asking for quiet, not reporting a
+    //     wrong password. Waiting out the penalty is exactly what it wants;
+    //   - anything else: treated as a credentials problem, and paused for long
+    //     enough that retrying can never feed a lockout.
     const unreachable = e.message.includes('TIMEOUT') || e.message.includes('ECONN');
+    // Raised by the camera AFTER a session was opened, so it says nothing about
+    // the credentials that opened it — a dropped session, not a refusal.
+    const sessionDropped = e.message.includes('NO_RESPONSE');
+    const lockedOut = e.message.includes('-40214');
     if (!unreachable) {
-      authRefused.add(camera.ip);
+      const delay =
+        lockedOut || sessionDropped ? AUTH_RETRY_DELAY_MS.LOCKED : AUTH_RETRY_DELAY_MS.REFUSED;
+      authRefused.set(camera.ip, Date.now() + delay);
     }
 
     // Logged at INFO/WARN, not debug: this decides whether a camera gets a
     // switch, and hiding it left a control that simply never appeared, with no
     // reason anywhere.
-    if (e.message.includes('BAD_PASSWORD')) {
+    if (lockedOut) {
+      logger.info(
+        `"${camera.name}" is temporarily locked out (too many logins): no privacy switch for now, ` +
+          `retrying in ${Math.round(AUTH_RETRY_DELAY_MS.LOCKED / 60000)} min.`,
+      );
+    } else if (e.message.includes('BAD_PASSWORD')) {
       logger.warn(
         `"${camera.name}" rejected the Tapo password on its local API: no privacy switch. ` +
           `This camera does not open its local API to Gladys; its other features are unaffected.`,
@@ -503,15 +580,17 @@ export async function probePrivacyMode(camera, config) {
  * @example
  * const camera = await resolveCamera(cloudCamera, config);
  */
-export async function resolveCamera(cloudCamera, config) {
+export async function resolveCamera(cloudCamera, config, knownHasEvents = false) {
   const battery = isBatteryModel(cloudCamera.model);
   const camera = {
     ...cloudCamera,
     hasBattery: battery,
     // Battery models report their doorbell/motion through the local detection
     // list. Wired cameras have no such list — their events come from ONVIF,
-    // which the probe below decides on.
-    hasEvents: battery,
+    // which the probe below decides on. A camera Gladys already gave an event
+    // feature to keeps it, so that a probe which cannot run — no address, camera
+    // asleep — never takes it away.
+    hasEvents: battery || knownHasEvents,
     hasOnvif: false,
     noLocalAccess: hasNoLocalAccess(cloudCamera.model),
     captureMode: null,
@@ -551,8 +630,21 @@ export async function resolveCamera(cloudCamera, config) {
   // feature is created on the open port alone: the camera account may well be
   // filled in later, and a feature that only appeared then would leave the
   // scenes written in the meantime pointing at nothing.
+  //
+  // `onvif` is null when the camera did not answer the probe at all, and that is
+  // NOT a "no": a camera rebooting or briefly off the network would otherwise be
+  // republished without its motion feature — and once the feature is gone the
+  // ONVIF setup, which filters on it, never probes that camera again. The sensor
+  // then stays dead until a full rediscovery, which is exactly how a C210 lost
+  // its motion detection after one unreachable moment. Measured in the logs:
+  // `ONVIF probe of 10.0.50.10 failed: ONVIF_TIMEOUT`, then, on every restart
+  // after it, `No camera carries an event feature`.
   if (onvif) {
     camera.hasEvents = true;
+  } else if (onvif === null && camera.hasEvents) {
+    logger.debug(
+      `"${camera.name}" did not answer the ONVIF probe; keeping the events it already had`,
+    );
   }
 
   // Asked only once the ONVIF port is known to answer, and only with credentials
@@ -602,9 +694,54 @@ export async function buildDiscoveredDevices(gladys, cloudCameras, config) {
     ip: cloudCamera.ip || discovered.get(String(cloudCamera.cloudDeviceId).toUpperCase()) || '',
   }));
 
+  // What Gladys ALREADY knows about these cameras, so a probe that cannot run
+  // does not strip a capability the camera demonstrably had. Republishing is a
+  // refresh, not a reset: only an answer from the camera should take a feature
+  // away.
+  const known = await knownEventCameras(gladys);
+
   // Probing is I/O bound and independent per camera, so resolve them together.
-  const cameras = await Promise.all(located.map((camera) => resolveCamera(camera, config)));
+  const cameras = await Promise.all(
+    located.map((camera) =>
+      resolveCamera(camera, config, known.has(String(camera.cloudDeviceId).toUpperCase())),
+    ),
+  );
   return cameras.map((camera) => buildDevice(gladys, camera));
+}
+
+/**
+ * Cloud device ids of the cameras Gladys already gave an event feature to.
+ *
+ * Read from the devices themselves rather than kept in memory: the discovery
+ * runs on a fresh process too, and that is precisely the case where the
+ * information would otherwise be lost.
+ * @param {object} gladys - The SDK instance.
+ * @returns {Promise<Set<string>>} The ids, uppercased.
+ * @example
+ * const known = await knownEventCameras(gladys);
+ */
+export async function knownEventCameras(gladys) {
+  const devices = await gladys.getDevices().catch((e) => {
+    logger.debug(`Listing the known devices failed: ${e.message}`);
+    return [];
+  });
+  const known = new Set();
+  devices.forEach((device) => {
+    const hasEventFeature = (device.features || []).some(
+      (feature) =>
+        feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR ||
+        feature.category === DEVICE_FEATURE_CATEGORIES.BUTTON,
+    );
+    if (!hasEventFeature) {
+      return;
+    }
+    const id =
+      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    if (id) {
+      known.add(String(id).toUpperCase());
+    }
+  });
+  return known;
 }
 
 /**

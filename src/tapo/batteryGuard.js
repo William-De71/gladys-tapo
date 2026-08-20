@@ -37,7 +37,11 @@
 // -----------------------------------------------------------------------------
 
 import { logger } from '@gladysassistant/integration-sdk';
-import { BATTERY_THRESHOLDS, BATTERY_READING_MAX_AGE_MS } from './constants.js';
+import {
+  BATTERY_THRESHOLDS,
+  BATTERY_READING_MAX_AGE_MS,
+  BATTERY_LOW_POLL_INTERVAL_MS,
+} from './constants.js';
 
 /** What a camera is currently allowed to do. */
 export const CAPTURE_POLICY = {
@@ -80,6 +84,8 @@ export class BatteryGuard {
     this.recovering = new Set();
     /** Cameras known to run on battery, whether or not they ever answered. */
     this.batteryCameras = new Set();
+    /** When each throttled camera was last polled, to space out its pulses. */
+    this.polledAt = new Map();
   }
 
   /**
@@ -260,6 +266,56 @@ export class BatteryGuard {
    */
   allowsOnDemand(externalId) {
     return this.policyFor(externalId) !== CAPTURE_POLICY.NONE;
+  }
+
+  /**
+   * Tell whether the full local poll may run for this camera.
+   *
+   * Below `stopAll` the camera is already forbidden from capturing anything, so
+   * asking it for its detections and its privacy mode buys nothing and costs a
+   * wake-up every round. Only the battery reading survives, and `dueForLowPoll`
+   * spaces that one out.
+   *
+   * A battery camera with NO usable level is throttled too. `policyFor` answers
+   * `ON_DEMAND` there rather than `NONE` — it is protecting the captures, and an
+   * explicit request must stay possible — so keying the poll on `NONE` alone
+   * would run the full 20s round against a camera whose charge is unknown, which
+   * is the case `policyFor` already calls out as the most likely to be flat:
+   * a reading that stopped coming means asleep, session refused, or network
+   * down. A level gone stale past `BATTERY_READING_MAX_AGE_MS` lands here too,
+   * which is the point — the guard stopped trusting it, so the poll backs off
+   * with it.
+   * @param {string} externalId - The device external id.
+   * @returns {boolean} True when the camera may be polled normally.
+   * @example
+   * if (guard.allowsPolling(device.external_id)) { ... }
+   */
+  allowsPolling(externalId) {
+    if (this.policyFor(externalId) === CAPTURE_POLICY.NONE) {
+      return false;
+    }
+    // Unknown level on a battery camera: throttle it as well.
+    return !(this.batteryCameras.has(externalId) && this.freshLevel(externalId) === undefined);
+  }
+
+  /**
+   * Tell whether a throttled camera is due for its spaced-out battery reading.
+   *
+   * Records the moment it says yes, so the caller cannot ask twice and get two
+   * pulses. A camera that has never been pulsed is due immediately: that first
+   * reading is what tells the guard where it actually stands.
+   * @param {string} externalId - The device external id.
+   * @returns {boolean} True when the camera should be woken for its battery.
+   * @example
+   * if (guard.dueForLowPoll(device.external_id)) { ... }
+   */
+  dueForLowPoll(externalId) {
+    const last = this.polledAt.get(externalId);
+    if (last !== undefined && Date.now() - last < BATTERY_LOW_POLL_INTERVAL_MS) {
+      return false;
+    }
+    this.polledAt.set(externalId, Date.now());
+    return true;
   }
 
   /**

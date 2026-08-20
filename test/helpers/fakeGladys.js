@@ -7,16 +7,33 @@
  * @param {object} [options] - Options.
  * @param {string} [options.selector] - The integration selector.
  * @param {Array} [options.devices] - The devices the user "created".
+ * @param {Function} [options.failPublishState] - Called before each state is
+ * recorded; returning true makes that publish REJECT, the way the host does
+ * when it rate-limits or the socket is down.
+ * @param {Function} [options.delayPublishState] - Called before each state is
+ * recorded; returning a promise holds that publish until it settles, standing
+ * in for the round trip to the host during which more notifications arrive.
  * @returns {object} The fake instance, with a `published` log for assertions.
  * @example
  * const gladys = fakeGladys({ devices: [device] });
  */
-export function fakeGladys({ selector = 'ext-dev-tapo', devices = [], scanResults } = {}) {
+export function fakeGladys({
+  selector = 'ext-dev-tapo',
+  devices = [],
+  scanResults,
+  failPublishState = () => false,
+  delayPublishState = () => undefined,
+} = {}) {
   const published = { states: [], devices: [], images: [] };
 
   return {
     selector,
-    devices,
+    // EMPTY on purpose, while `getDevices()` below returns the real list. The
+    // SDK only refreshes this property when the WebSocket (re)connects, so on
+    // the `config-updated` path it is stale — and it was empty in production
+    // exactly when the code read it. Mirroring the list into it here is what
+    // made a broken ONVIF setup pass its tests.
+    devices: [],
     published,
     // Mirrors the SDK contract exactly: Gladys rejects any external id that does
     // not start with `ext:<selector>:`.
@@ -32,6 +49,10 @@ export function fakeGladys({ selector = 'ext-dev-tapo', devices = [], scanResult
       return scanResults || [];
     },
     publishState: async (featureExternalId, value) => {
+      await delayPublishState({ featureExternalId, value });
+      if (failPublishState({ featureExternalId, value })) {
+        throw new Error('too many states published');
+      }
       published.states.push({ featureExternalId, value });
     },
     publishStates: async (states) => {

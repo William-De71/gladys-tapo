@@ -71,10 +71,22 @@ export const ONVIF_PORT = 2020;
  *
  * This is what makes the events near-instant: the request stays open, and the
  * camera answers the moment it detects something instead of at the next poll.
- * Long enough that a quiet camera is not constantly reconnecting, short enough
- * that a dropped connection is noticed while it still matters.
+ *
+ * FIVE, not the sixty the standard invites, because Tapo firmwares do not honor
+ * the value they are given. Measured on a C210 and a C500: whatever `Timeout`
+ * is asked for, the camera drops the connection after about ten seconds — and
+ * drops it badly, writing bytes after announcing `Connection: close`, which
+ * Node's HTTP parser rejects outright ("Data after `Connection: close`"). Asking
+ * for sixty therefore produced a failure every eleven seconds, each one tearing
+ * the subscription down and rebuilding it, so the window in which a motion could
+ * be caught was almost nil.
+ *
+ * Staying under the firmware's own limit means the request completes normally,
+ * the subscription survives, and the next pull is already waiting when the
+ * camera has something to say. It costs more requests than a real long poll —
+ * the only mode these firmwares actually support.
  */
-export const ONVIF_PULL_TIMEOUT_SECONDS = 60;
+export const ONVIF_PULL_TIMEOUT_SECONDS = 5;
 
 /** Budget for the short ONVIF calls (probe, subscribe), which answer at once. */
 export const ONVIF_REQUEST_TIMEOUT_MS = 10 * 1000;
@@ -89,16 +101,32 @@ export const ONVIF_REQUEST_TIMEOUT_MS = 10 * 1000;
  */
 export const ONVIF_MOTION_TIMEOUT_MS = 3 * 60 * 1000;
 
+/**
+ * How long the end of an ONVIF motion is held back before it is published.
+ *
+ * Tapo firmwares slip a single `motion=false` into the middle of an ongoing
+ * detection — measured on a C500: runs of 50 to 150 `true` separated by exactly
+ * one `false`, repeatedly, while someone is still walking in front of the
+ * camera. Publishing that blip at once dropped the sensor a second after it
+ * rose, so the dashboard barely flickered while the logs showed half a minute
+ * of detection.
+ *
+ * Two seconds is well above the gap between two notifications (tens of
+ * milliseconds) and short enough that a motion which really ended is reported
+ * as over almost immediately.
+ */
+export const ONVIF_MOTION_FALL_DELAY_MS = 2000;
+
 // --- ONVIF PTZ (pan / tilt / zoom) -------------------------------------------
 
 /**
  * Canonical values of the Gladys `camera.move` feature.
  *
  * Mirrors `CAMERA_MOVE` in the core (`server/utils/constants.js`, spec
- * `docs/specs/camera-ptz-control.md` A.2). Declared here rather than imported
- * from the SDK because the published SDK still exposes `CAMERA.IMAGE` alone —
- * importing an undefined constant would break the integration at startup, while
- * these values are fixed by the spec.
+ * `docs/specs/camera-ptz-control.md` A.2). Still declared here rather than
+ * imported: SDK 0.12.0 publishes the `camera` feature TYPES (`move`, `preset`,
+ * the position ones) but no constant for the movement VALUES, which the spec
+ * fixes.
  */
 export const CAMERA_MOVE = {
   STOP: 0,
@@ -108,12 +136,6 @@ export const CAMERA_MOVE = {
   TILT_DOWN: 4,
   ZOOM_IN: 5,
   ZOOM_OUT: 6,
-};
-
-/** The `camera` feature types the PTZ contract adds, same reasoning as above. */
-export const CAMERA_FEATURE_TYPES = {
-  MOVE: 'move',
-  PRESET: 'preset',
 };
 
 /**
@@ -310,6 +332,31 @@ export const BATTERY_THRESHOLDS = {
  * several rounds, and treating that as a fault would pause it for nothing.
  */
 export const BATTERY_READING_MAX_AGE_MS = 30 * 60 * 1000;
+
+/**
+ * How often a camera below `STOP_ALL` is still woken for its battery, in ms.
+ *
+ * Under that level the local poll is cut down to this single reading: no
+ * detections, no privacy mode. Capturing an image is the expensive call, but it
+ * is not the only one — a camera with no ONVIF subscription was woken every
+ * `event_poll_interval` (20s by default) for three local calls, 180 wake-ups an
+ * hour, which is enough on its own to drain a solar camera faster than the panel
+ * refills it. Measured on a C610 that was blocked from capturing at all and
+ * still lost charge steadily.
+ *
+ * The reading itself is never dropped, because it is what lets the guard release
+ * the camera once the sun comes back: cut it entirely and a camera that dipped
+ * below the threshold could never report its way out of it.
+ *
+ * DERIVED from `BATTERY_READING_MAX_AGE_MS` rather than written out, because it
+ * is a constraint and not a comfort setting: two pulses have to fit inside the
+ * freshness window. At exactly the max age the level would expire moments before
+ * its own refresh, flipping the camera between "known" and "stale" for nothing.
+ * Spelling the halving out here means raising the max age cannot silently leave
+ * a hardcoded interval behind, and the relation is impossible to break by
+ * editing one number and forgetting the other.
+ */
+export const BATTERY_LOW_POLL_INTERVAL_MS = BATTERY_READING_MAX_AGE_MS / 2;
 
 // --- Features ----------------------------------------------------------------
 

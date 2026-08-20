@@ -48,30 +48,52 @@ export function buildRtspUrl(camera, config) {
  * @example
  * await isPortOpen('192.168.1.20', 554);
  */
-export function isPortOpen(ip, port) {
+export async function isPortOpen(ip, port) {
+  return (await probePort(ip, port)) === 'open';
+}
+
+/**
+ * Probe a TCP port, keeping WHY it did not answer.
+ *
+ * `isPortOpen` collapses "the camera refused the port" and "the camera did not
+ * answer at all" into the same `false`, which is fine to pick a capture mode but
+ * not to decide a camera's capabilities: a camera that was rebooting when it was
+ * probed would be recorded as having no ONVIF, and lose its motion sensor until
+ * the next full discovery. A refusal is an answer; a timeout is the absence of
+ * one, and the two must lead to different decisions.
+ * @param {string} ip - The camera IP.
+ * @param {number} port - The port to probe.
+ * @returns {Promise<'open'|'closed'|'unreachable'>} What the probe found.
+ * @example
+ * await probePort('192.168.1.20', 2020); // 'open'
+ */
+export function probePort(ip, port) {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let settled = false;
 
     /**
      * Resolve once and always release the socket.
-     * @param {boolean} open - Whether the port accepted the connection.
+     * @param {'open'|'closed'|'unreachable'} outcome - What the probe found.
      * @example
-     * settle(true);
+     * settle('open');
      */
-    const settle = (open) => {
+    const settle = (outcome) => {
       if (settled) {
         return;
       }
       settled = true;
       socket.destroy();
-      resolve(open);
+      resolve(outcome);
     };
 
     socket.setTimeout(PROBE_TIMEOUT_MS);
-    socket.once('connect', () => settle(true));
-    socket.once('timeout', () => settle(false));
-    socket.once('error', () => settle(false));
+    socket.once('connect', () => settle('open'));
+    // A timeout is the camera saying nothing at all — powered off, rebooting, or
+    // off the network. `ECONNREFUSED` is the opposite: the host is there and
+    // actively closed the door, which is a real "this camera has no ONVIF".
+    socket.once('timeout', () => settle('unreachable'));
+    socket.once('error', (e) => settle(e.code === 'ECONNREFUSED' ? 'closed' : 'unreachable'));
     socket.connect(port, ip);
   });
 }
@@ -110,8 +132,13 @@ export function hasNoLocalAccess(model) {
  * mode is: measured on a C210, the port is open and answers; on the battery
  * models it is closed. A model list would have to be maintained against every
  * new reference, and would be wrong the day TP-Link changes its mind.
+ *
+ * Returns null rather than false when the camera did not answer AT ALL: absence
+ * of an answer is not a "no". Recording it as one is what cost a C210 its motion
+ * sensor after it happened to be unreachable during one discovery — the feature
+ * was dropped, and with no feature left the ONVIF setup never probed it again.
  * @param {object} camera - The camera, with its `ip`.
- * @returns {Promise<boolean>} True when port 2020 accepts a connection.
+ * @returns {Promise<boolean|null>} True/false when known, null when unreachable.
  * @example
  * await hasOnvif(camera);
  */
@@ -119,7 +146,11 @@ export async function hasOnvif(camera) {
   if (!camera.ip) {
     return false;
   }
-  return isPortOpen(camera.ip, ONVIF_PORT);
+  const outcome = await probePort(camera.ip, ONVIF_PORT);
+  if (outcome === 'unreachable') {
+    return null;
+  }
+  return outcome === 'open';
 }
 
 /**
