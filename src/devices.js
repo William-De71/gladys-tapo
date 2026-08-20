@@ -580,15 +580,17 @@ export async function probePrivacyMode(camera, config) {
  * @example
  * const camera = await resolveCamera(cloudCamera, config);
  */
-export async function resolveCamera(cloudCamera, config) {
+export async function resolveCamera(cloudCamera, config, knownHasEvents = false) {
   const battery = isBatteryModel(cloudCamera.model);
   const camera = {
     ...cloudCamera,
     hasBattery: battery,
     // Battery models report their doorbell/motion through the local detection
     // list. Wired cameras have no such list — their events come from ONVIF,
-    // which the probe below decides on.
-    hasEvents: battery,
+    // which the probe below decides on. A camera Gladys already gave an event
+    // feature to keeps it, so that a probe which cannot run — no address, camera
+    // asleep — never takes it away.
+    hasEvents: battery || knownHasEvents,
     hasOnvif: false,
     noLocalAccess: hasNoLocalAccess(cloudCamera.model),
     captureMode: null,
@@ -628,8 +630,21 @@ export async function resolveCamera(cloudCamera, config) {
   // feature is created on the open port alone: the camera account may well be
   // filled in later, and a feature that only appeared then would leave the
   // scenes written in the meantime pointing at nothing.
+  //
+  // `onvif` is null when the camera did not answer the probe at all, and that is
+  // NOT a "no": a camera rebooting or briefly off the network would otherwise be
+  // republished without its motion feature — and once the feature is gone the
+  // ONVIF setup, which filters on it, never probes that camera again. The sensor
+  // then stays dead until a full rediscovery, which is exactly how a C210 lost
+  // its motion detection after one unreachable moment. Measured in the logs:
+  // `ONVIF probe of 10.0.50.10 failed: ONVIF_TIMEOUT`, then, on every restart
+  // after it, `No camera carries an event feature`.
   if (onvif) {
     camera.hasEvents = true;
+  } else if (onvif === null && camera.hasEvents) {
+    logger.debug(
+      `"${camera.name}" did not answer the ONVIF probe; keeping the events it already had`,
+    );
   }
 
   // Asked only once the ONVIF port is known to answer, and only with credentials
@@ -679,9 +694,54 @@ export async function buildDiscoveredDevices(gladys, cloudCameras, config) {
     ip: cloudCamera.ip || discovered.get(String(cloudCamera.cloudDeviceId).toUpperCase()) || '',
   }));
 
+  // What Gladys ALREADY knows about these cameras, so a probe that cannot run
+  // does not strip a capability the camera demonstrably had. Republishing is a
+  // refresh, not a reset: only an answer from the camera should take a feature
+  // away.
+  const known = await knownEventCameras(gladys);
+
   // Probing is I/O bound and independent per camera, so resolve them together.
-  const cameras = await Promise.all(located.map((camera) => resolveCamera(camera, config)));
+  const cameras = await Promise.all(
+    located.map((camera) =>
+      resolveCamera(camera, config, known.has(String(camera.cloudDeviceId).toUpperCase())),
+    ),
+  );
   return cameras.map((camera) => buildDevice(gladys, camera));
+}
+
+/**
+ * Cloud device ids of the cameras Gladys already gave an event feature to.
+ *
+ * Read from the devices themselves rather than kept in memory: the discovery
+ * runs on a fresh process too, and that is precisely the case where the
+ * information would otherwise be lost.
+ * @param {object} gladys - The SDK instance.
+ * @returns {Promise<Set<string>>} The ids, uppercased.
+ * @example
+ * const known = await knownEventCameras(gladys);
+ */
+export async function knownEventCameras(gladys) {
+  const devices = await gladys.getDevices().catch((e) => {
+    logger.debug(`Listing the known devices failed: ${e.message}`);
+    return [];
+  });
+  const known = new Set();
+  devices.forEach((device) => {
+    const hasEventFeature = (device.features || []).some(
+      (feature) =>
+        feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR ||
+        feature.category === DEVICE_FEATURE_CATEGORIES.BUTTON,
+    );
+    if (!hasEventFeature) {
+      return;
+    }
+    const id =
+      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    if (id) {
+      known.add(String(id).toUpperCase());
+    }
+  });
+  return known;
 }
 
 /**

@@ -7,11 +7,19 @@
  * @param {object} [options] - Options.
  * @param {string} [options.selector] - The integration selector.
  * @param {Array} [options.devices] - The devices the user "created".
+ * @param {Function} [options.failPublishState] - Called before each state is
+ * recorded; returning true makes that publish REJECT, the way the host does
+ * when it rate-limits or the socket is down.
  * @returns {object} The fake instance, with a `published` log for assertions.
  * @example
  * const gladys = fakeGladys({ devices: [device] });
  */
-export function fakeGladys({ selector = 'ext-dev-tapo', devices = [], scanResults } = {}) {
+export function fakeGladys({
+  selector = 'ext-dev-tapo',
+  devices = [],
+  scanResults,
+  failPublishState = () => false,
+} = {}) {
   const published = { states: [], devices: [], images: [] };
 
   return {
@@ -37,6 +45,9 @@ export function fakeGladys({ selector = 'ext-dev-tapo', devices = [], scanResult
       return scanResults || [];
     },
     publishState: async (featureExternalId, value) => {
+      if (failPublishState({ featureExternalId, value })) {
+        throw new Error('too many states published');
+      }
       published.states.push({ featureExternalId, value });
     },
     publishStates: async (states) => {

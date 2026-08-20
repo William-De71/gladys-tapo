@@ -282,11 +282,8 @@ export class EventWatcher {
       }
 
       if (this.motionStates.get(cloudDeviceId) !== true) {
-        this.motionStates.set(cloudDeviceId, true);
         logger.info(`Motion detected on "${device.name}" (ONVIF)`);
-        await this.gladys
-          .publishState(ids.feature(FEATURE_SUFFIXES.MOTION), 1)
-          .catch((e) => logger.warn(`Publishing the motion failed: ${e.message}`));
+        await this.publishMotion(cloudDeviceId, true);
       }
 
       // Still armed as the fallback for a camera that never reports the end.
@@ -314,18 +311,22 @@ export class EventWatcher {
     }
     const timer = setTimeout(async () => {
       this.motionFalls.delete(cloudDeviceId);
-      this.motionStates.set(cloudDeviceId, false);
+      const published = await this.publishMotion(cloudDeviceId, false);
       // The camera reported the end itself, so the safety net has nothing left
       // to catch: left armed it would publish a second, pointless 0 minutes
       // later — and, worse, one that could land in the middle of a NEW motion.
+      //
+      // Only once the 0 actually LANDED, though. A fall the host rejected
+      // leaves Gladys showing a motion that is over, and disarming the fallback
+      // as well would leave nothing at all to bring the sensor back down.
+      if (!published) {
+        return;
+      }
       const pending = this.motionResets.get(cloudDeviceId);
       if (pending) {
         clearTimeout(pending);
         this.motionResets.delete(cloudDeviceId);
       }
-      await this.gladys
-        .publishState(ids.feature(FEATURE_SUFFIXES.MOTION), 0)
-        .catch((e) => logger.warn(`Publishing the end of the motion failed: ${e.message}`));
     }, ONVIF_MOTION_FALL_DELAY_MS);
     // Same as the reset above: it must not hold the process open on its own.
     timer.unref?.();
@@ -400,6 +401,38 @@ export class EventWatcher {
   }
 
   /**
+   * Re-try the ONVIF subscription of the cameras that have none.
+   *
+   * Deliberately fire-and-forget and never awaited by the tick: a camera that is
+   * still down must not hold the polled path — which is the fallback covering it
+   * meanwhile — for the duration of its timeouts.
+   * @param {object[]} devices - The cameras carrying an event feature.
+   * @returns {Promise<void>} Resolves once every candidate has been tried.
+   * @example
+   * await watcher.retryOnvifSubscriptions(devices);
+   */
+  async retryOnvifSubscriptions(devices) {
+    const candidates = devices.filter((device) => {
+      const cloudDeviceId =
+        getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+      // `onvifCovered` is the record of a subscription that actually opened, so
+      // a camera missing from it is one whose push path is not running.
+      return cloudDeviceId && !this.onvifCovered.has(cloudDeviceId);
+    });
+    if (candidates.length === 0) {
+      return;
+    }
+    await Promise.all(
+      candidates.map((device) =>
+        this.setupOnvif(device).catch((e) => {
+          logger.debug(`ONVIF retry for "${device.name}" failed: ${e.message}`);
+          return false;
+        }),
+      ),
+    );
+  }
+
+  /**
    * Stop the polling loop and cancel the pending motion resets.
    * @example
    * watcher.stop();
@@ -457,6 +490,15 @@ export class EventWatcher {
             feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
         ),
       );
+      // A camera that has an event feature but no live subscription is retried
+      // here. The setup only runs at startup, so a camera that was unreachable
+      // then — rebooting, off the network for a minute — stayed on the polled
+      // path for the whole life of the process, with nothing in the logs after
+      // the first failure to say the push path was never restored.
+      this.retryOnvifSubscriptions(eventDevices).catch((e) =>
+        logger.debug(`Retrying the ONVIF subscriptions failed: ${e.message}`),
+      );
+
       for (const device of eventDevices) {
         await this.checkDevice(device).catch((e) =>
           logger.debug(`Event check failed for "${device.name}": ${e.message}`),
@@ -548,10 +590,44 @@ export class EventWatcher {
 
     if (kinds.has('motion')) {
       logger.debug(`Motion detected on "${device.name}"`);
-      await this.gladys
-        .publishState(cameraIds(this.gladys, cloudDeviceId).feature(FEATURE_SUFFIXES.MOTION), 1)
-        .catch((e) => logger.debug(`Publishing the motion failed: ${e.message}`));
+      await this.publishMotion(cloudDeviceId, true, (message) => logger.debug(message));
       this.scheduleMotionReset(cloudDeviceId);
+    }
+  }
+
+  /**
+   * Publish a motion state and remember it ONLY if the host accepted it.
+   *
+   * The deduplication above makes this map the single source of truth for what
+   * Gladys is believed to be showing: a state equal to the one recorded is never
+   * republished. Recording a value the host never received therefore silences
+   * the sensor for good — the map reads `true`, every later notification is
+   * filtered out as "no change", and no motion is published again until the
+   * process restarts and the map is empty. That is not theoretical: a rate-limit
+   * rejection or a network blip on the rising edge is enough, and it is exactly
+   * how a camera came back from a restart working with no code change.
+   *
+   * So the write happens AFTER the publish, and only on success. A failed
+   * publish leaves the map on its previous value, which makes the next
+   * notification a change again — the sensor retries instead of going deaf.
+   * @param {string} cloudDeviceId - The cloud device id.
+   * @param {boolean} active - The state to publish.
+   * @param {(message: string) => void} [onError] - How to report a failure.
+   * @returns {Promise<boolean>} True when the host accepted the state.
+   * @example
+   * await watcher.publishMotion('80224A...', true);
+   */
+  async publishMotion(cloudDeviceId, active, onError = (message) => logger.warn(message)) {
+    try {
+      await this.gladys.publishState(
+        cameraIds(this.gladys, cloudDeviceId).feature(FEATURE_SUFFIXES.MOTION),
+        active ? 1 : 0,
+      );
+      this.motionStates.set(cloudDeviceId, active);
+      return true;
+    } catch (e) {
+      onError(`Publishing the motion of ${cloudDeviceId} failed: ${e.message}`);
+      return false;
     }
   }
 
@@ -575,11 +651,10 @@ export class EventWatcher {
       // Kept in step with the deduplication: without this the map would still
       // read `true` after the reset published 0, and the NEXT real motion would
       // be filtered out as "no change" — a sensor that fires once and then never
-      // again.
-      this.motionStates.set(cloudDeviceId, false);
-      await this.gladys
-        .publishState(cameraIds(this.gladys, cloudDeviceId).feature(FEATURE_SUFFIXES.MOTION), 0)
-        .catch((e) => logger.debug(`Resetting the motion failed: ${e.message}`));
+      // again. `publishMotion` only records the value the host accepted, so a
+      // failed reset leaves the map on `true` and the next motion still reads as
+      // a change.
+      await this.publishMotion(cloudDeviceId, false, (message) => logger.debug(message));
     }, delayMs);
     // Nothing waits on this: it publishes a state, it is not work to finish. Left
     // referenced it holds the event loop open for its full delay — up to three

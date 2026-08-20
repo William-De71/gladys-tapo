@@ -533,3 +533,98 @@ test('a lone false in the middle of a motion does not drop the sensor', async ()
   assert.deepEqual(values, [1], 'the blip must not reach Gladys');
   watcher.stop();
 });
+
+test('a rejected motion is retried, not swallowed for good', async () => {
+  // The deduplication makes `motionStates` the record of what Gladys is showing.
+  // Recording a value the host never accepted silences the sensor until the
+  // process restarts: the map reads `true`, so every later notification is
+  // filtered out as "no change" — which is exactly why a camera came back
+  // working after a restart, with no code change.
+  let rejectNext = true;
+  const gladys = fakeGladys({
+    failPublishState: ({ featureExternalId }) => {
+      if (rejectNext && featureExternalId.endsWith(':motion')) {
+        rejectNext = false;
+        return true;
+      }
+      return false;
+    },
+  });
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID11' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const motion = (active) =>
+    watcher.handleOnvifEvent(device, 'ID11', { kind: 'motion', active, at: Date.now() });
+
+  await motion(true); // rejected by the host
+  assert.equal(
+    watcher.motionStates.get('ID11'),
+    undefined,
+    'a state the host refused must not be recorded as published',
+  );
+
+  await motion(true); // the camera is still reporting the same motion
+
+  const values = gladys.published.states
+    .filter((state) => state.featureExternalId.endsWith(':motion'))
+    .map((state) => state.value);
+  assert.deepEqual(values, [1], 'the next notification publishes the motion after all');
+  watcher.stop();
+});
+
+test('a rejected falling edge leaves the safety net armed', async () => {
+  // Disarming it on a fall the host refused leaves Gladys showing a motion that
+  // is over, with nothing left to bring the sensor back down.
+  const gladys = fakeGladys({
+    failPublishState: ({ featureExternalId, value }) =>
+      featureExternalId.endsWith(':motion') && value === 0,
+  });
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID12' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const motion = (active) =>
+    watcher.handleOnvifEvent(device, 'ID12', { kind: 'motion', active, at: Date.now() });
+
+  await motion(true);
+  await motion(false);
+  await new Promise((resolve) => setTimeout(resolve, ONVIF_MOTION_FALL_DELAY_MS + 50));
+
+  assert.ok(watcher.motionResets.has('ID12'), 'the fallback must survive a refused fall');
+  assert.equal(watcher.motionStates.get('ID12'), true, 'Gladys still shows the motion');
+  watcher.stop();
+});
+
+test('a camera without a subscription is retried on the next tick', async () => {
+  // The setup only runs at startup, so a camera unreachable at that moment
+  // stayed on the polled path for the whole life of the process — silently,
+  // since only the first failure was logged.
+  const gladys = fakeGladys({ devices: [] });
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID13', hasEvents: true });
+  gladys.getDevices = async () => [device];
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+  // Stand in for the real probe+subscribe, which needs a camera on the network.
+  const tried = [];
+  watcher.setupOnvif = async (target) => {
+    tried.push(target.name);
+    return false;
+  };
+  // The polled path must not run: it would need a live local API.
+  watcher.checkDevice = async () => {};
+
+  await watcher.tick();
+  // The retry is deliberately not awaited by the tick, so let it settle.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(tried, ['Sonnette'], 'the uncovered camera is retried');
+
+  // Once covered, it is left alone: no second subscription for the same camera.
+  tried.length = 0;
+  watcher.onvifCovered.add('ID13');
+  await watcher.tick();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(tried, [], 'a covered camera is not probed again');
+  watcher.stop();
+});

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import {
   cameraIds,
   buildDiscoveredDevices,
@@ -10,8 +11,9 @@ import {
   cameraFromDevice,
   probePrivacyMode,
   forgetRefusedCredentials,
+  resolveCamera,
 } from '../src/devices.js';
-import { isBatteryModel, hasNoLocalAccess, buildRtspUrl } from '../src/tapo/rtsp.js';
+import { isBatteryModel, hasNoLocalAccess, buildRtspUrl, probePort } from '../src/tapo/rtsp.js';
 import { normalizeConfig } from '../src/config.js';
 import { fakeGladys } from './helpers/fakeGladys.js';
 import { DEVICE_PARAMS, CAPTURE_MODES } from '../src/tapo/constants.js';
@@ -556,4 +558,44 @@ test('a camera that could not be asked keeps its button feature', () => {
 test('a camera that declared a doorbell topic keeps its button feature', () => {
   const features = buildFeatures(gladys, { ...camera, hasEvents: true, hasDoorbell: true });
   assert.ok(features.some((feature) => feature.category === 'button'));
+});
+
+test('a refused port and an unreachable host are not the same answer', async () => {
+  // The distinction is the whole point: a refusal is the camera answering "no",
+  // a timeout is it not answering at all. Collapsing both into false is what
+  // let one unreachable moment strip a camera of its motion sensor.
+  const server = net.createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const openPort = server.address().port;
+
+  assert.equal(await probePort('127.0.0.1', openPort), 'open');
+  await new Promise((resolve) => server.close(resolve));
+  // Nothing listens on it any more, and the loopback refuses rather than drops.
+  assert.equal(await probePort('127.0.0.1', openPort), 'closed');
+
+  // A black-holed address: the packets go nowhere and the socket times out.
+  assert.equal(await probePort('192.0.2.1', 2020), 'unreachable');
+});
+
+test('an unreachable camera keeps the motion feature it already had', async () => {
+  // Measured in production: `ONVIF probe of 10.0.50.10 failed: ONVIF_TIMEOUT`
+  // during one discovery, and from then on `No camera carries an event feature`
+  // on every restart — the ONVIF setup filters on that feature, so once it was
+  // dropped the camera was never probed again and its sensor stayed dead.
+  const gladys = fakeGladys();
+  const config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+  // 192.0.2.0/24 is reserved for documentation: every probe times out.
+  const camera = { cloudDeviceId: 'ID20', name: 'Salon', model: 'C210', ip: '192.0.2.1' };
+
+  const known = await resolveCamera(camera, config, true);
+  assert.equal(known.hasEvents, true, 'a known event camera keeps its events');
+  const motion = buildFeatures(gladys, known).filter((feature) =>
+    feature.external_id.endsWith(':motion'),
+  );
+  assert.equal(motion.length, 1, 'the motion feature survives an unanswered probe');
+
+  // A camera Gladys never gave the feature to is unchanged: the fix only
+  // PRESERVES, it never invents a capability that was never demonstrated.
+  const unknown = await resolveCamera(camera, config, false);
+  assert.equal(unknown.hasEvents, false);
 });
