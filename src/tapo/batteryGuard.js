@@ -275,13 +275,27 @@ export class BatteryGuard {
    * asking it for its detections and its privacy mode buys nothing and costs a
    * wake-up every round. Only the battery reading survives, and `dueForLowPoll`
    * spaces that one out.
+   *
+   * A battery camera with NO usable level is throttled too. `policyFor` answers
+   * `ON_DEMAND` there rather than `NONE` — it is protecting the captures, and an
+   * explicit request must stay possible — so keying the poll on `NONE` alone
+   * would run the full 20s round against a camera whose charge is unknown, which
+   * is the case `policyFor` already calls out as the most likely to be flat:
+   * a reading that stopped coming means asleep, session refused, or network
+   * down. A level gone stale past `BATTERY_READING_MAX_AGE_MS` lands here too,
+   * which is the point — the guard stopped trusting it, so the poll backs off
+   * with it.
    * @param {string} externalId - The device external id.
    * @returns {boolean} True when the camera may be polled normally.
    * @example
    * if (guard.allowsPolling(device.external_id)) { ... }
    */
   allowsPolling(externalId) {
-    return this.policyFor(externalId) !== CAPTURE_POLICY.NONE;
+    if (this.policyFor(externalId) === CAPTURE_POLICY.NONE) {
+      return false;
+    }
+    // Unknown level on a battery camera: throttle it as well.
+    return !(this.batteryCameras.has(externalId) && this.freshLevel(externalId) === undefined);
   }
 
   /**
