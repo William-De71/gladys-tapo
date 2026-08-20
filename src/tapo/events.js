@@ -145,6 +145,20 @@ export class EventWatcher {
      * @type {Map<string, boolean>}
      */
     this.motionStates = new Map();
+    /**
+     * States handed to the host but not yet acknowledged.
+     *
+     * `motionStates` only records what the host ACCEPTED, so between the call
+     * and its answer the map still reads the old value and the deduplication
+     * lets a second notification through. At ~15 notifications a second that
+     * window is wide enough to be hit constantly: measured in production, two
+     * `Motion detected` 13ms apart, publishing 1 twice for one rising edge.
+     * Recording the intent here closes it without going back to writing a state
+     * the host may refuse — a failed publish clears the entry, so the next
+     * notification is a change again.
+     * @type {Map<string, boolean>}
+     */
+    this.motionPending = new Map();
     /** Pending falling edges, held back to swallow the firmware's blips. */
     this.motionFalls = new Map();
     this.config = null;
@@ -281,7 +295,7 @@ export class EventWatcher {
         this.motionFalls.delete(cloudDeviceId);
       }
 
-      if (this.motionStates.get(cloudDeviceId) !== true) {
+      if (this.currentMotion(cloudDeviceId) !== true) {
         logger.info(`Motion detected on "${device.name}" (ONVIF)`);
         await this.publishMotion(cloudDeviceId, true);
       }
@@ -306,7 +320,7 @@ export class EventWatcher {
     // Holding the fall for a couple of seconds swallows those blips: a `true`
     // arriving in the meantime cancels it (above), and a motion that really has
     // ended has no more `true` to send, so the state falls a moment later.
-    if (this.motionStates.get(cloudDeviceId) !== true || this.motionFalls.has(cloudDeviceId)) {
+    if (this.currentMotion(cloudDeviceId) !== true || this.motionFalls.has(cloudDeviceId)) {
       return;
     }
     const timer = setTimeout(async () => {
@@ -618,6 +632,10 @@ export class EventWatcher {
    * await watcher.publishMotion('80224A...', true);
    */
   async publishMotion(cloudDeviceId, active, onError = (message) => logger.warn(message)) {
+    // Claimed BEFORE the await, so a notification arriving while this one is in
+    // flight sees the new value and is deduplicated instead of publishing a
+    // second, identical state.
+    this.motionPending.set(cloudDeviceId, active);
     try {
       await this.gladys.publishState(
         cameraIds(this.gladys, cloudDeviceId).feature(FEATURE_SUFFIXES.MOTION),
@@ -628,7 +646,30 @@ export class EventWatcher {
     } catch (e) {
       onError(`Publishing the motion of ${cloudDeviceId} failed: ${e.message}`);
       return false;
+    } finally {
+      // Only if it is still OURS: a later publish that overtook this one owns
+      // the entry now, and dropping it would reopen the window it is holding.
+      if (this.motionPending.get(cloudDeviceId) === active) {
+        this.motionPending.delete(cloudDeviceId);
+      }
     }
+  }
+
+  /**
+   * What Gladys is believed to be showing, counting a publish still in flight.
+   *
+   * The deduplication reads this rather than `motionStates` alone: a state that
+   * has been handed to the host counts as shown, otherwise the same edge is
+   * published again while the first call is still awaiting its answer.
+   * @param {string} cloudDeviceId - The cloud device id.
+   * @returns {boolean|undefined} The state, or undefined when there is none.
+   * @example
+   * watcher.currentMotion('80224A...');
+   */
+  currentMotion(cloudDeviceId) {
+    return this.motionPending.has(cloudDeviceId)
+      ? this.motionPending.get(cloudDeviceId)
+      : this.motionStates.get(cloudDeviceId);
   }
 
   /**

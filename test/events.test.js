@@ -534,6 +534,49 @@ test('a lone false in the middle of a motion does not drop the sensor', async ()
   watcher.stop();
 });
 
+test('two notifications during one publish do not publish it twice', async () => {
+  // Measured in production, 13ms apart:
+  //   08:47:13.656 Motion detected on "Caméra_Salon" (ONVIF)
+  //   08:47:13.669 Motion detected on "Caméra_Salon" (ONVIF)
+  // `motionStates` only records what the host ACCEPTED, so while the first
+  // publish awaits its answer the map still reads the old value and the second
+  // notification passes the "is this a change?" test too. At ~15 notifications
+  // a second the window is hit constantly.
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  let first = true;
+  const gladys = fakeGladys({
+    delayPublishState: ({ featureExternalId }) => {
+      if (first && featureExternalId.endsWith(':motion')) {
+        first = false;
+        return held;
+      }
+      return undefined;
+    },
+  });
+  const device = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID14' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const motion = (active) =>
+    watcher.handleOnvifEvent(device, 'ID14', { kind: 'motion', active, at: Date.now() });
+
+  // The second arrives while the first is still in flight, exactly as the
+  // camera sends them.
+  const inFlight = motion(true);
+  await motion(true);
+  release();
+  await inFlight;
+
+  const values = gladys.published.states
+    .filter((state) => state.featureExternalId.endsWith(':motion'))
+    .map((state) => state.value);
+  assert.deepEqual(values, [1], 'one rising edge is one published state');
+  watcher.stop();
+});
+
 test('a rejected motion is retried, not swallowed for good', async () => {
   // The deduplication makes `motionStates` the record of what Gladys is showing.
   // Recording a value the host never accepted silences the sensor until the
