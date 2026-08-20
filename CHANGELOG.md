@@ -1,3 +1,12 @@
+## [1.2.1](https://github.com/William-De71/gladys-tapo/compare/v1.2.0...v1.2.1) (2026-08-20)
+
+### Continuous Integration
+
+* generate the changelog automatically on every release ([3371b84](https://github.com/William-De71/gladys-tapo/commit/3371b84897d55a6970172b09eaa7f90303421687))
+
+### Miscellaneous
+
+* restore the manifest formatting broken by jq ([55f43f0](https://github.com/William-De71/gladys-tapo/commit/55f43f015589907ad575ba8d07993223206a5172))
 
 ## [1.2.0](https://github.com/William-De71/gladys-tapo/compare/v1.1.0...v1.2.0) (2026-08-20)
 
