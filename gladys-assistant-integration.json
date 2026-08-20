@@ -6,16 +6,23 @@
     "en": "Your Tapo cameras and doorbells in Gladys: images, doorbell press and motion.",
     "fr": "Vos caméras et sonnettes Tapo dans Gladys : images, appui sonnette et mouvement."
   },
-  "version": "1.1.0",
-  "docker_image": "ghcr.io/william-de71/gladys-tapo:1.1.0",
+  "version": "1.2.0",
+  "docker_image": "ghcr.io/william-de71/gladys-tapo:1.2.0",
   "gladys_version": ">=4.86.0",
-  "categories": ["security"],
+  "categories": [
+    "security"
+  ],
   "cover_image": "https://raw.githubusercontent.com/William-De71/gladys-tapo/master/cover.jpg",
-  "transports": ["local", "cloud"],
+  "transports": [
+    "local",
+    "cloud"
+  ],
   "network_discovery": [
     {
       "type": "udp-active-broadcast",
-      "ports": [20002]
+      "ports": [
+        20002
+      ]
     }
   ],
   "config_schema": [
