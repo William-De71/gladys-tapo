@@ -21,6 +21,7 @@ import {
   ONVIF_MOTION_TIMEOUT_MS,
   ONVIF_MOTION_FALL_DELAY_MS,
 } from './constants.js';
+import { isBatteryModel } from './rtsp.js';
 import { TapoLocalApi } from './localApi.js';
 import { TapoOnvif } from './onvif.js';
 import { resolveRtspAccount } from '../config.js';
@@ -191,6 +192,15 @@ export class EventWatcher {
     // credentials created per camera in the app.
     const account = resolveRtspAccount(this.config, device.name);
     if (!account.username || !account.password) {
+      // Solar and wire-free models offer no camera account to create in the Tapo
+      // app, so asking for one is asking for something that does not exist. They
+      // do not need it either: their detections come from the local list, which
+      // `resolveCamera` already gives them (`hasEvents = battery`). Saying
+      // "unavailable" every round sent the user hunting for a setting that is
+      // not there, and buried the messages that do call for an action.
+      if (isBatteryModel(getParam(device, DEVICE_PARAMS.MODEL))) {
+        return false;
+      }
       logger.debug(`No camera account for "${device.name}", ONVIF events unavailable`);
       return false;
     }

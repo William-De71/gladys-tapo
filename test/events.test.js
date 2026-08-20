@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { logger } from '@gladysassistant/integration-sdk';
 import { EventWatcher, classifyEvent, eventTimestamp } from '../src/tapo/events.js';
 import { buildDevice } from '../src/devices.js';
 import { normalizeConfig } from '../src/config.js';
@@ -760,4 +761,58 @@ test('a healthy battery camera is polled in full', async () => {
   await watcher.checkDevice(battery);
   await watcher.checkDevice(battery);
   assert.equal(detections, 2, 'a charged camera keeps its full poll every round');
+});
+
+test('a solar camera is not asked for a camera account it cannot have', async () => {
+  // Solar and wire-free models offer no camera account to create in the Tapo
+  // app, so the "ONVIF events unavailable" line sent the user looking for a
+  // setting that does not exist — every round, burying the messages that do ask
+  // for an action. They have no use for ONVIF either: their detections come
+  // from the local list.
+  const gladys = fakeGladys();
+  const solar = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID17',
+    name: 'Camera_cabane',
+    model: 'C610',
+    hasBattery: true,
+  });
+
+  const lines = [];
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  // No camera account anywhere in the config, exactly the production case.
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  const debug = logger.debug;
+  logger.debug = (message) => lines.push(String(message));
+  try {
+    assert.equal(await watcher.setupOnvif(solar), false, 'it still declines ONVIF');
+  } finally {
+    logger.debug = debug;
+  }
+  assert.equal(
+    lines.some((line) => line.includes('No camera account')),
+    false,
+    'nothing must ask for an account this model cannot provide',
+  );
+
+  // A wired camera DOES have one to create, so it must keep being told.
+  const wired = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID18',
+    name: 'Caméra_Salon',
+    model: 'C210',
+    hasBattery: false,
+  });
+  lines.length = 0;
+  logger.debug = (message) => lines.push(String(message));
+  try {
+    await watcher.setupOnvif(wired);
+  } finally {
+    logger.debug = debug;
+  }
+  assert.ok(
+    lines.some((line) => line.includes('No camera account')),
+    'a wired camera is still told what is missing',
+  );
 });
