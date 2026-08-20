@@ -216,12 +216,27 @@ test('the battery pulse is spaced out, and never dropped entirely', () => {
 });
 
 test('the pulse interval leaves the reading fresh', () => {
-  // Two pulses must fit inside the freshness window: at exactly the max age the
-  // level would expire moments before its own refresh, flipping the camera
-  // between "known" and "stale" for nothing.
+  // The interval is derived from the max age, so this guards against someone
+  // later writing a literal back in: two pulses must fit inside the freshness
+  // window, or the level expires moments before its own refresh.
   assert.ok(
     BATTERY_LOW_POLL_INTERVAL_MS * 2 <= BATTERY_READING_MAX_AGE_MS,
     'a pulse must renew the level well before it expires',
+  );
+
+  // What the arithmetic is actually protecting: a camera pulsed on schedule
+  // still has a level the guard trusts, so it never flips back to "unknown"
+  // between two pulses.
+  const guard = new BatteryGuard();
+  guard.trackBatteryCamera(ID);
+  guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL - 1);
+
+  // One full interval later, just before the next pulse is due.
+  guard.readAt.set(ID, Date.now() - BATTERY_LOW_POLL_INTERVAL_MS);
+  assert.notEqual(
+    guard.freshLevel(ID),
+    undefined,
+    'the level must still be trusted when the next pulse comes round',
   );
 });
 

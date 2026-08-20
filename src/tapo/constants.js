@@ -348,12 +348,15 @@ export const BATTERY_READING_MAX_AGE_MS = 30 * 60 * 1000;
  * the camera once the sun comes back: cut it entirely and a camera that dipped
  * below the threshold could never report its way out of it.
  *
- * Deliberately half of `BATTERY_READING_MAX_AGE_MS`, so two pulses fit inside
- * the freshness window. At exactly the max age the level would expire moments
- * before its own refresh, flipping the camera between "known" and "stale" for
- * nothing.
+ * DERIVED from `BATTERY_READING_MAX_AGE_MS` rather than written out, because it
+ * is a constraint and not a comfort setting: two pulses have to fit inside the
+ * freshness window. At exactly the max age the level would expire moments before
+ * its own refresh, flipping the camera between "known" and "stale" for nothing.
+ * Spelling the halving out here means raising the max age cannot silently leave
+ * a hardcoded interval behind, and the relation is impossible to break by
+ * editing one number and forgetting the other.
  */
-export const BATTERY_LOW_POLL_INTERVAL_MS = 15 * 60 * 1000;
+export const BATTERY_LOW_POLL_INTERVAL_MS = BATTERY_READING_MAX_AGE_MS / 2;
 
 // --- Features ----------------------------------------------------------------
 
