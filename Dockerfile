@@ -38,16 +38,22 @@ VOLUME ["/data"]
 #
 # !!! TEMPORARY — REVERT TO `info` BEFORE MERGING !!!
 #
-# Pinned to `debug` while the ONVIF pull failures (HTTP 400) are being
-# diagnosed. It is hard-coded rather than passed as a build ARG because GLADYS
-# BUILDS THE IMAGE ITSELF when a developer-mode integration is updated: a
-# `--build-arg` given by hand is lost on the next update, and the container came
-# back on `info` every time. Same reason an env var on the container does not
-# survive — Gladys recreates it from the manifest.
+# `info` for the published image. It was pinned to `debug` while the ONVIF pull
+# failures (HTTP 400) were being diagnosed; those now recover on their own — the
+# pull retries and the subscription reopens — so the diagnosis no longer needs a
+# permanent front-row seat.
 #
-# The published image must ship `info`: debug writes one line per ONVIF pull per
-# camera, which buries the messages that matter.
-ENV LOG_LEVEL=debug
+# What made debug untenable to ship: one line per ONVIF notification per camera,
+# and a camera repeats its state for as long as a motion lasts. Measured here,
+# two cameras produced 4317 lines in ten minutes — about 26k an hour, nearly all
+# of them `motion=true` — which buries every message that calls for an action.
+#
+# Hard-coded rather than a build ARG because GLADYS BUILDS THE IMAGE ITSELF when
+# a developer-mode integration is updated: a `--build-arg` given by hand is lost
+# on the next update. Same reason an env var set on the container does not
+# survive — Gladys recreates it from the manifest. So going back to debug means
+# editing this line, on a branch that is not the one being published.
+ENV LOG_LEVEL=info
 
 # Run as an unprivileged user (already present in the node image).
 USER node
