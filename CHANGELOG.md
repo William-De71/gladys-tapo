@@ -1,3 +1,9 @@
+## [1.2.2](https://github.com/William-De71/gladys-tapo/compare/v1.2.1...v1.2.2) (2026-08-30)
+
+### Bug Fixes
+
+* **tapo:** stop the poll from draining solar cameras, and reject phantom 0% readings ([e9be7d1](https://github.com/William-De71/gladys-tapo/commit/e9be7d1ed5d3bf06bd4b7c3ffd42e1bb09f6b2e0))
+
 ## [1.2.1](https://github.com/William-De71/gladys-tapo/compare/v1.2.0...v1.2.1) (2026-08-20)
 
 ### Continuous Integration
