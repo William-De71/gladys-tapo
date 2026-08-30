@@ -9,6 +9,7 @@ import {
   resolveRtspAccount,
   DEFAULT_CONFIG,
 } from '../src/config.js';
+import { BATTERY_EVENT_POLL_INTERVAL } from '../src/tapo/constants.js';
 
 test('an empty config falls back to the defaults', () => {
   const config = normalizeConfig();
@@ -206,4 +207,29 @@ test('a non-numeric value falls back to its default', () => {
 test('the resume level is configurable', () => {
   assert.equal(normalizeConfig().battery_resume, DEFAULT_CONFIG.battery_resume);
   assert.equal(normalizeConfig({ battery_resume: '90' }).battery_resume, 90);
+});
+
+test('the battery poll interval falls back to its default', () => {
+  // Battery cameras get their own poll interval for the same reason they get
+  // their own refresh interval: the poll wakes the camera far more often than any
+  // capture, and the wake-up is what costs the cell.
+  const config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+  assert.equal(config.battery_event_poll_interval, BATTERY_EVENT_POLL_INTERVAL);
+  // Independent of the wired one, which stays short for cameras on mains.
+  assert.equal(config.event_poll_interval, 20);
+
+  const custom = normalizeConfig({
+    email: 'a@b.c',
+    password: 'x',
+    battery_event_poll_interval: 900,
+  });
+  assert.equal(custom.battery_event_poll_interval, 900);
+
+  // An empty field must not become a 0-second interval.
+  const blank = normalizeConfig({
+    email: 'a@b.c',
+    password: 'x',
+    battery_event_poll_interval: '',
+  });
+  assert.equal(blank.battery_event_poll_interval, BATTERY_EVENT_POLL_INTERVAL);
 });

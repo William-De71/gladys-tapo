@@ -43,6 +43,16 @@ import {
   BATTERY_LOW_POLL_INTERVAL_MS,
 } from './constants.js';
 
+/**
+ * Resume level above which a solar camera is unlikely to ever be released.
+ *
+ * Not a limit — the user stays free to set it — but the point past which the
+ * setting is worth a warning: a solar camera charges in bursts and is sampled
+ * every few minutes, so a level set this high is simply never read, and a camera
+ * that dipped once below the pause level stays paused for good.
+ */
+const UNREACHABLE_RESUME_PERCENT = 90;
+
 /** What a camera is currently allowed to do. */
 export const CAPTURE_POLICY = {
   /** Everything, including the periodic refresh. */
@@ -116,7 +126,22 @@ export class BatteryGuard {
     }
     // A resume at or below the pause threshold would release a camera the moment
     // it crosses back, which is the shallow cycling this guard exists to avoid.
+    const requestedResume = this.resume;
     this.resume = Math.max(this.resume, this.pauseRefresh);
+    if (Number.isFinite(resume) && this.resume !== requestedResume) {
+      logger.warn(
+        `The resume level (${requestedResume}%) was raised to ${this.resume}% to stay above the pause level.`,
+      );
+    }
+    // A resume a solar camera cannot reach locks it out for good: it only charges
+    // in bursts, so a level set near the top is simply never read. Worth saying
+    // out loud, because nothing else reports it — the camera just stops capturing
+    // and never explains why.
+    if (this.resume >= UNREACHABLE_RESUME_PERCENT) {
+      logger.warn(
+        `The resume level is set to ${this.resume}%: a solar camera rarely reads that high, and one that dips below ${this.pauseRefresh}% may stay paused indefinitely.`,
+      );
+    }
   }
 
   /**

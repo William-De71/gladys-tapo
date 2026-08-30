@@ -422,7 +422,21 @@ export class TapoLocalApi {
     const result = await this.callMethod('getBatteryStatus', { battery: { name: 'status' } });
     const status = result?.battery?.status ?? result?.battery ?? result;
     const level = status?.battery_percent ?? status?.percent ?? status?.battery_level;
-    return Number.isFinite(Number(level)) ? Number(level) : null;
+    if (!Number.isFinite(Number(level))) {
+      return null;
+    }
+    const percent = Number(level);
+    // A 0 is a REFUSAL to answer, not a reading: a camera actually at 0% is off
+    // and cannot serve this request at all. Measured on a solar C610, a third of
+    // its readings came back 0 one second apart from a 96 — the camera answering
+    // before its gauge was read, right after a wake-up. Taken at face value each
+    // one published a phantom flat battery and drove the guard straight to
+    // "capture nothing", which it then left a wake-up later.
+    if (percent <= 0) {
+      logger.debug(`Tapo local API: ${this.ip} reported 0% battery, ignoring the reading`);
+      return null;
+    }
+    return percent;
   }
 
   /**

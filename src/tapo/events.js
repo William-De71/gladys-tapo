@@ -15,6 +15,7 @@
 import { logger, DEVICE_FEATURE_CATEGORIES } from '@gladysassistant/integration-sdk';
 import { parseCloudDeviceId, cameraIds, getParam } from '../devices.js';
 import {
+  BATTERY_EVENT_POLL_INTERVAL,
   DEVICE_PARAMS,
   FEATURE_SUFFIXES,
   LOCAL_EVENT_WINDOW_SECONDS,
@@ -113,6 +114,16 @@ export class EventWatcher {
     this.localApis = new Map();
     /** When each camera was last looked at, to bound the search window. */
     this.lastLookAt = new Map();
+    /**
+     * When each battery camera was last polled, to keep it at its own pace.
+     *
+     * The loop keeps ticking at the wired interval — a wired camera must stay
+     * responsive — and a battery camera simply skips the rounds that are not
+     * yet due for it. Same shape as the per-device timestamp the capture side
+     * uses for `battery_image_refresh_interval`.
+     * @type {Map<string, number>}
+     */
+    this.lastBatteryPollAt = new Map();
     /**
      * Last known privacy mode per device external id.
      *
@@ -765,6 +776,54 @@ export class EventWatcher {
   }
 
   /**
+   * Tell whether a battery camera is due for its next poll.
+   *
+   * Wired cameras are always due: they cost nothing to wake, and a dashboard is
+   * expected to react at the interval the user set. A battery camera answers to
+   * `battery_event_poll_interval` instead, and records the moment it says yes so
+   * the caller cannot ask twice and get two wake-ups.
+   *
+   * The very first round is always due: that first reading is what tells the
+   * guard where the camera actually stands, and delaying it would leave a battery
+   * camera on the no-level fallback for five minutes on every restart.
+   * @param {object} device - The Gladys device.
+   * @returns {boolean} True when the camera may be polled this round.
+   * @example
+   * if (watcher.isBatteryPollDue(device)) { ... }
+   */
+  isBatteryPollDue(device) {
+    const externalId = device.external_id;
+    const isBattery =
+      this.batteryGuard?.isBatteryCamera(externalId) ||
+      isBatteryModel(device.model || '') ||
+      isBatteryModel(getParam(device, DEVICE_PARAMS.MODEL) || '');
+    if (!isBattery) {
+      return true;
+    }
+
+    // A doorbell is never slowed down, battery or not: a ring is worth answering
+    // in seconds, and someone standing at the door is exactly the moment the user
+    // expects the integration to react. Sparing its cell at the cost of a press
+    // arriving five minutes late trades away the one thing the device is for —
+    // and a ring is a rare event, unlike the poll it would be throttled by.
+    const hasButton = (device.features || []).some((feature) =>
+      String(feature.external_id || '').endsWith(`:${FEATURE_SUFFIXES.BUTTON}`),
+    );
+    if (hasButton) {
+      return true;
+    }
+
+    const interval =
+      (this.config?.battery_event_poll_interval ?? BATTERY_EVENT_POLL_INTERVAL) * 1000;
+    const last = this.lastBatteryPollAt.get(externalId);
+    if (last !== undefined && Date.now() - last < interval) {
+      return false;
+    }
+    this.lastBatteryPollAt.set(externalId, Date.now());
+    return true;
+  }
+
+  /**
    * Fetch the recent events, the battery level and the privacy mode of one
    * camera.
    *
@@ -800,6 +859,13 @@ export class EventWatcher {
     const wantsBattery = wants(FEATURE_SUFFIXES.BATTERY);
     const wantsPrivacy = wants(FEATURE_SUFFIXES.PRIVACY);
     if (skipDetections && !wantsBattery && !wantsPrivacy) {
+      return { events: [], battery: null, privacy: null };
+    }
+
+    // A battery camera keeps its OWN pace, whatever its level. The rounds it is
+    // not due for cost nothing because they never open a session — opening one is
+    // itself a wake-up.
+    if (!this.isBatteryPollDue(device)) {
       return { events: [], battery: null, privacy: null };
     }
 

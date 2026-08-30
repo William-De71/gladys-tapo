@@ -305,6 +305,22 @@
       "max": 86400
     },
     {
+      "key": "battery_event_poll_interval",
+      "type": "number",
+      "label": {
+        "en": "Battery camera check interval (s)",
+        "fr": "Intervalle de v\u00e9rification des cam\u00e9ras sur batterie (s)"
+      },
+      "description": {
+        "en": "How often a battery or solar camera is contacted to read its level and its detections, independently of your wired cameras. Waking the camera is what costs the battery, and this happens far more often than a capture: at the wired 20s a camera is woken 180 times an hour, which drains a solar model faster than the panel refills it. Raise it if your camera keeps losing charge overnight.",
+        "fr": "Fr\u00e9quence \u00e0 laquelle une cam\u00e9ra sur batterie ou solaire est contact\u00e9e pour lire son niveau et ses d\u00e9tections, ind\u00e9pendamment de vos cam\u00e9ras filaires. C'est le r\u00e9veil de la cam\u00e9ra qui co\u00fbte de la batterie, et il a lieu bien plus souvent qu'une capture : \u00e0 20 s, une cam\u00e9ra est r\u00e9veill\u00e9e 180 fois par heure, ce qui vide un mod\u00e8le solaire plus vite que le panneau ne le recharge. Augmentez-le si votre cam\u00e9ra perd de la charge pendant la nuit."
+      },
+      "required": false,
+      "default": 300,
+      "min": 20,
+      "max": 3600
+    },
+    {
       "key": "battery_pause_refresh",
       "type": "number",
       "label": {

@@ -816,3 +816,73 @@ test('a solar camera is not asked for a camera account it cannot have', async ()
     'a wired camera is still told what is missing',
   );
 });
+
+test('a battery camera is polled at its own pace, not the wired one', async () => {
+  // The drain that made the cabin camera plateau: at the wired 20s the poll woke
+  // it 180 times an hour, in the NORMAL band, long before any threshold tripped.
+  // Measured over a month of history, that alone cost 3.5 points an hour through
+  // the night — 24 points before sunrise, while every capture was already blocked.
+  const gladys = fakeGladys();
+  const camera = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID20',
+    name: 'Camera_cabane',
+    model: 'C610',
+    hasBattery: true,
+    // No doorbell: a ring must never be throttled, so a camera with a button
+    // keeps the wired pace and would not exercise this at all.
+    hasDoorbell: false,
+  });
+  gladys.devices = [camera];
+
+  const guard = new BatteryGuard();
+  // Comfortably in the normal band: the point is that the pacing does NOT depend
+  // on the level, unlike the low-power pulse.
+  guard.update(camera.external_id, 95, 'Camera_cabane');
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud(), batteryGuard: guard });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  let opened = 0;
+  const api = fakeLocalApi({ battery: 95 });
+  watcher.getLocalApi = () => {
+    opened += 1;
+    return api;
+  };
+
+  // The first round is always due: that reading is what tells the guard where the
+  // camera stands, and delaying it would leave it on the no-level fallback.
+  await watcher.checkDevice(camera);
+  assert.equal(opened, 1, 'the first round reads the camera');
+
+  // The rounds that follow are not due, and must not even open a session:
+  // opening one is itself a wake-up.
+  await watcher.checkDevice(camera);
+  await watcher.checkDevice(camera);
+  assert.equal(opened, 1, 'a battery camera is not woken every wired round');
+
+  // Once its own interval has passed, it is polled again.
+  watcher.lastBatteryPollAt.set(
+    camera.external_id,
+    Date.now() - watcher.config.battery_event_poll_interval * 1000 - 1,
+  );
+  await watcher.checkDevice(camera);
+  assert.equal(opened, 2, 'the camera is polled again at its own interval');
+});
+
+test('a doorbell keeps the wired pace, battery or not', async () => {
+  // A ring is worth answering in seconds. Sparing the cell at the cost of a press
+  // arriving five minutes late trades away the one thing the device is for.
+  const { watcher, device } = buildWatcher({ events: [] });
+
+  let opened = 0;
+  const api = fakeLocalApi({ battery: 50 });
+  watcher.getLocalApi = () => {
+    opened += 1;
+    return api;
+  };
+
+  await watcher.checkDevice(device);
+  await watcher.checkDevice(device);
+  assert.equal(opened, 2, 'a doorbell answers every round');
+});

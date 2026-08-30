@@ -10,14 +10,23 @@
 // the manifest cannot express structurally: the manual camera addresses.
 // -----------------------------------------------------------------------------
 
-import { CLOUD_ENDPOINTS, RTSP_STREAMS, BATTERY_THRESHOLDS } from './tapo/constants.js';
+import {
+  CLOUD_ENDPOINTS,
+  RTSP_STREAMS,
+  BATTERY_THRESHOLDS,
+  BATTERY_EVENT_POLL_INTERVAL,
+} from './tapo/constants.js';
 
 // Defaults: they MUST stay consistent with the `default` values declared in the
 // `config_schema` of the manifest.
 export const DEFAULT_CONFIG = {
   region: 'europe',
   stream_quality: 'HD',
-  event_poll_interval: 20, // seconds, between two event checks
+  event_poll_interval: 20, // seconds, between two event checks (wired)
+  // Battery cameras get their OWN poll interval, for the same reason they get
+  // their own refresh interval: the poll wakes the camera far more often than any
+  // capture, and the wake-up is what costs the cell.
+  battery_event_poll_interval: BATTERY_EVENT_POLL_INTERVAL,
   capture_timeout: 14, // seconds, before giving up on a capture
   image_refresh_interval: 60, // seconds, between two automatic captures (wired)
   // Battery cameras get their OWN interval: the wired one exists to keep a
@@ -169,6 +178,10 @@ export function normalizeConfig(raw = {}) {
     stream_quality: quality,
     rtsp_stream: RTSP_STREAMS[quality],
     event_poll_interval: numberOrDefault(raw.event_poll_interval, 'event_poll_interval'),
+    battery_event_poll_interval: numberOrDefault(
+      raw.battery_event_poll_interval,
+      'battery_event_poll_interval',
+    ),
     capture_timeout: numberOrDefault(raw.capture_timeout, 'capture_timeout'),
     image_refresh_interval: numberOrDefault(raw.image_refresh_interval, 'image_refresh_interval'),
     battery_image_refresh_interval: numberOrDefault(

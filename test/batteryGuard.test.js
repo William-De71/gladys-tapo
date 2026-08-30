@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { logger } from '@gladysassistant/integration-sdk';
 import { BatteryGuard, CAPTURE_POLICY } from '../src/tapo/batteryGuard.js';
 import {
   BATTERY_THRESHOLDS,
@@ -266,4 +267,52 @@ test('a wired camera with no level is never throttled', () => {
   // report, and cutting its poll would cost it its detections for nothing.
   const guard = new BatteryGuard();
   assert.equal(guard.allowsPolling('ext:ext-dev-tapo:camera:WIRED'), true);
+});
+
+test('a resume raised above the requested value is reported', () => {
+  // The Math.max is silent, so a resume below the pause level was corrected
+  // without anyone knowing: the configured value and the effective one differed,
+  // and nothing said which one was in force.
+  const warnings = [];
+  const original = logger.warn;
+  logger.warn = (message) => warnings.push(message);
+  try {
+    new BatteryGuard({ pauseRefresh: 60, resume: 50 });
+  } finally {
+    logger.warn = original;
+  }
+  assert.ok(
+    warnings.some((message) => message.includes('50%') && message.includes('60%')),
+    'the correction names both the requested and the effective level',
+  );
+});
+
+test('a resume a solar camera cannot reach is called out', () => {
+  // The configuration that started this: pause 85, stop 80, resume 90 on a camera
+  // whose history never read above 83. Once paused it could never be released —
+  // and nothing reported it, the camera simply stopped capturing for good.
+  const warnings = [];
+  const original = logger.warn;
+  logger.warn = (message) => warnings.push(message);
+  try {
+    new BatteryGuard({ pauseRefresh: 85, stopAll: 80, resume: 90 });
+  } finally {
+    logger.warn = original;
+  }
+  assert.ok(
+    warnings.some((message) => message.includes('90%')),
+    'a resume set that high is worth a warning',
+  );
+});
+
+test('an ordinary resume is not warned about', () => {
+  const warnings = [];
+  const original = logger.warn;
+  logger.warn = (message) => warnings.push(message);
+  try {
+    new BatteryGuard({ pauseRefresh: 40, stopAll: 25, resume: 55 });
+  } finally {
+    logger.warn = original;
+  }
+  assert.deepEqual(warnings, [], 'sane thresholds stay quiet');
 });

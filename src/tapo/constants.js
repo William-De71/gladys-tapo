@@ -40,6 +40,26 @@ export const CAMERA_DEVICE_TYPE_PATTERNS = ['IPCAMERA'];
  */
 export const POLL_FREQUENCY_MS = 60 * 1000;
 
+/**
+ * How often a battery camera is polled for its events, in seconds.
+ *
+ * Battery models get their OWN poll interval for the same reason they get their
+ * own refresh interval: waking the camera is what costs the cell, and the poll
+ * wakes it far more often than any capture does. At the wired default of 20s a
+ * camera is woken 180 times an hour — measured on a solar C610, that alone drained
+ * it 3.5 points an hour through the night, 24 points before sunrise, while every
+ * capture was already blocked.
+ *
+ * Deliberately independent of the battery LEVEL: the drain happens in the normal
+ * band, long before any threshold trips, so throttling only once a camera is
+ * critical arrives far too late. `BATTERY_LOW_POLL_INTERVAL_MS` remains the step
+ * below, for a camera that is genuinely flat.
+ *
+ * Kept well under `BATTERY_READING_MAX_AGE_MS` so two readings still fit inside
+ * the freshness window the guard trusts.
+ */
+export const BATTERY_EVENT_POLL_INTERVAL = 300;
+
 /** HTTPS port of the local camera API (battery, detections). */
 export const LOCAL_API_PORT = 443;
 
