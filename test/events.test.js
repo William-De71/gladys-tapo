@@ -776,6 +776,9 @@ test('a solar camera is not asked for a camera account it cannot have', async ()
     name: 'Camera_cabane',
     model: 'C610',
     hasBattery: true,
+    // A solar camera is no doorbell, and the distinction decides the outcome:
+    // a doorbell keeps ONVIF whatever it runs on.
+    hasDoorbell: false,
   });
 
   const lines = [];
@@ -885,4 +888,67 @@ test('a doorbell keeps the wired pace, battery or not', async () => {
   await watcher.checkDevice(device);
   await watcher.checkDevice(device);
   assert.equal(opened, 2, 'a doorbell answers every round');
+});
+
+test('a solar camera stays off ONVIF even when a camera account is configured', async () => {
+  // The hole the cabin camera fell through: the battery model was only spared
+  // INSIDE the "no camera account" branch, so a solar camera with global RTSP
+  // credentials sailed past it and opened a pull point. That subscription is a
+  // long poll — the camera holds a connection open, answers, and the loop
+  // reissues at once, around the clock — so the radio never sleeps. It drained
+  // the cell 3.3 points an hour through the night, more than the panel put back
+  // over a day, with every capture already blocked.
+  const gladys = fakeGladys();
+  const solar = buildDevice(gladys, {
+    ...doorbellCamera,
+    cloudDeviceId: 'ID19',
+    name: 'Camera_cabane',
+    model: 'C610',
+    hasBattery: true,
+    hasDoorbell: false,
+  });
+
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({
+    email: 'a@b.c',
+    password: 'x',
+    rtsp_username: 'cam',
+    rtsp_password: 'secret',
+  });
+
+  assert.equal(await watcher.setupOnvif(solar), false, 'a solar camera must never be subscribed');
+  assert.equal(watcher.onvifCovered.size, 0, 'and must stay on the polled path');
+  assert.equal(watcher.onvifClients.size, 0, 'no client may be left holding a connection open');
+});
+
+test('a doorbell keeps ONVIF, battery or not', async () => {
+  // The exemption that must survive the exclusion above: a ring is worth
+  // answering in seconds, so a battery doorbell keeps the push path even though
+  // it costs the same connection a solar camera is spared.
+  const gladys = fakeGladys();
+  const bell = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'ID20' });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({
+    email: 'a@b.c',
+    password: 'x',
+    rtsp_username: 'cam',
+    rtsp_password: 'secret',
+  });
+
+  assert.equal(watcher.isBatteryPowered(bell), false, 'a doorbell is never spared');
+  // It gets as far as probing the camera, which is what the exclusion skips.
+  let probed = false;
+  watcher.setupOnvif = watcher.setupOnvif.bind(watcher);
+  const { TapoOnvif } = await import('../src/tapo/onvif.js');
+  const probe = TapoOnvif.prototype.probe;
+  TapoOnvif.prototype.probe = async function fakeProbe() {
+    probed = true;
+    return false;
+  };
+  try {
+    await watcher.setupOnvif(bell);
+  } finally {
+    TapoOnvif.prototype.probe = probe;
+  }
+  assert.ok(probed, 'a doorbell must still be tried over ONVIF');
 });

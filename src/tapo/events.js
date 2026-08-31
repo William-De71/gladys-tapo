@@ -178,11 +178,48 @@ export class EventWatcher {
   }
 
   /**
+   * Tell whether one camera runs on a battery and must be spared.
+   *
+   * A doorbell is never counted as one, whatever it runs on: a ring is worth
+   * answering in seconds, and someone standing at the door is exactly the moment
+   * the user expects the integration to react. Sparing its cell at the cost of a
+   * press arriving minutes late trades away the one thing the device is for.
+   * @param {object} device - The Gladys device.
+   * @returns {boolean} True when the camera's battery is worth protecting.
+   * @example
+   * if (watcher.isBatteryPowered(device)) { ... }
+   */
+  isBatteryPowered(device) {
+    const isBattery =
+      this.batteryGuard?.isBatteryCamera(device.external_id) ||
+      isBatteryModel(device.model || '') ||
+      isBatteryModel(getParam(device, DEVICE_PARAMS.MODEL) || '');
+    if (!isBattery) {
+      return false;
+    }
+    const hasButton = (device.features || []).some((feature) =>
+      String(feature.external_id || '').endsWith(`:${FEATURE_SUFFIXES.BUTTON}`),
+    );
+    return !hasButton;
+  }
+
+  /**
    * Subscribe to the ONVIF events of one camera, when it offers them.
    *
    * Best effort by design: ONVIF needs the camera account, and a camera without
    * one — or a battery model that keeps port 2020 closed — simply stays on the
    * polled path. Nothing is lost in that case, the events just arrive later.
+   *
+   * Battery cameras are kept off it entirely, even when they do answer. The pull
+   * point is a long poll: the camera holds a connection open, answers, and the
+   * loop reissues at once, around the clock. That is far more traffic than the
+   * poll it replaces — and worse, the radio never gets to sleep between two
+   * rounds, which is what actually costs the cell. Measured on a solar C610, it
+   * drained 3.3 points an hour through the night with every capture already
+   * blocked, more than the panel could put back over a day. The polled path
+   * costs a detection reaching Gladys in `battery_event_poll_interval` rather
+   * than a second, which is the right trade for a camera that would otherwise
+   * flatten before morning.
    * @param {object} device - The Gladys device.
    * @returns {Promise<boolean>} True when the camera now pushes its events.
    * @example
@@ -199,19 +236,14 @@ export class EventWatcher {
       return false;
     }
 
+    if (this.isBatteryPowered(device)) {
+      return false;
+    }
+
     // The CAMERA account, not the Tapo one: ONVIF authenticates against the
     // credentials created per camera in the app.
     const account = resolveRtspAccount(this.config, device.name);
     if (!account.username || !account.password) {
-      // Solar and wire-free models offer no camera account to create in the Tapo
-      // app, so asking for one is asking for something that does not exist. They
-      // do not need it either: their detections come from the local list, which
-      // `resolveCamera` already gives them (`hasEvents = battery`). Saying
-      // "unavailable" every round sent the user hunting for a setting that is
-      // not there, and buried the messages that do call for an action.
-      if (isBatteryModel(getParam(device, DEVICE_PARAMS.MODEL))) {
-        return false;
-      }
       logger.debug(`No camera account for "${device.name}", ONVIF events unavailable`);
       return false;
     }
@@ -779,7 +811,8 @@ export class EventWatcher {
    * Tell whether a battery camera is due for its next poll.
    *
    * Wired cameras are always due: they cost nothing to wake, and a dashboard is
-   * expected to react at the interval the user set. A battery camera answers to
+   * expected to react at the interval the user set. So are doorbells, battery or
+   * not — see `isBatteryPowered`. A battery camera answers to
    * `battery_event_poll_interval` instead, and records the moment it says yes so
    * the caller cannot ask twice and get two wake-ups.
    *
@@ -793,23 +826,7 @@ export class EventWatcher {
    */
   isBatteryPollDue(device) {
     const externalId = device.external_id;
-    const isBattery =
-      this.batteryGuard?.isBatteryCamera(externalId) ||
-      isBatteryModel(device.model || '') ||
-      isBatteryModel(getParam(device, DEVICE_PARAMS.MODEL) || '');
-    if (!isBattery) {
-      return true;
-    }
-
-    // A doorbell is never slowed down, battery or not: a ring is worth answering
-    // in seconds, and someone standing at the door is exactly the moment the user
-    // expects the integration to react. Sparing its cell at the cost of a press
-    // arriving five minutes late trades away the one thing the device is for —
-    // and a ring is a rare event, unlike the poll it would be throttled by.
-    const hasButton = (device.features || []).some((feature) =>
-      String(feature.external_id || '').endsWith(`:${FEATURE_SUFFIXES.BUTTON}`),
-    );
-    if (hasButton) {
+    if (!this.isBatteryPowered(device)) {
       return true;
     }
 
