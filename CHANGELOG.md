@@ -1,3 +1,9 @@
+## [1.2.3](https://github.com/William-De71/gladys-tapo/compare/v1.2.2...v1.2.3) (2026-08-31)
+
+### Bug Fixes
+
+* **tapo:** keep battery cameras off the ONVIF pull point ([d16baf3](https://github.com/William-De71/gladys-tapo/commit/d16baf34f3c79c418a499850a2d3ecaf218b8635))
+
 ## [1.2.2](https://github.com/William-De71/gladys-tapo/compare/v1.2.1...v1.2.2) (2026-08-30)
 
 ### Bug Fixes
