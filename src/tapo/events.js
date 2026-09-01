@@ -184,13 +184,26 @@ export class EventWatcher {
    * answering in seconds, and someone standing at the door is exactly the moment
    * the user expects the integration to react. Sparing its cell at the cost of a
    * press arriving minutes late trades away the one thing the device is for.
+   *
+   * Carrying a battery feature is enough, and is the check that matters: the
+   * model prefixes only know the models that were known when they were written,
+   * and the guard only learns a camera runs on a cell once a reading came back.
+   * Both missed a solar C610 whose model the list did not carry — it was treated
+   * as wired, polled every `event_poll_interval`, and measured losing 4.8 points
+   * an hour through the night with every capture already blocked, while
+   * `battery_event_poll_interval` sat unused. A camera that reports a percentage
+   * runs on something that empties, whatever its model string says.
    * @param {object} device - The Gladys device.
    * @returns {boolean} True when the camera's battery is worth protecting.
    * @example
    * if (watcher.isBatteryPowered(device)) { ... }
    */
   isBatteryPowered(device) {
+    const hasBatteryFeature = (device.features || []).some((feature) =>
+      String(feature.external_id || '').endsWith(`:${FEATURE_SUFFIXES.BATTERY}`),
+    );
     const isBattery =
+      hasBatteryFeature ||
       this.batteryGuard?.isBatteryCamera(device.external_id) ||
       isBatteryModel(device.model || '') ||
       isBatteryModel(getParam(device, DEVICE_PARAMS.MODEL) || '');

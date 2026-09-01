@@ -952,3 +952,56 @@ test('a doorbell keeps ONVIF, battery or not', async () => {
   }
   assert.ok(probed, 'a doorbell must still be tried over ONVIF');
 });
+
+test('a battery camera whose model is unknown is still spared', () => {
+  // The regression this guards: the model prefixes only know the models that were
+  // written into them, and the guard only learns a camera runs on a cell once a
+  // reading came back. A solar C610 whose model string the list did not carry fell
+  // through both, was treated as wired, and was polled every `event_poll_interval`
+  // — measured losing 4.8 points an hour through the night with every capture
+  // already blocked, while `battery_event_poll_interval` sat unused. Reporting a
+  // percentage is enough to be protected.
+  const gladys = fakeGladys();
+  const solar = buildDevice(gladys, {
+    cloudDeviceId: 'ID42',
+    name: 'Cabane',
+    model: 'XX999',
+    ip: '192.168.1.99',
+    captureMode: 'proprietary',
+    hasBattery: true,
+    hasEvents: true,
+    // A plain camera, not a doorbell: a doorbell keeps the fast pace whatever it
+    // runs on, and would be exempted before the battery feature is ever weighed.
+    hasDoorbell: false,
+  });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  assert.equal(watcher.isBatteryPowered(solar), true, 'a battery feature is enough');
+
+  // And the throttle it unlocks actually holds: the first round is due, the next
+  // one is refused until `battery_event_poll_interval` has passed.
+  assert.equal(watcher.isBatteryPollDue(solar), true, 'the first reading is always due');
+  assert.equal(watcher.isBatteryPollDue(solar), false, 'the very next round is not');
+});
+
+test('a wired camera reporting no battery keeps the wired pace', () => {
+  // The other half of the check: nothing above may start throttling a mains
+  // camera, whose dashboard is expected to react at the interval the user set.
+  const gladys = fakeGladys();
+  const wired = buildDevice(gladys, {
+    cloudDeviceId: 'ID43',
+    name: 'Salon',
+    model: 'C210',
+    ip: '192.168.1.98',
+    captureMode: 'rtsp',
+    hasBattery: false,
+    hasEvents: true,
+  });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+
+  assert.equal(watcher.isBatteryPowered(wired), false);
+  assert.equal(watcher.isBatteryPollDue(wired), true);
+  assert.equal(watcher.isBatteryPollDue(wired), true, 'a wired camera is always due');
+});

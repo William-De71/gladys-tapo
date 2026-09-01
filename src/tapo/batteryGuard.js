@@ -41,6 +41,7 @@ import {
   BATTERY_THRESHOLDS,
   BATTERY_READING_MAX_AGE_MS,
   BATTERY_LOW_POLL_INTERVAL_MS,
+  BATTERY_STOP_ALL_HYSTERESIS,
 } from './constants.js';
 
 /**
@@ -96,6 +97,14 @@ export class BatteryGuard {
     this.batteryCameras = new Set();
     /** When each throttled camera was last polled, to space out its pulses. */
     this.polledAt = new Map();
+    /**
+     * Cameras held below `stopAll` until they climb the hysteresis band.
+     *
+     * Separate from `recovering`, which guards the CAPTURES: this one guards the
+     * poll, releases far lower, and a camera crossing back out of it is still
+     * held by `recovering` for a long while yet.
+     */
+    this.blocked = new Set();
   }
 
   /**
@@ -142,6 +151,18 @@ export class BatteryGuard {
         `The resume level is set to ${this.resume}%: a solar camera rarely reads that high, and one that dips below ${this.pauseRefresh}% may stay paused indefinitely.`,
       );
     }
+
+    // A camera already held below the OLD threshold would otherwise stay blocked
+    // against a limit that no longer exists: lowering the setting is exactly how
+    // a user asks for such a camera to be let go, and nothing else would clear it
+    // until it climbed a band measured from the wrong number. Guarded because the
+    // constructor applies the thresholds before the state exists.
+    this.blocked?.forEach((externalId) => {
+      const level = this.levels.get(externalId);
+      if (level !== undefined && level >= this.stopAll + BATTERY_STOP_ALL_HYSTERESIS) {
+        this.blocked.delete(externalId);
+      }
+    });
   }
 
   /**
@@ -188,21 +209,33 @@ export class BatteryGuard {
     // this catches the models the prefix list does not know about yet.
     this.batteryCameras.add(externalId);
 
-    const previous = this.levels.get(externalId);
     this.levels.set(externalId, level);
     this.readAt.set(externalId, Date.now());
 
     const wasRecovering = this.recovering.has(externalId);
+
+    // The block band, with its own hysteresis. Handled before the pause band
+    // below because it spans it: a camera is released only once it has climbed
+    // `BATTERY_STOP_ALL_HYSTERESIS` points clear of `stopAll`, which is what
+    // stops a camera pinned on the threshold from flipping regime every reading.
+    const wasBlocked = this.blocked.has(externalId);
+    if (level < this.stopAll) {
+      if (!wasBlocked) {
+        this.blocked.add(externalId);
+        logger.warn(
+          `"${name}" dropped to ${level}%: every capture is now blocked to protect the battery.`,
+        );
+      }
+    } else if (wasBlocked && level >= this.stopAll + BATTERY_STOP_ALL_HYSTERESIS) {
+      this.blocked.delete(externalId);
+      logger.info(`"${name}" is back to ${level}%: the battery is read at the normal pace again.`);
+    }
 
     if (level < this.pauseRefresh) {
       if (!wasRecovering) {
         this.recovering.add(externalId);
         logger.warn(
           `"${name}" is at ${level}%: image capture is paused until the battery is back to ${this.resume}%.`,
-        );
-      } else if (previous !== undefined && level < this.stopAll && previous >= this.stopAll) {
-        logger.warn(
-          `"${name}" dropped to ${level}%: every capture is now blocked to protect the battery.`,
         );
       }
       return;
@@ -251,7 +284,10 @@ export class BatteryGuard {
       // what would finish it off.
       return this.batteryCameras.has(externalId) ? CAPTURE_POLICY.ON_DEMAND : CAPTURE_POLICY.FULL;
     }
-    if (level < this.stopAll) {
+    // `blocked` carries the hysteresis: a camera that fell below `stopAll` stays
+    // here until it has climbed the release band, so a single point cannot flip
+    // it back and forth. `update` is what sets and clears it.
+    if (this.blocked.has(externalId)) {
       return CAPTURE_POLICY.NONE;
     }
     if (this.recovering.has(externalId)) {

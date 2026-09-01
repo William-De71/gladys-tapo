@@ -46,9 +46,10 @@ export const POLL_FREQUENCY_MS = 60 * 1000;
  * Battery models get their OWN poll interval for the same reason they get their
  * own refresh interval: waking the camera is what costs the cell, and the poll
  * wakes it far more often than any capture does. At the wired default of 20s a
- * camera is woken 180 times an hour — measured on a solar C610, that alone drained
- * it 3.5 points an hour through the night, 24 points before sunrise, while every
- * capture was already blocked.
+ * camera is woken up to 180 times an hour — measured on a solar C610, that alone
+ * drained it 4.8 points an hour through the night, 22 points before sunrise, while
+ * every capture was already blocked. Over the same nights, once throttled, it lost
+ * 0.0 point in 11 hours: the poll is the whole of the nocturnal drain.
  *
  * Deliberately independent of the battery LEVEL: the drain happens in the normal
  * band, long before any threshold trips, so throttling only once a camera is
@@ -339,6 +340,23 @@ export const BATTERY_THRESHOLDS = {
    */
   RESUME: 80,
 };
+
+/**
+ * Points a camera must climb back above `STOP_ALL` before the full poll resumes.
+ *
+ * `STOP_ALL` alone is a bare comparison, so a camera sitting exactly on it flips
+ * regime on a single point — and the two regimes are 22x apart in cost, which
+ * makes the flip self-sustaining. Measured on a solar C610 over one morning:
+ * throttled at 49% it stopped draining and the panel put it back to 50%, the
+ * full poll resumed, 15 minutes later it read 49% again. Eight round trips in
+ * four hours, the camera pinned to the threshold by its own polling.
+ *
+ * Mirrors `RESUME` above `PAUSE_REFRESH`, and kept small because it only has to
+ * outrun the sampling noise, not stage a real recovery: the camera is still
+ * blocked from capturing throughout this band, so waiting costs nothing but a
+ * slower battery reading.
+ */
+export const BATTERY_STOP_ALL_HYSTERESIS = 5;
 
 /**
  * How long a battery reading stays trusted, in milliseconds.

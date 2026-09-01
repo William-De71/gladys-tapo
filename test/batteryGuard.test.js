@@ -6,6 +6,7 @@ import {
   BATTERY_THRESHOLDS,
   BATTERY_READING_MAX_AGE_MS,
   BATTERY_LOW_POLL_INTERVAL_MS,
+  BATTERY_STOP_ALL_HYSTERESIS,
 } from '../src/tapo/constants.js';
 
 const ID = 'ext:ext-dev-tapo:camera:ID1';
@@ -315,4 +316,45 @@ test('an ordinary resume is not warned about', () => {
     logger.warn = original;
   }
   assert.deepEqual(warnings, [], 'sane thresholds stay quiet');
+});
+
+test('a camera on the stop threshold does not flip regime on one point', () => {
+  // Measured on a solar C610: throttled at 49% it stopped draining, the panel put
+  // it back to 50%, the full poll resumed and 15 minutes later it read 49% again —
+  // eight round trips in four hours, the camera pinned to the threshold by its own
+  // polling. Crossing back must therefore take more than the single point that
+  // dropped it.
+  const guard = new BatteryGuard();
+  guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL - 1);
+  assert.equal(guard.allowsPolling(ID), false);
+
+  guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL);
+  assert.equal(guard.policyFor(ID), CAPTURE_POLICY.NONE, 'one point back is not a recovery');
+  assert.equal(guard.allowsPolling(ID), false, 'and the full poll stays off');
+
+  // Clear of the band: the camera is genuinely climbing, so it is released.
+  guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL + BATTERY_STOP_ALL_HYSTERESIS);
+  assert.equal(guard.allowsPolling(ID), true);
+});
+
+test('a camera that never fell below the stop threshold is never held by the band', () => {
+  // The hysteresis only holds cameras that actually dropped: one arriving inside
+  // the band on its way DOWN must keep its normal poll, or every camera would be
+  // throttled a few points early.
+  const guard = new BatteryGuard();
+  guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL + 1);
+  assert.equal(guard.allowsPolling(ID), true);
+  assert.notEqual(guard.policyFor(ID), CAPTURE_POLICY.NONE);
+});
+
+test('lowering the stop threshold releases a camera it no longer covers', () => {
+  // Lowering the setting is exactly how a user asks for such a camera to be let
+  // go; nothing else would clear it until it climbed a band measured from the old
+  // number.
+  const guard = new BatteryGuard();
+  guard.update(ID, 39);
+  assert.equal(guard.allowsPolling(ID), false);
+
+  guard.configure({ battery_pause_refresh: 60, battery_stop_all: 20 });
+  assert.equal(guard.allowsPolling(ID), true, '39% is clear of a 20% limit');
 });
