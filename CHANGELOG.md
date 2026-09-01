@@ -1,3 +1,9 @@
+## [1.2.4](https://github.com/William-De71/gladys-tapo/compare/v1.2.3...v1.2.4) (2026-09-01)
+
+### Bug Fixes
+
+* **tapo:** apply the battery poll interval to every camera that has a cell ([5f0538f](https://github.com/William-De71/gladys-tapo/commit/5f0538f8cf1e12b562d240f90168b3d800e53a95))
+
 ## [1.2.3](https://github.com/William-De71/gladys-tapo/compare/v1.2.2...v1.2.3) (2026-08-31)
 
 ### Bug Fixes
