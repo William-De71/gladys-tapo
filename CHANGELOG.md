@@ -1,3 +1,9 @@
+## [1.2.5](https://github.com/William-De71/gladys-tapo/compare/v1.2.4...v1.2.5) (2026-09-02)
+
+### Bug Fixes
+
+* **tapo:** throttle the poll across the whole paused range, not just the critical band ([29f9e7d](https://github.com/William-De71/gladys-tapo/commit/29f9e7dead3a034a7b8a29c3f67ebf0256b4e504))
+
 ## [1.2.4](https://github.com/William-De71/gladys-tapo/compare/v1.2.3...v1.2.4) (2026-09-01)
 
 ### Bug Fixes
