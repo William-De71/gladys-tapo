@@ -7,7 +7,8 @@
 // the panel refills it — and a lithium cell taken too low may stop accepting
 // charge at all, which is not recoverable remotely.
 //
-// Two levels, and one deliberate asymmetry:
+// Two levels, and one deliberate asymmetry (shown at the defaults; all three are
+// configurable):
 //
 //   >= 60%      everything runs;
 //   40% - 60%   the periodic refresh stops, explicit requests still work
@@ -19,8 +20,11 @@
 // repeated shallow cycles in the low range wear the cell faster than one proper
 // cycle — so the camera earns its way back only once genuinely refilled.
 //
-// Reading the battery and the detections is NOT gated: those are cheap, and the
-// battery reading is what tells us when to resume.
+// The battery reading is never gated, because it is what lets the guard release
+// the camera. The POLL that carries it is: below `pauseRefresh` the camera is
+// producing no images, so it is cut back to a spaced-out battery pulse and
+// nothing else. Waking it for detections it cannot act on is what drained a
+// solar C610 3 points an hour while every capture was already paused.
 //
 // Two failure modes this guard has to survive, both of which silently disarmed
 // it before:
@@ -51,8 +55,14 @@ import {
  * setting is worth a warning: a solar camera charges in bursts and is sampled
  * every few minutes, so a level set this high is simply never read, and a camera
  * that dipped once below the pause level stays paused for good.
+ *
+ * Lowered from 90 by measurement rather than taste. A north-facing solar C610
+ * over a clear late-summer day peaked at 71%: a resume set to 85 sat under the
+ * old warning, drew no comment, and locked the camera out of capturing for good
+ * — the exact failure the warning exists to catch, missed by five points. A
+ * panel that never reads 80 is the common case, not the pathological one.
  */
-const UNREACHABLE_RESUME_PERCENT = 90;
+const UNREACHABLE_RESUME_PERCENT = 80;
 
 /** What a camera is currently allowed to do. */
 export const CAPTURE_POLICY = {
@@ -332,10 +342,19 @@ export class BatteryGuard {
   /**
    * Tell whether the full local poll may run for this camera.
    *
-   * Below `stopAll` the camera is already forbidden from capturing anything, so
-   * asking it for its detections and its privacy mode buys nothing and costs a
-   * wake-up every round. Only the battery reading survives, and `dueForLowPoll`
-   * spaces that one out.
+   * Keyed on "are the captures paused", not on `stopAll`. A camera below
+   * `pauseRefresh` produces no image until it climbs back to `resume`, so asking
+   * it for its detections and its privacy mode buys nothing and costs a wake-up
+   * every round. Only the battery reading survives, and `dueForLowPoll` spaces
+   * that one out.
+   *
+   * The band between the two thresholds used to poll at full pace, on the
+   * grounds that the on-demand band keeps its detections. Measured on a solar
+   * C610 sitting at 49% with `stopAll` at 50 and `resume` at 85, that band is
+   * where the camera actually lives: released by the hysteresis, held by
+   * `recovering`, and woken three calls at a time for images it was never going
+   * to capture — 3 points an hour through the evening. A detection that cannot
+   * produce a frame does not justify the wake-up that fetches it.
    *
    * A battery camera with NO usable level is throttled too. `policyFor` answers
    * `ON_DEMAND` there rather than `NONE` — it is protecting the captures, and an
@@ -352,11 +371,10 @@ export class BatteryGuard {
    * if (guard.allowsPolling(device.external_id)) { ... }
    */
   allowsPolling(externalId) {
-    if (this.policyFor(externalId) === CAPTURE_POLICY.NONE) {
+    if (this.policyFor(externalId) !== CAPTURE_POLICY.FULL) {
       return false;
     }
-    // Unknown level on a battery camera: throttle it as well.
-    return !(this.batteryCameras.has(externalId) && this.freshLevel(externalId) === undefined);
+    return true;
   }
 
   /**

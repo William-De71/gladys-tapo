@@ -70,6 +70,24 @@ test('the resume level is reachable by a solar camera', () => {
   );
 });
 
+test('an unreachable resume level is warned about', () => {
+  // The user's 85 sat under the old 90 limit and drew no comment, while the panel
+  // peaked at 71 — the camera stopped capturing and nothing said why.
+  const warnings = [];
+  const original = logger.warn;
+  logger.warn = (message) => warnings.push(message);
+  try {
+    const guard = new BatteryGuard();
+    guard.configure({ battery_pause_refresh: 65, battery_stop_all: 50, battery_resume: 85 });
+    assert.ok(
+      warnings.some((message) => message.includes('85%')),
+      'a resume a solar panel cannot reach must be called out',
+    );
+  } finally {
+    logger.warn = original;
+  }
+});
+
 test('the resume level can be set from the configuration', () => {
   const guard = new BatteryGuard();
   guard.configure({ battery_pause_refresh: 40, battery_stop_all: 20, battery_resume: 60 });
@@ -186,7 +204,7 @@ test('a stop threshold above the pause one is clamped', () => {
   assert.ok(guard.stopAll <= guard.pauseRefresh);
 });
 
-test('a camera too low to capture is also cut off from the full poll', () => {
+test('a camera that cannot capture is cut off from the full poll', () => {
   // Blocking the captures was never enough on its own: the poll woke the camera
   // every round for three local calls, which drained a C610 that was already
   // forbidden from capturing anything.
@@ -195,11 +213,35 @@ test('a camera too low to capture is also cut off from the full poll', () => {
   assert.equal(guard.policyFor(ID), CAPTURE_POLICY.NONE);
   assert.equal(guard.allowsPolling(ID), false);
 
-  // Everything above that band still polls normally: the on-demand band keeps
-  // its detections, it is only the captures that stop there.
+  // The on-demand band is throttled too. It used to poll at full pace, on the
+  // grounds that it keeps its detections — but it produces no image until the
+  // camera reaches `resume`, so those three calls a round buy nothing. Measured
+  // on a solar C610 living in exactly that band: 3 points an hour, every capture
+  // already paused.
   guard.update(ID, BATTERY_THRESHOLDS.PAUSE_REFRESH - 1);
   assert.equal(guard.policyFor(ID), CAPTURE_POLICY.ON_DEMAND);
+  assert.equal(guard.allowsPolling(ID), false, 'no image to gain, so no wake-up to spend');
+
+  // Above the pause threshold and released, the camera polls normally again.
+  guard.update(ID, BATTERY_THRESHOLDS.RESUME);
+  assert.equal(guard.policyFor(ID), CAPTURE_POLICY.FULL);
   assert.equal(guard.allowsPolling(ID), true);
+});
+
+test('the on-demand band still gets its spaced-out battery pulse', () => {
+  // Throttling the poll must not cut the reading that lets the camera climb out:
+  // a camera held by `recovering` reports its way back to `resume` and nothing
+  // else would ever release it.
+  const guard = new BatteryGuard();
+  guard.update(ID, BATTERY_THRESHOLDS.PAUSE_REFRESH - 1);
+  assert.equal(guard.allowsPolling(ID), false);
+  assert.equal(guard.dueForLowPoll(ID), true, 'the pulse survives the throttling');
+
+  // And it is what actually releases the camera.
+  guard.polledAt.set(ID, Date.now() - BATTERY_LOW_POLL_INTERVAL_MS - 1);
+  assert.equal(guard.dueForLowPoll(ID), true);
+  guard.update(ID, BATTERY_THRESHOLDS.RESUME);
+  assert.equal(guard.allowsPolling(ID), true, 'the pulse carried it back to full poll');
 });
 
 test('the battery pulse is spaced out, and never dropped entirely', () => {
@@ -324,17 +366,41 @@ test('a camera on the stop threshold does not flip regime on one point', () => {
   // eight round trips in four hours, the camera pinned to the threshold by its own
   // polling. Crossing back must therefore take more than the single point that
   // dropped it.
+  // Probed through `blocked` rather than `allowsPolling`: the whole band below
+  // `pauseRefresh` is throttled now, so the poll no longer distinguishes the two
+  // sides of `stopAll`. The block set is what the hysteresis actually guards.
   const guard = new BatteryGuard();
   guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL - 1);
+  assert.equal(guard.blocked.has(ID), true);
   assert.equal(guard.allowsPolling(ID), false);
 
   guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL);
   assert.equal(guard.policyFor(ID), CAPTURE_POLICY.NONE, 'one point back is not a recovery');
-  assert.equal(guard.allowsPolling(ID), false, 'and the full poll stays off');
+  assert.equal(guard.blocked.has(ID), true, 'and the block stays on');
 
-  // Clear of the band: the camera is genuinely climbing, so it is released.
+  // Clear of the band: the camera is genuinely climbing, so it is released — back
+  // to ON_DEMAND, since it is still under the pause threshold.
   guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL + BATTERY_STOP_ALL_HYSTERESIS);
-  assert.equal(guard.allowsPolling(ID), true);
+  assert.equal(guard.blocked.has(ID), false);
+  assert.equal(guard.policyFor(ID), CAPTURE_POLICY.ON_DEMAND);
+});
+
+test('a camera released by the hysteresis but still recovering is not polled at full pace', () => {
+  // The reported case, with the user's own thresholds: stopAll 50, pause 65,
+  // resume 85, on a panel that peaks at 71%. The camera is released by the
+  // hysteresis at 55, so `blocked` is empty and the old `=== NONE` test let the
+  // full poll run — while `recovering` held every capture until 85, a level that
+  // panel never reaches. Full poll, no images, indefinitely.
+  const guard = new BatteryGuard();
+  guard.configure({ battery_pause_refresh: 65, battery_stop_all: 50, battery_resume: 85 });
+
+  guard.update(ID, 49); // below stopAll: blocked
+  assert.equal(guard.allowsPolling(ID), false);
+
+  guard.update(ID, 71); // clear of the hysteresis band, but far below resume
+  assert.equal(guard.blocked.has(ID), false, 'the hysteresis released it');
+  assert.equal(guard.policyFor(ID), CAPTURE_POLICY.ON_DEMAND, 'but captures stay paused');
+  assert.equal(guard.allowsPolling(ID), false, 'so the poll stays throttled with them');
 });
 
 test('a camera that never fell below the stop threshold is never held by the band', () => {
@@ -343,7 +409,7 @@ test('a camera that never fell below the stop threshold is never held by the ban
   // throttled a few points early.
   const guard = new BatteryGuard();
   guard.update(ID, BATTERY_THRESHOLDS.STOP_ALL + 1);
-  assert.equal(guard.allowsPolling(ID), true);
+  assert.equal(guard.blocked.has(ID), false, 'never dropped, so never held');
   assert.notEqual(guard.policyFor(ID), CAPTURE_POLICY.NONE);
 });
 
@@ -353,8 +419,12 @@ test('lowering the stop threshold releases a camera it no longer covers', () => 
   // number.
   const guard = new BatteryGuard();
   guard.update(ID, 39);
-  assert.equal(guard.allowsPolling(ID), false);
+  assert.equal(guard.blocked.has(ID), true);
 
   guard.configure({ battery_pause_refresh: 60, battery_stop_all: 20 });
-  assert.equal(guard.allowsPolling(ID), true, '39% is clear of a 20% limit');
+  assert.equal(guard.blocked.has(ID), false, '39% is clear of a 20% limit');
+
+  // Released by the block, but 39% is still under the 60% pause threshold, so the
+  // camera stays on the throttled poll — the release is real, not a regression.
+  assert.equal(guard.policyFor(ID), CAPTURE_POLICY.ON_DEMAND);
 });

@@ -899,12 +899,17 @@ export class EventWatcher {
       return { events: [], battery: null, privacy: null };
     }
 
-    // A camera too low to capture anything is cut back to its battery reading
+    // A camera whose captures are paused is cut back to its battery reading
     // alone, and even that one is spaced out. Blocking the captures was never
     // enough on its own: the poll itself woke the camera every round for three
     // local calls, which is what kept draining a C610 that was already forbidden
     // from capturing. The reading is the one call worth its cost — it is what
     // lets the guard release the camera once the panel has refilled it.
+    //
+    // This covers the whole paused range, not just the critical band: a camera
+    // between `battery_pause_refresh` and `battery_resume` produces no image
+    // either, and on a panel that tops out below `battery_resume` that is where
+    // it spends its life.
     let lowPower = false;
     if (this.batteryGuard && !this.batteryGuard.allowsPolling(device.external_id)) {
       if (!wantsBattery || !this.batteryGuard.dueForLowPoll(device.external_id)) {
