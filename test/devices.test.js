@@ -55,17 +55,49 @@ test('a wired camera only carries the image feature', () => {
   assert.equal(features[0].read_only, false, 'the widget must be able to ask for an image');
 });
 
-test('a battery doorbell carries image, button, motion and battery', () => {
+test('a battery doorbell carries image, doorbell, capture, motion and battery', () => {
   const features = buildFeatures(gladys, { ...camera, hasBattery: true, hasEvents: true });
   assert.deepEqual(
     features.map((feature) => feature.category),
-    ['camera', 'button', 'motion-sensor', 'battery'],
+    ['camera', 'button', 'button', 'motion-sensor', 'battery'],
   );
   const motion = features.find((feature) => feature.category === 'motion-sensor');
   assert.equal(motion.type, 'binary');
   const battery = features.find((feature) => feature.category === 'battery');
   assert.equal(battery.unit, 'percent');
   assert.equal(battery.max, 100);
+});
+
+test('the manual capture button exists on battery cameras only', () => {
+  // A wired camera refreshes often enough that the button would only add a row.
+  const wired = buildFeatures(gladys, { ...camera, hasEvents: true });
+  assert.equal(
+    wired.some((feature) => feature.external_id.endsWith(':capture')),
+    false,
+  );
+
+  const onBattery = buildFeatures(gladys, { ...camera, hasBattery: true });
+  const capture = onBattery.find((feature) => feature.external_id.endsWith(':capture'));
+  assert.ok(capture, 'a battery camera must be capturable on demand');
+  assert.equal(capture.category, 'button');
+  assert.equal(capture.type, 'push');
+  // Pressed BY the user, unlike the doorbell, which only reports a press.
+  assert.equal(capture.read_only, false);
+});
+
+test('the capture button never collides with the doorbell', () => {
+  // Both are `button/push`, so the SUFFIX is the only thing telling them apart —
+  // and `isBatteryPowered` keys on a `:button` suffix to decide a camera reports
+  // through the cloud. A capture button suffixed `:button` would silently stop
+  // the battery protection of every camera carrying one.
+  const features = buildFeatures(gladys, { ...camera, hasBattery: true, hasEvents: true });
+  const ids = features
+    .filter((feature) => feature.category === 'button')
+    .map((feature) => feature.external_id);
+  assert.deepEqual(ids, [
+    'ext:ext-dev-tapo:camera:ID1:button',
+    'ext:ext-dev-tapo:camera:ID1:capture',
+  ]);
 });
 
 test('the device keeps everything a capture needs in its params', () => {

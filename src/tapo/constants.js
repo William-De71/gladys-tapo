@@ -402,6 +402,12 @@ export const BATTERY_LOW_POLL_INTERVAL_MS = BATTERY_READING_MAX_AGE_MS / 2;
 export const FEATURE_SUFFIXES = {
   IMAGE: 'image',
   BUTTON: 'button',
+  // Deliberately NOT 'button', although the feature is a `button/push` like the
+  // doorbell: three separate places key on the SUFFIX rather than the category —
+  // `isBatteryPowered` treats a `:button` feature as "this camera has a doorbell,
+  // so it reports its events through the cloud", and would stop protecting the
+  // battery of every camera carrying this one.
+  CAPTURE: 'capture',
   MOTION: 'motion',
   BATTERY: 'battery',
   PRIVACY: 'privacy',

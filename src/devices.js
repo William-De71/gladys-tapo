@@ -1,9 +1,10 @@
 // -----------------------------------------------------------------------------
 // Device orchestration: turning cloud cameras into Gladys devices.
 //
-// One camera becomes one device carrying up to four features:
+// One camera becomes one device carrying up to five features:
 //   camera/image        the snapshot shown by the dashboard widget;
 //   button/push         the doorbell press, to trigger scenes;
+//   button/push         a manual capture, on battery models only;
 //   motion-sensor/binary  motion detection;
 //   battery/integer     the battery level, on battery models only.
 //
@@ -158,6 +159,29 @@ export function buildFeatures(gladys, camera) {
       type: DEVICE_FEATURE_TYPES.BUTTON.PUSH,
       read_only: true,
       keep_history: true,
+      has_feedback: false,
+      min: 0,
+      max: 1,
+    });
+  }
+
+  // Battery cameras only, and for the same reason they get their own refresh
+  // interval: theirs is measured in tens of minutes, so between two automatic
+  // captures the widget shows an image that may be an hour old. This is the way
+  // to ask for a fresh one without waiting for the next round. A wired camera
+  // refreshes often enough that the button would only add a row to its widget.
+  if (camera.hasBattery) {
+    features.push({
+      name: `${camera.name} - Capture`,
+      external_id: ids.feature(FEATURE_SUFFIXES.CAPTURE),
+      category: DEVICE_FEATURE_CATEGORIES.BUTTON,
+      type: DEVICE_FEATURE_TYPES.BUTTON.PUSH,
+      // Writable, unlike the doorbell: this button is pressed BY the user, it
+      // does not report a press made on the camera.
+      read_only: false,
+      // A capture request says nothing about the camera's state, and the image
+      // itself is not stored here — a history of 1s would describe nothing.
+      keep_history: false,
       has_feedback: false,
       min: 0,
       max: 1,

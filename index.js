@@ -32,7 +32,12 @@ import {
   forgetRefusedCredentials,
 } from './src/devices.js';
 import { TapoPtz } from './src/tapo/ptz.js';
-import { CAPTURE_MODES, DEVICE_PARAMS, CAMERA_MOVE } from './src/tapo/constants.js';
+import {
+  CAPTURE_MODES,
+  DEVICE_PARAMS,
+  CAMERA_MOVE,
+  FEATURE_SUFFIXES,
+} from './src/tapo/constants.js';
 import { BatteryGuard } from './src/tapo/batteryGuard.js';
 import { isBatteryModel } from './src/tapo/rtsp.js';
 
@@ -416,6 +421,26 @@ gladys.onSetValue(async (device, deviceFeature, value) => {
     // user just un-masked would keep being skipped by the capture guard for up
     // to a minute, which looks like the switch did nothing.
     watcher.setPrivacyMode(device.external_id, enabled);
+    return;
+  }
+
+  // The manual capture button, on battery cameras. Routed on the SUFFIX, never on
+  // the category or the type: the doorbell is a `button/push` too, and matching
+  // on either would turn every doorbell press into a capture request.
+  if (String(deviceFeature.external_id || '').endsWith(`:${FEATURE_SUFFIXES.CAPTURE}`)) {
+    const label = device.selector || device.external_id;
+    logger.info(`onSetValue <- manual capture on "${label}"`);
+    // The device carried in a command payload is a thin one: it has the feature
+    // that was written to, not the params a capture needs. Re-read it whole, or
+    // `cameraFromDevice` would find no IP and fail on every press.
+    const devices = await gladys.getDevices();
+    const full = devices.find((entry) => entry.external_id === device.external_id) || device;
+    // Explicit request: the per-camera interval does not apply, which is the
+    // whole point of the button on a camera captured once an hour. The hard
+    // battery floor still does — `captureDeviceImage` enforces it and throws, so
+    // a flat camera reports the failure instead of being woken up.
+    const image = await captureDeviceImage(full);
+    await gladys.publishCameraImage(full.external_id, image);
     return;
   }
 

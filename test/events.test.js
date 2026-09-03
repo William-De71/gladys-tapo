@@ -977,6 +977,14 @@ test('a battery camera whose model is unknown is still spared', () => {
   const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
   watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
 
+  // This camera carries the manual capture button, which is a `button/push` like
+  // a doorbell. `isBatteryPowered` exempts a camera with a `:button` feature, so
+  // suffixing the capture button that way would silently unprotect exactly the
+  // cameras it is meant for.
+  assert.ok(
+    solar.features.some((feature) => feature.external_id.endsWith(':capture')),
+    'a battery camera carries the manual capture button',
+  );
   assert.equal(watcher.isBatteryPowered(solar), true, 'a battery feature is enough');
 
   // And the throttle it unlocks actually holds: the first round is due, the next
