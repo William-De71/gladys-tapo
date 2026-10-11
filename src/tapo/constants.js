@@ -26,8 +26,15 @@ export const CLOUD_ENDPOINTS = {
 /** App type sent at login; the cloud rejects an unknown one. */
 export const CLOUD_APP_TYPE = 'Tapo_Android';
 
-/** Cloud `deviceType` values considered as a camera. */
-export const CAMERA_DEVICE_TYPE_PATTERNS = ['IPCAMERA'];
+/**
+ * Cloud `deviceType` values considered as a camera.
+ *
+ * Doorbells are a family of their own, `SMART.TAPODOORBELL` (seen in captures
+ * of a D130, and of the doorbells an H200 hub reports): matching on IPCAMERA
+ * alone left them out of the device list entirely — the D235 a user reported
+ * "not discovered" while the cameras of the same account were.
+ */
+export const CAMERA_DEVICE_TYPE_PATTERNS = ['IPCAMERA', 'DOORBELL'];
 
 /**
  * How often Gladys polls a camera. One of the frequencies the core accepts.

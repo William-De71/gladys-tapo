@@ -170,3 +170,9 @@ test('an expired token is renewed at once rather than at the end of its TTL', as
     fetchStub.restore();
   }
 });
+
+test('doorbells are kept, whatever family the cloud files them under', () => {
+  assert.equal(isCamera({ deviceType: 'SMART.TAPODOORBELL' }), true);
+  assert.equal(isCamera({ deviceType: 'SMART.IPCAMERA' }), true);
+  assert.equal(isCamera({ deviceType: 'SMART.TAPOCHIME' }), false);
+});
