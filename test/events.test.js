@@ -1013,3 +1013,124 @@ test('a wired camera reporting no battery keeps the wired pace', () => {
   assert.equal(watcher.isBatteryPollDue(wired), true);
   assert.equal(watcher.isBatteryPollDue(wired), true, 'a wired camera is always due');
 });
+
+/**
+ * A wired camera with ONVIF and a camera account, and a watcher ready to
+ * subscribe it. The ONVIF client is stubbed at its prototype.
+ * @returns {Promise<object>} The watcher, the device and the restore hook.
+ * @example
+ * const { watcher, wired, restore } = await onvifFixture();
+ */
+async function onvifFixture({ subscribe } = {}) {
+  const gladys = fakeGladys();
+  const wired = buildDevice(gladys, {
+    cloudDeviceId: 'ID60',
+    name: 'Garage',
+    model: 'C210',
+    ip: '192.168.1.60',
+    captureMode: 'rtsp',
+    hasBattery: false,
+    hasEvents: true,
+    hasDoorbell: false,
+  });
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({
+    email: 'a@b.c',
+    password: 'x',
+    rtsp_username: 'cam',
+    rtsp_password: 'secret',
+  });
+  const { TapoOnvif } = await import('../src/tapo/onvif.js');
+  const original = {
+    probe: TapoOnvif.prototype.probe,
+    subscribe: TapoOnvif.prototype.subscribe,
+    start: TapoOnvif.prototype.start,
+    stop: TapoOnvif.prototype.stop,
+  };
+  const stopped = [];
+  TapoOnvif.prototype.probe = async () => true;
+  TapoOnvif.prototype.subscribe = subscribe || (async () => {});
+  TapoOnvif.prototype.start = function start() {};
+  TapoOnvif.prototype.stop = function stop() {
+    stopped.push(this);
+  };
+  const restore = () => Object.assign(TapoOnvif.prototype, original);
+  return { watcher, wired, stopped, restore };
+}
+
+test('two setups racing for one camera open a single subscription', async () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const { watcher, wired, restore } = await onvifFixture({ subscribe: () => gate });
+  try {
+    const first = watcher.setupOnvif(wired);
+    const second = await watcher.setupOnvif(wired);
+    assert.equal(second, false, 'the second setup sees the first one in flight');
+    release();
+    assert.equal(await first, true);
+    assert.equal(watcher.onvifClients.size, 1);
+  } finally {
+    restore();
+  }
+});
+
+test('a setup finishing after a restart releases its client', async () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const { watcher, wired, stopped, restore } = await onvifFixture({ subscribe: () => gate });
+  try {
+    const pending = watcher.setupOnvif(wired);
+    watcher.stop();
+    release();
+    assert.equal(await pending, false);
+    assert.equal(watcher.onvifClients.size, 0, 'nothing registered for a dead watcher');
+    assert.equal(stopped.length, 1, 'its subscription is released');
+  } finally {
+    restore();
+  }
+});
+
+test('a camera that is off does not hold the others in the tick', async () => {
+  const gladys = fakeGladys();
+  const slow = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'SLOW', ip: '10.0.0.1' });
+  const fast = buildDevice(gladys, { ...doorbellCamera, cloudDeviceId: 'FAST', ip: '10.0.0.2' });
+  gladys.getDevices = async () => [slow, fast];
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+  watcher.retryOnvifSubscriptions = async () => {};
+  const order = [];
+  watcher.checkDevice = async (device) => {
+    if (device === slow) {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    order.push(device === slow ? 'slow' : 'fast');
+  };
+  await watcher.tick();
+  assert.deepEqual(order, ['fast', 'slow']);
+});
+
+test('a battery-looking camera that has no battery stops being treated as one', async () => {
+  const guard = new BatteryGuard();
+  const { watcher, device } = buildWatcher();
+  watcher.batteryGuard = guard;
+  guard.trackBatteryCamera(device.external_id);
+  watcher.getLocalApi = () => ({
+    ...fakeLocalApi(),
+    getBatteryLevel: async () => {
+      throw new Error('TAPO_LOCAL_METHOD_FAILED:getBatteryStatus:-40210');
+    },
+  });
+  await watcher.fetchDeviceEvents(device);
+  assert.equal(guard.isBatteryCamera(device.external_id), false);
+  assert.equal(guard.isKnownMains(device.external_id), true);
+  assert.equal(guard.allowsScheduled(device.external_id), true, 'scheduled images resume');
+});
+
+test('the local API refuses plainly before the watcher was started', () => {
+  const watcher = new EventWatcher({ gladys: fakeGladys(), cloud: fakeCloud() });
+  assert.throws(() => watcher.getLocalApi('10.0.0.1'), /TAPO_NOT_CONFIGURED/);
+});

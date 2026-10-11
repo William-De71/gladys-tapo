@@ -31,6 +31,7 @@ import {
   STREAM_WINDOW_SIZE,
   TS_PACKET_SIZE,
   TS_SYNC_BYTE,
+  STREAM_MAX_BUFFER_BYTES,
 } from '../constants.js';
 
 const CRLF = '\r\n';
@@ -70,17 +71,14 @@ export function parseAuthChallenge(value) {
   /** @type {Record<string, string>} */
   const result = {};
   const data = value.startsWith('Digest') ? value.slice(value.indexOf(' ') + 1) : value;
-  data.split(',').forEach((part) => {
-    const index = part.indexOf('=');
-    if (index === -1) {
-      return;
-    }
-    const key = part.slice(0, index).trim().replace(/"/g, '');
-    result[key] = part
-      .slice(index + 1)
-      .trim()
-      .replace(/"/g, '');
-  });
+  // Read as `key=value` pairs where a quoted value may hold commas and spaces —
+  // splitting on the commas first truncated a realm such as "TP-Link, Inc.".
+  const pattern = /([\w-]+)\s*=\s*(?:"([^"]*)"|([^,\s]*))/g;
+  let match = pattern.exec(data);
+  while (match !== null) {
+    result[match[1]] = match[2] !== undefined ? match[2] : match[3];
+    match = pattern.exec(data);
+  }
   return result;
 }
 
@@ -182,6 +180,14 @@ export class TapoMediaSession extends EventEmitter {
       this.socket.on('data', (chunk) => this.onData(chunk));
       this.socket.on('error', (e) => this.onError(e));
       this.socket.on('close', () => {
+        // Closed before the stream was accepted, without any error: the camera
+        // simply hung up. Failing now beats waiting out the whole handshake
+        // timeout for an answer that can no longer come.
+        if (this.rejectStart && !this.started) {
+          this.rejectStart(new Error('TAPO_STREAM_CLOSED'));
+          this.rejectStart = null;
+          this.resolveStart = null;
+        }
         this.started = false;
         this.emit('close');
       });
@@ -255,7 +261,15 @@ export class TapoMediaSession extends EventEmitter {
       this.rejectStart = null;
       this.resolveStart = null;
     }
-    this.emit('error', e);
+    // Only to a listener. An EventEmitter THROWS an 'error' nobody listens to,
+    // and here that throw happens inside a socket callback — out of every
+    // try/catch, straight to the process guard, once per failed capture.
+    if (this.listenerCount('error') > 0) {
+      this.emit('error', e);
+    }
+    // A session that failed is over: whatever comes next on this socket cannot
+    // be parsed anyway, and leaving it open holds one of the camera's slots.
+    this.close();
   }
 
   /**
@@ -266,8 +280,16 @@ export class TapoMediaSession extends EventEmitter {
    */
   onData(chunk) {
     this.buffer = Buffer.concat([this.buffer, chunk]);
+    // Bounded: a boundary that never matches (the camera announced one and sent
+    // another) would otherwise grow this buffer until the capture timeout, one
+    // ever-larger copy per chunk.
+    if (this.buffer.length > STREAM_MAX_BUFFER_BYTES) {
+      this.buffer = Buffer.alloc(0);
+      this.onError(new Error('TAPO_STREAM_UNPARSEABLE'));
+      return;
+    }
     let progressed = true;
-    while (progressed) {
+    while (progressed && this.socket) {
       if (this.phase === 'auth') {
         progressed = this.handleAuthResponse();
       } else if (this.phase === 'keyexchange') {
@@ -360,8 +382,8 @@ export class TapoMediaSession extends EventEmitter {
     const lines = headBlock.split(CRLF);
     const statusCode = parseInt(lines[0].split(' ')[1], 10);
     if (statusCode !== 200) {
-      // 401 here is the signature of a model that blocks local access (C610):
-      // the credentials are right, the camera simply refuses.
+      // 401 here means the camera refused the digest: a wrong Tapo password, or
+      // a firmware that has closed this path to third parties.
       this.onError(new Error(`TAPO_STREAM_HTTP_${statusCode}`));
       return false;
     }

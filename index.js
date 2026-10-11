@@ -52,6 +52,16 @@ let config = normalizeConfig();
 /** When each device was last captured, to honour its own refresh interval. */
 const lastCaptureAt = new Map();
 
+/**
+ * Captures in flight, per device. Four paths can ask for the same camera at the
+ * same moment — the refresh loop, the poll, the widget and a doorbell press —
+ * and each used to open its own session: two ffmpeg processes on a Raspberry
+ * Pi, two wake-ups of a battery camera, and a firmware that only accepts a few
+ * sessions refusing the second. They now share the one already running.
+ * @type {Map<string, Promise<string>>}
+ */
+const capturesInFlight = new Map();
+
 /** One PTZ client per device, keyed by external id. */
 const ptzClients = new Map();
 
@@ -188,7 +198,26 @@ function isRefreshDue(device) {
  * @example
  * const image = await captureDeviceImage(device);
  */
-async function captureDeviceImage(device) {
+function captureDeviceImage(device) {
+  const running = capturesInFlight.get(device.external_id);
+  if (running) {
+    return running;
+  }
+  const capture = runCapture(device).finally(() => {
+    capturesInFlight.delete(device.external_id);
+  });
+  capturesInFlight.set(device.external_id, capture);
+  return capture;
+}
+
+/**
+ * The capture itself, once `captureDeviceImage` made sure it is the only one.
+ * @param {object} device - The Gladys device.
+ * @returns {Promise<string>} The `image/jpg;base64,...` string.
+ * @example
+ * await runCapture(device);
+ */
+async function runCapture(device) {
   if (!batteryGuard.allowsOnDemand(device.external_id)) {
     throw new Error(`TAPO_BATTERY_TOO_LOW:${batteryGuard.levelOf(device.external_id)}%`);
   }
@@ -270,6 +299,13 @@ async function refreshImages(devices, { force = false } = {}) {
 let refreshTimer = null;
 
 /**
+ * Set while a refresh round runs. A round captures the cameras one after the
+ * other and can outlast the interval (several cameras timing out); the next
+ * tick then skips instead of starting a second round over the first.
+ */
+let refreshRunning = false;
+
+/**
  * Start (or restart) the loop that keeps the dashboard images up to date.
  *
  * Why the integration drives this itself rather than relying on `onPoll`: Gladys
@@ -290,12 +326,18 @@ function startImageRefresh() {
     Math.min(config.image_refresh_interval, config.battery_image_refresh_interval),
   );
   refreshTimer = setInterval(async () => {
+    if (refreshRunning) {
+      return;
+    }
+    refreshRunning = true;
     try {
       // Re-read the devices every round: a camera may have been added or removed.
       const devices = await gladys.getDevices();
       await refreshImages(devices);
     } catch (e) {
       logger.debug(`The image refresh round failed: ${e.message}`);
+    } finally {
+      refreshRunning = false;
     }
   }, intervalSeconds * 1000);
   logger.info(
@@ -503,16 +545,21 @@ gladys.onPoll(async (device) => {
     return;
   }
 
-  // The battery is read FIRST, and the capture decision is taken after it.
-  //
-  // This order is the whole point: reading the battery and the events is cheap
-  // and is never gated, while capturing is what drains the cell. Capturing
-  // first meant every decision below was taken against the PREVIOUS round's
-  // level — and, on a camera that had just crossed a threshold, one more
-  // capture was let through each time.
-  await watcher
-    .checkDevice(device)
-    .catch((e) => logger.debug(`Poll of "${device.name}" failed: ${e.message}`));
+  // A camera carrying an event feature is already read by the watcher's own
+  // loop, every `event_poll_interval`: reading it again here doubled the local
+  // traffic of every wired camera for nothing. The others — no event feature,
+  // so not in that loop — are read here, and FIRST: the capture decision below
+  // must be taken against the current battery level, not the previous one.
+  const watched = (device.features || []).some(
+    (feature) =>
+      feature.category === DEVICE_FEATURE_CATEGORIES.BUTTON ||
+      feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
+  );
+  if (!watched) {
+    await watcher
+      .checkDevice(device)
+      .catch((e) => logger.debug(`Poll of "${device.name}" failed: ${e.message}`));
+  }
 
   // The dashboard camera widget does NOT ask for a fresh image: it displays the
   // last one published, and shows an error when none is recent enough. So the
@@ -601,7 +648,6 @@ gladys.onAction('test_connection', async () => {
   }
 });
 
-// --- Manifest action: refresh every image ------------------------------------
 // --- Manifest action: save the camera account of one camera ------------------
 // A dedicated mini-form beats asking the user to type `name|user|password` into
 // a single box: the camera is picked from a list, and the password goes into a
@@ -676,6 +722,7 @@ gladys.onAction('set_camera_account', async (fields) => {
   }
 });
 
+// --- Manifest action: refresh every image ------------------------------------
 gladys.onAction('refresh_images', async () => {
   const devices = await gladys.getDevices();
   const cameras = devices.filter((device) =>

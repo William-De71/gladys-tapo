@@ -76,6 +76,23 @@ export const LOCAL_EVENT_WINDOW_SECONDS = 5 * 60;
 /** A local request that hangs must not hold the event loop. */
 export const LOCAL_API_TIMEOUT_MS = 10 * 1000;
 
+/**
+ * How long the local API leaves a camera alone after a failure, by kind.
+ *
+ * Tapo firmwares lock an address out after a few failed logins, and the penalty
+ * grows with each attempt (measured on a C210: minutes, then half an hour). A
+ * locked camera is retried once the longest penalty measured has lapsed; a
+ * password it actually rejected waits much longer, since only the user can fix
+ * it (saving the configuration clears every pause). An unreachable camera only
+ * gets a short pause: enough that a camera that is off does not cost a full
+ * timeout on every round.
+ */
+export const LOCAL_API_BACKOFF_MS = {
+  UNREACHABLE: 60 * 1000,
+  LOCKED: 35 * 60 * 1000,
+  REFUSED: 6 * 60 * 60 * 1000,
+};
+
 // --- ONVIF (events pushed by the camera) --------------------------------------
 
 /**
@@ -111,6 +128,29 @@ export const ONVIF_PULL_TIMEOUT_SECONDS = 5;
 
 /** Budget for the short ONVIF calls (probe, subscribe), which answer at once. */
 export const ONVIF_REQUEST_TIMEOUT_MS = 10 * 1000;
+
+/**
+ * Slack added to a SOAP call's own timeout before its overall deadline fires.
+ *
+ * The socket timeout measures INACTIVITY, so a peer trickling bytes never trips
+ * it; the deadline bounds the whole exchange. The margin keeps the two from
+ * racing on a healthy call that answers right at the end of its window.
+ */
+export const ONVIF_DEADLINE_MARGIN_MS = 2 * 1000;
+
+/** Largest SOAP answer accepted; real ones are a few kilobytes. */
+export const ONVIF_MAX_RESPONSE_BYTES = 1024 * 1024;
+
+/**
+ * Consecutive quiet pulls that ended on a timeout before the camera is counted
+ * as not answering.
+ *
+ * One timeout is the firmware holding a quiet pull a little long. A run of them
+ * is a camera that has gone silent — powered off, or dropping packets — and
+ * treating those as "nothing happened" kept the subscription marked healthy
+ * while no event could ever arrive.
+ */
+export const ONVIF_QUIET_TIMEOUTS_BEFORE_FAILURE = 3;
 
 /**
  * How long a motion stays reported when the camera never sends the falling edge.
@@ -273,6 +313,14 @@ export const STREAM_USERNAME = 'admin';
 export const TS_PACKET_SIZE = 188;
 export const TS_SYNC_BYTE = 0x47;
 
+/**
+ * Largest amount of unparsed stream data held before the session gives up.
+ *
+ * A part is at most a few hundred kilobytes; a buffer past this size means the
+ * parts are not being recognized at all, and keeping it would only grow it.
+ */
+export const STREAM_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
+
 /** Acknowledgement window of the media stream, in packets. */
 export const STREAM_WINDOW_SIZE = 50;
 
@@ -417,10 +465,16 @@ export const FEATURE_SUFFIXES = {
 
 /**
  * Models known to run on battery (doorbells and wire-free cameras): they expose
- * a battery level, and their motion/doorbell events come from the cloud.
+ * a battery level, and their detections are read from their local API.
  * Matched as a prefix, so C420 also matches C420S2.
+ *
+ * Deliberately narrow. `D1` (D100C/D110/D130 doorbells) and `TC6` (TC60/TC65)
+ * used to be listed and are mains models: a camera taken for a battery one that
+ * never reports a level stays on on-demand captures forever. A model that
+ * slips through anyway is corrected at runtime: one answering that it has no
+ * battery method is handled as mains from then on (`markMains`).
  */
-export const BATTERY_MODEL_PREFIXES = ['C4', 'C6', 'D2', 'D1', 'TC6'];
+export const BATTERY_MODEL_PREFIXES = ['C4', 'C6', 'D2'];
 
 /**
  * Models that expose no local access at all, on any port.

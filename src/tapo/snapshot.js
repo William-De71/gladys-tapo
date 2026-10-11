@@ -2,7 +2,8 @@
 // Image capture.
 //
 // Both capture modes end in the same place: one JPEG frame, encoded as the
-// `image/jpg;base64,...` string Gladys expects, under 150 KB.
+// `image/jpg;base64,...` string Gladys expects, under `IMAGE_MAX_BYTES` (the
+// host documents 150 KB, but its HTTP layer refuses a body past ~100 KB).
 //
 //   RTSP        -> ffmpeg reads the stream directly.
 //   proprietary -> a media session decrypts the MPEG-TS and pipes it to ffmpeg's
@@ -26,7 +27,7 @@ import {
 } from './constants.js';
 
 /**
- * Fallback steps, tried in order until the payload fits, as
+ * Encoding steps, tried in order until the payload fits, as
  * `[width, -qscale:v]` pairs (qscale: 2 = best, 31 = worst).
  *
  * Quality alone is not enough: past `-qscale:v 15` the returns collapse
@@ -34,6 +35,10 @@ import {
  * a few hundred bytes above the limit no matter how far the quality drops.
  * Halving the pixel count is the effective lever, so the steps trade resolution
  * once quality has done what it can.
+ *
+ * Only the FIRST step talks to the camera. The later ones re-encode the frame
+ * already captured, locally: re-capturing used to wake a battery camera up to
+ * five times for one image, and cost up to five capture timeouts.
  */
 const CAPTURE_STEPS = [
   [IMAGE_WIDTH, 8],
@@ -56,7 +61,7 @@ const CAPTURE_STEPS = [
  * extractFfmpegReason('... 401 Unauthorized'); // 'the camera account is wrong…'
  */
 export function extractFfmpegReason(stderr) {
-  const text = String(stderr || '');
+  const text = redactCredentials(stderr);
   if (/401|[Uu]nauthorized/.test(text)) {
     return 'the camera rejected the credentials — check the camera account (Tapo app > Camera settings > Advanced settings > Camera account), which is NOT your Tapo account';
   }
@@ -83,6 +88,22 @@ export function extractFfmpegReason(stderr) {
     )
     .pop();
   return lastLine ? lastLine.slice(0, 200) : '';
+}
+
+/**
+ * Hide the credentials of every URL in a text.
+ *
+ * ffmpeg prefixes many of its errors with the input URL, and the RTSP one
+ * carries the camera account in clear (`rtsp://user:password@ip/...`). That text
+ * reaches the logs and the result of the "save a camera account" action, so the
+ * user part is masked before anything quotes it.
+ * @param {unknown} text - The text to clean.
+ * @returns {string} The text, with `scheme://***@` in place of credentials.
+ * @example
+ * redactCredentials('rtsp://u:p@10.0.0.2/stream1: Invalid data'); // 'rtsp://***@10.0.0.2/...'
+ */
+export function redactCredentials(text) {
+  return String(text || '').replace(/([a-z][\w+.-]*:\/\/)[^\s/@]+@/gi, '$1***@');
 }
 
 /**
@@ -159,7 +180,9 @@ function runFfmpeg(args, { timeoutMs, onStdin }) {
       const reason = timedOut
         ? `the camera did not deliver an image within ${Math.round(timeoutMs / 1000)}s`
         : extractFfmpegReason(stderr);
-      logger.debug(`ffmpeg produced no image (code ${code}): ${stderr.slice(-500)}`);
+      logger.debug(
+        `ffmpeg produced no image (code ${code}): ${redactCredentials(stderr).slice(-500)}`,
+      );
       settle(new Error(reason ? `TAPO_NO_IMAGE_CAPTURED: ${reason}` : 'TAPO_NO_IMAGE_CAPTURED'));
     });
 
@@ -277,6 +300,12 @@ async function captureProprietary(camera, config, quality, width) {
             stdin.end();
           }
         });
+        // Listened to so a session failure is an ordinary capture failure —
+        // reported by the handshake or by ffmpeg finding no frame — rather than
+        // an error thrown with no one to catch it.
+        session.on('error', (e) =>
+          logger.debug(`Media session of "${camera.name}" failed: ${e.message}`),
+        );
       },
     });
 
@@ -296,11 +325,70 @@ async function captureProprietary(camera, config, quality, width) {
 }
 
 /**
+ * Tell whether a JPEG fits in the payload Gladys accepts.
+ *
+ * base64 inflates the payload by ~4/3, and the host checks the encoded size.
+ * @param {Buffer} image - The JPEG bytes.
+ * @returns {boolean} True when it can be published as is.
+ * @example
+ * fitsInPayload(buffer);
+ */
+function fitsInPayload(image) {
+  return Buffer.byteLength(image.toString('base64')) <= IMAGE_MAX_BYTES;
+}
+
+/**
+ * Format a JPEG the way Gladys expects it.
+ * @param {Buffer} image - The JPEG bytes.
+ * @returns {string} The `image/jpg;base64,...` string.
+ * @example
+ * toGladysImage(buffer);
+ */
+function toGladysImage(image) {
+  return `image/jpg;base64,${image.toString('base64')}`;
+}
+
+/**
+ * Re-encode a JPEG smaller, without going back to the camera.
+ * @param {Buffer} jpeg - The frame already captured.
+ * @param {number} quality - The `-qscale:v` value.
+ * @param {number} width - The target width.
+ * @param {number} timeoutMs - Kill ffmpeg after this delay.
+ * @returns {Promise<Buffer>} The smaller JPEG.
+ * @example
+ * await reencodeJpeg(buffer, 15, 1024, 14000);
+ */
+export function reencodeJpeg(jpeg, quality, width, timeoutMs) {
+  return runFfmpeg(
+    [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-f',
+      'image2pipe',
+      '-i',
+      '-',
+      '-frames:v',
+      '1',
+      '-qscale:v',
+      String(quality),
+      '-vf',
+      `scale=${width}:-1`,
+    ],
+    {
+      timeoutMs,
+      onStdin: (stdin) => {
+        stdin.end(jpeg);
+      },
+    },
+  );
+}
+
+/**
  * Capture one image of a camera and return it in the format Gladys expects.
  *
- * The quality is lowered and the capture retried when a frame exceeds the 150 KB
- * limit: publishing it would be rejected, and a slightly softer image beats no
- * image at all.
+ * The frame is re-encoded smaller when it exceeds the payload limit: publishing
+ * it would be rejected, and a slightly softer image beats no image at all.
  * @param {object} camera - The resolved camera (ip, captureMode, model).
  * @param {object} config - The normalized configuration.
  * @returns {Promise<string>} The `image/jpg;base64,...` string.
@@ -312,21 +400,25 @@ export async function captureImage(camera, config) {
     throw new Error('TAPO_CAMERA_IP_UNKNOWN');
   }
 
-  let lastImage = null;
-  for (const [width, quality] of CAPTURE_STEPS) {
-    const image =
-      camera.captureMode === CAPTURE_MODES.RTSP
-        ? await captureRtsp(camera, config, quality, width)
-        : await captureProprietary(camera, config, quality, width);
-    lastImage = image;
+  const [[firstWidth, firstQuality], ...smallerSteps] = CAPTURE_STEPS;
+  // The one round trip to the camera.
+  const captured =
+    camera.captureMode === CAPTURE_MODES.RTSP
+      ? await captureRtsp(camera, config, firstQuality, firstWidth)
+      : await captureProprietary(camera, config, firstQuality, firstWidth);
 
-    // base64 inflates the payload by ~4/3, and Gladys checks the encoded size.
-    if (Buffer.byteLength(image.toString('base64')) <= IMAGE_MAX_BYTES) {
-      return `image/jpg;base64,${image.toString('base64')}`;
+  let lastImage = captured;
+  if (fitsInPayload(captured)) {
+    return toGladysImage(captured);
+  }
+
+  for (const [width, quality] of smallerSteps) {
+    logger.debug(`The image of "${camera.name}" is too big, re-encoding at ${width}px/q${quality}`);
+    const image = await reencodeJpeg(captured, quality, width, config.capture_timeout * 1000);
+    lastImage = image;
+    if (fitsInPayload(image)) {
+      return toGladysImage(image);
     }
-    logger.debug(
-      `The image of "${camera.name}" is too big at ${width}px/q${quality}, retrying smaller`,
-    );
   }
 
   // Every step overshot: the camera resolution is unusually high. Report it

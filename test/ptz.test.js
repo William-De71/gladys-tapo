@@ -91,6 +91,7 @@ test('no command ever starts a movement that needs a later message to stop it', 
   const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
   ptz.serviceUrl = 'http://10.0.0.1:2020/onvif/service';
   ptz.profileToken = 'profile_1';
+  ptz.discovered = true;
 
   const sent = [];
   ptz.call = async (url, body) => {
@@ -112,6 +113,7 @@ test('a step is bounded by construction and carries only the axis it moves', asy
   const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
   ptz.serviceUrl = 'http://10.0.0.1:2020/onvif/service';
   ptz.profileToken = 'profile_1';
+  ptz.discovered = true;
 
   const sent = [];
   ptz.call = async (url, body) => {
@@ -140,6 +142,7 @@ test('an unknown movement value is refused rather than guessed at', async () => 
   const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
   ptz.serviceUrl = 'http://10.0.0.1:2020/onvif/service';
   ptz.profileToken = 'profile_1';
+  ptz.discovered = true;
   ptz.call = async () => '<ok/>';
 
   // Moving a camera in a direction nobody asked for is worse than doing nothing.
@@ -166,6 +169,7 @@ test('recalling a preset sends the token the camera handed out', async () => {
   const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
   ptz.serviceUrl = 'http://10.0.0.1:2020/onvif/service';
   ptz.profileToken = 'profile_1';
+  ptz.discovered = true;
 
   const sent = [];
   ptz.call = async (url, body) => {
@@ -182,6 +186,7 @@ test('a preset token carrying XML characters is escaped', async () => {
   const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
   ptz.serviceUrl = 'http://10.0.0.1:2020/onvif/service';
   ptz.profileToken = 'profile_1';
+  ptz.discovered = true;
 
   let body = '';
   ptz.call = async (url, sentBody) => {
@@ -193,4 +198,64 @@ test('a preset token carrying XML characters is escaped', async () => {
   // envelope the camera answers with a parse fault.
   await ptz.gotoPreset('a&b');
   assert.ok(body.includes('a&amp;b'));
+});
+
+test('a discovery failing on the profiles leaves the client able to retry', async () => {
+  // The service address used to be committed before GetProfiles: a failure
+  // there left a cached client that skipped the discovery from then on and
+  // sent every command with an empty profile token.
+  const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
+  let profilesFail = true;
+  ptz.call = async (url, body) => {
+    if (body.includes('GetCapabilities')) {
+      return '<tt:PTZ><tt:XAddr>http://10.0.0.1:2020/onvif/service</tt:XAddr></tt:PTZ>';
+    }
+    if (body.includes('GetProfiles')) {
+      if (profilesFail) {
+        throw new Error('ONVIF_TIMEOUT');
+      }
+      return '<trt:Profiles token="main"><tt:PanTiltPositionSpace/></trt:Profiles>';
+    }
+    return '<ok/>';
+  };
+  await assert.rejects(() => ptz.discover(), /ONVIF_TIMEOUT/);
+  assert.equal(ptz.serviceUrl, null, 'nothing half-discovered is kept');
+
+  profilesFail = false;
+  const sent = [];
+  const call = ptz.call;
+  ptz.call = async (url, body) => {
+    sent.push(body);
+    return call(url, body);
+  };
+  await ptz.step(1);
+  assert.ok(sent.some((body) => body.includes('<tptz:ProfileToken>main</tptz:ProfileToken>')));
+});
+
+test('a fixed camera is asked once, not on every command', async () => {
+  const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
+  let calls = 0;
+  ptz.call = async () => {
+    calls += 1;
+    return '<tt:Media><tt:XAddr>http://10.0.0.1:2020/onvif/service</tt:XAddr></tt:Media>';
+  };
+  await assert.rejects(() => ptz.step(1), /ONVIF_NO_PTZ/);
+  await assert.rejects(() => ptz.step(2), /ONVIF_NO_PTZ/);
+  assert.equal(calls, 1);
+});
+
+test('stop only names the axes the camera has', async () => {
+  const ptz = new TapoPtz('10.0.0.1', 'u', 'p');
+  ptz.serviceUrl = 'http://10.0.0.1:2020/onvif/service';
+  ptz.profileToken = 'main';
+  ptz.discovered = true;
+  ptz.capabilities = { panTilt: true, zoom: false, relative: true };
+  let body = '';
+  ptz.call = async (url, sent) => {
+    body = sent;
+    return '<ok/>';
+  };
+  await ptz.stop();
+  assert.ok(body.includes('<tptz:PanTilt>true</tptz:PanTilt>'));
+  assert.ok(!body.includes('Zoom'), 'no zoom on a camera without zoom');
 });

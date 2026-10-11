@@ -22,7 +22,53 @@
 import crypto from 'node:crypto';
 import tls from 'node:tls';
 import { logger } from '@gladysassistant/integration-sdk';
-import { LOCAL_API_PORT, LOCAL_API_TIMEOUT_MS } from './constants.js';
+import { LOCAL_API_PORT, LOCAL_API_TIMEOUT_MS, LOCAL_API_BACKOFF_MS } from './constants.js';
+
+/**
+ * Tell whether an error says the camera could not be reached at all.
+ * @param {Error} error - The failure.
+ * @returns {boolean} True for a timeout or a refused/unroutable connection.
+ * @example
+ * isUnreachable(new Error('TAPO_LOCAL_TIMEOUT')); // true
+ */
+export function isUnreachable(error) {
+  const message = String(error?.message || '');
+  return (
+    message.includes('TIMEOUT') ||
+    /^E(CONNREFUSED|HOSTUNREACH|NETUNREACH|CONNRESET|HOSTDOWN|TIMEDOUT)$/.test(
+      String(error?.code || ''),
+    ) ||
+    /ECONN|EHOSTUNREACH|ENETUNREACH/.test(message)
+  );
+}
+
+/**
+ * How long to leave a camera alone after a failure, or 0 for "retry freely".
+ *
+ * Three cases, because they ask for different things:
+ *   - unreachable: the camera said nothing, a short pause keeps a dead camera
+ *     from costing a full timeout on every round;
+ *   - locked out (-40214), or a login refused for a reason not understood: the
+ *     camera wants quiet, and every attempt during the penalty prolongs it;
+ *   - wrong password: retrying cannot fix it, only the user can.
+ * @param {Error} error - The failure.
+ * @returns {number} The pause, in milliseconds.
+ * @example
+ * backoffFor(new Error('TAPO_LOCAL_NO_NONCE:-40214'));
+ */
+export function backoffFor(error) {
+  const message = String(error?.message || '');
+  if (message.includes('TAPO_LOCAL_BAD_PASSWORD')) {
+    return LOCAL_API_BACKOFF_MS.REFUSED;
+  }
+  if (error?.loginFailed) {
+    return LOCAL_API_BACKOFF_MS.LOCKED;
+  }
+  if (isUnreachable(error)) {
+    return LOCAL_API_BACKOFF_MS.UNREACHABLE;
+  }
+  return 0;
+}
 
 /**
  * Uppercase hex digest, the representation the firmware compares against.
@@ -205,6 +251,59 @@ export class TapoLocalApi {
     this.loginPromise = null;
     /** The hashing the camera proved it uses, discovered during the login. */
     this.hashMethod = 'sha256';
+    /**
+     * Requests run one at a time. Each carries a sequence number the camera
+     * checks, and three requests in flight on three sockets reach it in any
+     * order — a reordered one is refused as a replay, which dropped the session
+     * and forced a new login every few rounds.
+     * @type {Promise<unknown>}
+     */
+    this.queue = Promise.resolve();
+    /** No request before this time, after a failure (see `backoffFor`). */
+    this.blockedUntil = 0;
+    /** The failure that set `blockedUntil`, for the message. */
+    this.blockedReason = '';
+  }
+
+  /**
+   * Run a task after the ones already queued.
+   * @param {() => Promise<unknown>} task - The task.
+   * @returns {Promise<unknown>} Its result.
+   * @example
+   * await api.enqueue(() => api.secureRequest(body));
+   */
+  enqueue(task) {
+    const run = this.queue.then(task, task);
+    // The chain must survive a failed task, or every later call would inherit
+    // its rejection.
+    this.queue = run.catch(() => {});
+    return run;
+  }
+
+  /**
+   * Remember a failure, so the next calls do not repeat it against the camera.
+   * @param {Error} error - The failure.
+   * @example
+   * api.recordFailure(new Error('TAPO_LOCAL_TIMEOUT'));
+   */
+  recordFailure(error) {
+    const pause = backoffFor(error);
+    if (pause > 0) {
+      this.blockedUntil = Date.now() + pause;
+      this.blockedReason = error.message;
+    }
+  }
+
+  /**
+   * Fail fast while the camera is being left alone.
+   * @example
+   * api.assertAvailable();
+   */
+  assertAvailable() {
+    if (Date.now() < this.blockedUntil) {
+      const minutes = Math.max(1, Math.ceil((this.blockedUntil - Date.now()) / 60000));
+      throw new Error(`TAPO_LOCAL_BACKOFF:${minutes}min:${this.blockedReason}`);
+    }
   }
 
   /**
@@ -306,9 +405,16 @@ export class TapoLocalApi {
       // Serialised on purpose: two concurrent calls would each open a session,
       // and the camera only accepts a few before answering -40413.
       if (!this.loginPromise) {
-        this.loginPromise = this.login().finally(() => {
-          this.loginPromise = null;
-        });
+        this.loginPromise = this.login()
+          .catch((e) => {
+            // Tagged: a refused LOGIN is what feeds the camera's lockout, and
+            // it must never be retried the way a dropped session is.
+            e.loginFailed = !isUnreachable(e);
+            throw e;
+          })
+          .finally(() => {
+            this.loginPromise = null;
+          });
       }
       await this.loginPromise;
     }
@@ -360,29 +466,32 @@ export class TapoLocalApi {
    * @example
    * await api.request({ method: 'get', params: {} });
    */
-  async request(body) {
-    try {
-      return await this.secureRequest(body);
-    } catch (e) {
-      if (e.message === 'TAPO_LOCAL_BAD_PASSWORD') {
-        throw e;
+  request(body) {
+    return this.enqueue(async () => {
+      this.assertAvailable();
+      try {
+        return await this.secureRequest(body);
+      } catch (e) {
+        // Only a DROPPED SESSION earns a second attempt. A refused login or an
+        // unreachable camera used to be retried at once too — two logins per
+        // call, three calls per round: exactly the burst that walks a camera
+        // into its escalating lockout, and a dead camera cost two timeouts.
+        if (e.loginFailed || isUnreachable(e) || e.message === 'TAPO_LOCAL_BAD_PASSWORD') {
+          this.recordFailure(e);
+          throw e;
+        }
+        logger.debug(`Tapo local API: session lost on ${this.ip}, logging in again`);
+        this.stok = null;
+        try {
+          return await this.secureRequest(body);
+        } catch (retryError) {
+          this.recordFailure(retryError);
+          throw retryError;
+        }
       }
-      logger.debug(`Tapo local API: session lost on ${this.ip}, logging in again`);
-      this.stok = null;
-      return this.secureRequest(body);
-    }
+    });
   }
 
-  /**
-   * Read the battery level.
-   *
-   * The field name varies across firmwares, so several shapes are accepted
-   * rather than assuming one — an unknown shape returns null instead of a wrong
-   * percentage.
-   * @returns {Promise<number|null>} The percentage, or null when unavailable.
-   * @example
-   * const level = await api.getBatteryLevel();
-   */
   /**
    * Call one camera method through the only envelope the firmware accepts.
    * @param {string} method - The method name.
@@ -529,7 +638,9 @@ export class TapoLocalApi {
     // per poll without logging out exhausts them, and every later login is
     // rejected with -40413 until they expire on their own.
     if (this.stok) {
-      await this.secureRequest({ method: 'logout', params: {} }).catch(() => {});
+      await this.enqueue(() => this.secureRequest({ method: 'logout', params: {} })).catch(
+        () => {},
+      );
     }
     this.stok = null;
     this.lsk = null;

@@ -9,8 +9,9 @@
 // which is what turns a motion into a usable scene trigger.
 //
 // The protocol is plain SOAP over HTTP, so it is written out by hand here rather
-// than pulling in a WSDL stack: the integration needs exactly three calls
-// (GetServices, CreatePullPointSubscription, PullMessages) out of a standard
+// than pulling in a WSDL stack: the integration needs a handful of calls
+// (GetDeviceInformation, GetCapabilities, GetEventProperties,
+// CreatePullPointSubscription, PullMessages, Unsubscribe) out of a standard
 // covering hundreds, and a SOAP client would weigh more than the whole project.
 //
 // Authentication is WS-UsernameToken with a password digest — the CAMERA
@@ -21,7 +22,14 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { logger } from '@gladysassistant/integration-sdk';
-import { ONVIF_PORT, ONVIF_PULL_TIMEOUT_SECONDS, ONVIF_REQUEST_TIMEOUT_MS } from './constants.js';
+import {
+  ONVIF_PORT,
+  ONVIF_PULL_TIMEOUT_SECONDS,
+  ONVIF_REQUEST_TIMEOUT_MS,
+  ONVIF_DEADLINE_MARGIN_MS,
+  ONVIF_MAX_RESPONSE_BYTES,
+  ONVIF_QUIET_TIMEOUTS_BEFORE_FAILURE,
+} from './constants.js';
 
 /** XML namespaces of the services this module and the PTZ client talk to. */
 export const NS = {
@@ -118,7 +126,7 @@ export function buildSecurityHeader(username, password) {
  * @param {string} [extraHeader] - Addressing headers, when the call needs them.
  * @returns {string} The complete envelope.
  * @example
- * buildEnvelope('<tds:GetServices/>', header);
+ * buildEnvelope('<tds:GetDeviceInformation/>', header);
  */
 export function buildEnvelope(body, securityHeader, extraHeader = '') {
   return (
@@ -250,6 +258,41 @@ export function isBenignDisconnect(error) {
 export function postSoap(url, envelope, timeoutMs = ONVIF_REQUEST_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
+    let settled = false;
+
+    /**
+     * Settle once. Every exit path goes through here, so the deadline below is
+     * always cleared and a late event can never resolve a promise twice.
+     * @param {Error|null} error - The failure, or null on success.
+     * @param {string} [body] - The response body.
+     * @example
+     * settle(null, xml);
+     */
+    const settle = (error, body) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(deadline);
+      if (error) {
+        request.destroy();
+        reject(error);
+      } else {
+        resolve(body);
+      }
+    };
+
+    // An OVERALL deadline, on top of the socket timeout. The socket timeout only
+    // measures inactivity: a camera dripping a few bytes keeps it alive forever,
+    // and one that cuts the connection mid-body destroys the socket — and its
+    // timeout with it — while the response emits nothing anyone listens to. Both
+    // used to leave this promise pending for good, which froze the pull loop of
+    // that camera with no log at all.
+    const deadline = setTimeout(
+      () => settle(new Error('ONVIF_TIMEOUT')),
+      timeoutMs + ONVIF_DEADLINE_MARGIN_MS,
+    );
+
     const request = http.request(
       {
         hostname: target.hostname,
@@ -267,7 +310,20 @@ export function postSoap(url, envelope, timeoutMs = ONVIF_REQUEST_TIMEOUT_MS) {
         response.setEncoding('utf8');
         response.on('data', (chunk) => {
           body += chunk;
+          // These answers are a few kilobytes. Anything this large is not a
+          // SOAP response, and buffering it without bound is how a confused
+          // peer takes the process memory down with it.
+          if (body.length > ONVIF_MAX_RESPONSE_BYTES) {
+            settle(new Error('ONVIF_RESPONSE_TOO_LARGE'));
+          }
         });
+        // A connection cut in the middle of the body. Without these two
+        // listeners the error is either thrown at the process (no `error`
+        // listener) or swallowed, and the promise never settles.
+        response.on('error', (e) => settle(e));
+        response.on('aborted', () =>
+          settle(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })),
+        );
         response.on('end', () => {
           if (response.statusCode >= 400) {
             // The fault reason is the actionable part; the status alone is not.
@@ -278,20 +334,20 @@ export function postSoap(url, envelope, timeoutMs = ONVIF_REQUEST_TIMEOUT_MS) {
               faultSummary(body) ||
               body.replace(/\s+/g, ' ').trim().slice(0, 200) ||
               '(empty body)';
-            reject(new Error(`ONVIF_HTTP_${response.statusCode}:${reason.slice(0, 200)}`));
+            settle(new Error(`ONVIF_HTTP_${response.statusCode}:${reason.slice(0, 200)}`));
             return;
           }
-          resolve(body);
+          settle(null, body);
         });
       },
     );
 
-    // A PullMessages request legitimately stays open for a minute waiting for a
-    // motion, so the timeout is the caller's to choose, not a fixed one.
+    // A PullMessages request legitimately stays open for several seconds waiting
+    // for a motion, so the timeout is the caller's to choose, not a fixed one.
     request.setTimeout(timeoutMs, () => {
       request.destroy(new Error('ONVIF_TIMEOUT'));
     });
-    request.on('error', reject);
+    request.on('error', (e) => settle(e));
     request.end(envelope);
   });
 }
@@ -461,8 +517,24 @@ export class TapoOnvif {
     /** @type {((event: object) => void)|null} */
     this.onEvent = null;
     this.running = false;
+    /**
+     * Set for good by `stop()`. Distinct from `running`: a subscription is
+     * opened BEFORE the loop starts (the watcher checks it works first), so a
+     * stop landing in that window must still be seen by the subscription.
+     */
+    this.stopped = false;
     /** Consecutive failures, used to back off a camera that stopped answering. */
     this.failures = 0;
+    /** Consecutive quiet pulls that ended on a timeout rather than an answer. */
+    this.quietTimeouts = 0;
+    /**
+     * Whether the camera declared pull point support, read with the
+     * capabilities. Undefined until they have been read.
+     * @type {boolean|undefined}
+     */
+    this.pullPointSupport = undefined;
+    /** Cuts the current backoff wait short, so `stop()` is not held by it. */
+    this.wake = null;
   }
 
   /**
@@ -474,7 +546,7 @@ export class TapoOnvif {
    * @param {string} [options.extraHeader] - Extra SOAP headers.
    * @returns {Promise<string>} The response body.
    * @example
-   * await client.call(url, '<tds:GetServices/>');
+   * await client.call(url, '<tds:GetDeviceInformation/>');
    */
   call(url, body, { timeoutMs, extraHeader } = {}) {
     // A fresh security header per call: the digest carries a timestamp the
@@ -531,6 +603,7 @@ export class TapoOnvif {
     const scope = section ? section[1] : '';
     const address = readTag(scope, 'XAddr');
     const pullPoint = (readTag(scope, 'WSPullPointSupport') || '').toLowerCase() !== 'false';
+    this.pullPointSupport = pullPoint;
 
     if (address) {
       // Same reasoning as for the pull point address: keep the path the camera
@@ -580,13 +653,16 @@ export class TapoOnvif {
    * await client.subscribe();
    */
   async subscribe() {
-    if (!this.eventsUrl) {
-      const { pullPoint } = await this.getCapabilities();
-      if (!pullPoint) {
-        // Saying so explicitly: the caller falls back to polling, and a silent
-        // subscription that never fires would look like a broken sensor.
-        throw new Error('ONVIF_NO_PULLPOINT_SUPPORT');
-      }
+    // Keyed on whether the pull point support is KNOWN, not on the events URL:
+    // `hasDoorbell` reads the capabilities first during a scan, and keying on
+    // the URL skipped this check for every camera it had already visited.
+    if (this.pullPointSupport === undefined) {
+      await this.getCapabilities();
+    }
+    if (this.pullPointSupport === false) {
+      // Saying so explicitly: the caller falls back to polling, and a silent
+      // subscription that never fires would look like a broken sensor.
+      throw new Error('ONVIF_NO_PULLPOINT_SUPPORT');
     }
 
     // The initial termination time is a bound, not a promise: every pull renews
@@ -623,8 +699,34 @@ export class TapoOnvif {
     // therefore forced back to the address we reached it on, which is known to
     // work — only the path the camera chose is kept.
     const target = new URL(address);
-    this.pullPointUrl = `http://${this.ip}:${ONVIF_PORT}${target.pathname}${target.search}`;
+    const pullPointUrl = `http://${this.ip}:${ONVIF_PORT}${target.pathname}${target.search}`;
+
+    // Stopped while the camera was answering: the subscription it just created
+    // is nobody's now. Released at once, or it holds one of the few slots the
+    // firmware has until it expires on its own.
+    if (this.stopped) {
+      this.unsubscribe(pullPointUrl);
+      throw new Error('ONVIF_STOPPED');
+    }
+    this.pullPointUrl = pullPointUrl;
     logger.debug(`ONVIF subscription open on ${this.ip}`);
+  }
+
+  /**
+   * Release a subscription on the camera, best effort.
+   *
+   * The camera expires a subscription on its own, but only after its full
+   * termination time, and it keeps just a few: every one abandoned without this
+   * is a slot a later subscribe cannot get.
+   * @param {string} url - The pull point address to release.
+   * @example
+   * client.unsubscribe(client.pullPointUrl);
+   */
+  unsubscribe(url) {
+    if (!url) {
+      return;
+    }
+    this.call(url, '<tev:Unsubscribe/>', { timeoutMs: 3000 }).catch(() => {});
   }
 
   /**
@@ -639,7 +741,15 @@ export class TapoOnvif {
    */
   async pull() {
     if (!this.pullPointUrl) {
-      await this.subscribe();
+      try {
+        await this.subscribe();
+      } catch (e) {
+        // Tagged so the loop never mistakes it for a quiet pull: a subscribe
+        // that times out is a camera not answering, not one with nothing to
+        // say, and reading it as benign retried it every quarter second.
+        e.phase = 'subscribe';
+        throw e;
+      }
     }
 
     const xml = await this.call(
@@ -651,9 +761,9 @@ export class TapoOnvif {
         '<tev:MessageLimit>32</tev:MessageLimit>' +
         '</tev:PullMessages>',
       {
-        // The camera is EXPECTED to hold this open for the full timeout, so the
-        // socket must outlive it — with a margin, since the answer still has to
-        // travel. Using the default here would kill every quiet pull as a
+        // The camera is EXPECTED to hold this open for the full pull timeout, so
+        // the socket must outlive it — with a margin, since the answer still has
+        // to travel. Using the default here would kill every quiet pull as a
         // failure and resubscribe in a loop.
         timeoutMs: (ONVIF_PULL_TIMEOUT_SECONDS + 10) * 1000,
         extraHeader: `<wsa:Action>${NS.events}/PullPointSubscription/PullMessages</wsa:Action>`,
@@ -718,6 +828,7 @@ export class TapoOnvif {
         // A successful pull clears the backoff: a camera that answered once is
         // healthy again, whether or not it had anything to report.
         this.failures = 0;
+        this.quietTimeouts = 0;
         events.forEach((event) => {
           if (this.onEvent) {
             this.onEvent(event);
@@ -738,7 +849,16 @@ export class TapoOnvif {
         // so the camera spent its time re-subscribing instead of watching, and a
         // motion arriving in that gap was never seen. The subscription is KEPT
         // and the next pull goes straight back out.
-        if (isBenignDisconnect(e)) {
+        // A run of timeouts is the exception: one is a firmware holding a quiet
+        // pull a bit long, several in a row is a camera that went silent, and
+        // it is then handled as the failure it is (backoff, resubscribe, warn).
+        const timedOut = String(e.message).includes('ONVIF_TIMEOUT');
+        this.quietTimeouts = timedOut ? this.quietTimeouts + 1 : 0;
+        const benign =
+          e.phase !== 'subscribe' &&
+          isBenignDisconnect(e) &&
+          this.quietTimeouts < ONVIF_QUIET_TIMEOUTS_BEFORE_FAILURE;
+        if (benign) {
           logger.debug(`ONVIF pull on ${this.ip} ended quietly (${e.message}), pulling again`);
           // A short breath before reissuing. The camera normally holds the pull
           // for seconds, so this costs nothing — but a firmware that closed
@@ -749,9 +869,16 @@ export class TapoOnvif {
         }
 
         this.failures += 1;
+        this.quietTimeouts = 0;
         // The subscription is the first suspect: it expires, and a rebooted
-        // camera forgets it. Dropping it forces the next round to open a new one.
+        // camera forgets it. Dropping it forces the next round to open a new one
+        // — released on the camera first, unless the camera itself said it no
+        // longer knows it, or abandoning it would leak one of its few slots.
+        const dropped = this.pullPointUrl;
         this.pullPointUrl = null;
+        if (dropped && !/ResourceUnknown|UnknownSubscription/i.test(String(e.message))) {
+          this.unsubscribe(dropped);
+        }
         // Backing off rather than hammering: a camera that is off, asleep or
         // unplugged would otherwise be retried in a tight loop for as long as it
         // stays away. Capped so a camera coming back is picked up within a minute.
@@ -775,30 +902,53 @@ export class TapoOnvif {
               `it keeps retrying every ${Math.round(waitMs / 1000)}s.`,
           );
         }
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        await this.sleep(waitMs);
       }
     }
+  }
+
+  /**
+   * Wait out a backoff, unless `stop()` cuts it short.
+   * @param {number} ms - How long to wait.
+   * @returns {Promise<void>} Resolves after the delay, or at once on stop.
+   * @example
+   * await client.sleep(2000);
+   */
+  sleep(ms) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.wake = null;
+        resolve();
+      }, ms);
+      this.wake = () => {
+        clearTimeout(timer);
+        this.wake = null;
+        resolve();
+      };
+    });
   }
 
   /**
    * Stop the loop and release the subscription.
    *
    * The in-flight pull is left to finish on its own: it is a plain HTTP request
-   * that times out within the minute, and the loop checks `running` before
-   * doing anything with what it returns.
+   * bounded by its deadline (a few seconds), and the loop checks `running`
+   * before doing anything with what it returns. A backoff in progress is cut
+   * short, and a subscription still being opened releases itself (`stopped`).
    * @example
    * client.stop();
    */
   stop() {
     this.running = false;
+    this.stopped = true;
+    if (this.wake) {
+      this.wake();
+    }
     const url = this.pullPointUrl;
     this.pullPointUrl = null;
-    if (!url) {
-      return;
-    }
     // Best effort: the camera expires the subscription on its own anyway, but
     // unsubscribing frees the slot now rather than in ten minutes — and the
     // firmware only keeps a few.
-    this.call(url, '<tev:Unsubscribe/>', { timeoutMs: 3000 }).catch(() => {});
+    this.unsubscribe(url);
   }
 }

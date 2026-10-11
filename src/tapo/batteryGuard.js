@@ -115,6 +115,8 @@ export class BatteryGuard {
      * held by `recovering` for a long while yet.
      */
     this.blocked = new Set();
+    /** Cameras whose model looked battery-powered but which have no battery. */
+    this.mains = new Set();
   }
 
   /**
@@ -156,7 +158,7 @@ export class BatteryGuard {
     // in bursts, so a level set near the top is simply never read. Worth saying
     // out loud, because nothing else reports it — the camera just stops capturing
     // and never explains why.
-    if (this.resume >= UNREACHABLE_RESUME_PERCENT) {
+    if (this.resume > UNREACHABLE_RESUME_PERCENT) {
       logger.warn(
         `The resume level is set to ${this.resume}%: a solar camera rarely reads that high, and one that dips below ${this.pauseRefresh}% may stay paused indefinitely.`,
       );
@@ -200,7 +202,36 @@ export class BatteryGuard {
    * guard.trackBatteryCamera(device.external_id);
    */
   trackBatteryCamera(externalId) {
+    if (this.mains.has(externalId)) {
+      return;
+    }
     this.batteryCameras.add(externalId);
+  }
+
+  /**
+   * Declare a camera as running on mains after all.
+   *
+   * For a camera whose model looked like a battery one but which answered it
+   * has no battery: left tracked, it would never report a level and sit on
+   * on-demand forever — no scheduled image, ever.
+   * @param {string} externalId - The device external id.
+   * @example
+   * guard.markMains(device.external_id);
+   */
+  markMains(externalId) {
+    this.mains.add(externalId);
+    this.batteryCameras.delete(externalId);
+  }
+
+  /**
+   * Tell whether a camera is known to run on mains despite its model.
+   * @param {string} externalId - The device external id.
+   * @returns {boolean} True when the battery rules must not apply.
+   * @example
+   * guard.isKnownMains(device.external_id);
+   */
+  isKnownMains(externalId) {
+    return this.mains.has(externalId);
   }
 
   /**

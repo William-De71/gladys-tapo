@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { captureImage, extractFfmpegReason } from '../src/tapo/snapshot.js';
+import { spawnSync } from 'node:child_process';
+import {
+  captureImage,
+  extractFfmpegReason,
+  redactCredentials,
+  reencodeJpeg,
+} from '../src/tapo/snapshot.js';
 import { normalizeConfig } from '../src/config.js';
 import { CAPTURE_MODES, IMAGE_MAX_BYTES } from '../src/tapo/constants.js';
 
@@ -115,3 +121,45 @@ test('the fallback steps trade resolution, not just quality', async () => {
   // The last step must be narrower than the first, or the retries are pointless.
   assert.notEqual(widths[widths.length - 1], widths[0], 'the last step must shrink the frame');
 });
+
+test('the camera account never leaks through an ffmpeg error', () => {
+  const stderr =
+    'rtsp://gladys:S3cret!@192.168.1.20:554/stream1: Invalid data found when processing input';
+  const reason = extractFfmpegReason(stderr);
+  assert.ok(!reason.includes('S3cret'), 'the password is masked');
+  assert.match(reason, /rtsp:\/\/\*\*\*@192\.168\.1\.20/);
+  assert.equal(redactCredentials('no url here'), 'no url here');
+});
+
+const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
+
+test(
+  'an oversized frame is re-encoded locally, not captured again',
+  { skip: !hasFfmpeg && 'ffmpeg is not installed' },
+  async () => {
+    // A noisy 1920px frame at the best quality: well over the payload limit.
+    const big = spawnSync('ffmpeg', [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'nullsrc=s=1920x1080,geq=random(1)*255:128:128',
+      '-frames:v',
+      '1',
+      '-qscale:v',
+      '2',
+      '-f',
+      'image2pipe',
+      '-vcodec',
+      'mjpeg',
+      '-',
+    ]).stdout;
+    assert.ok(big.length > IMAGE_MAX_BYTES, 'the fixture really is too big');
+    const smaller = await reencodeJpeg(big, 20, 800, 10000);
+    assert.ok(smaller.length > 0 && smaller.length < big.length);
+    assert.equal(smaller[0], 0xff, 'still a JPEG');
+    assert.equal(smaller[1], 0xd8);
+  },
+);

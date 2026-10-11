@@ -163,6 +163,14 @@ export class TapoPtz {
     this.profileToken = null;
     /** What the camera declares it can move. @type {object|null} */
     this.capabilities = null;
+    /**
+     * Set once the camera answered the discovery, even with "no PTZ": a fixed
+     * camera's answer is just as final, and re-asking it on every command was
+     * one GetCapabilities round trip per arrow press.
+     */
+    this.discovered = false;
+    /** In-flight discovery, so concurrent commands share one. @type {Promise|null} */
+    this.discovering = null;
   }
 
   /**
@@ -193,10 +201,28 @@ export class TapoPtz {
    * const caps = await ptz.discover();
    */
   async discover() {
-    if (this.capabilities) {
+    if (this.discovered) {
       return this.capabilities;
     }
+    if (!this.discovering) {
+      this.discovering = this.runDiscovery().finally(() => {
+        this.discovering = null;
+      });
+    }
+    return this.discovering;
+  }
 
+  /**
+   * The discovery itself. Everything it learns is committed at the END, in one
+   * go: assigning the service address before the profile was known left a
+   * client whose next commands skipped the discovery (the address was there)
+   * and went out with an empty profile token, failing until the configuration
+   * was next saved.
+   * @returns {Promise<object|null>} The capabilities, or null on a fixed camera.
+   * @example
+   * await ptz.runDiscovery();
+   */
+  async runDiscovery() {
     const capabilitiesXml = await this.call(
       this.deviceUrl,
       '<tds:GetCapabilities><tds:Category>All</tds:Category></tds:GetCapabilities>',
@@ -212,6 +238,7 @@ export class TapoPtz {
       // Not an error: a fixed camera has no PTZ service, and the caller turns
       // that into "publish no movement feature".
       logger.debug(`${this.ip} declares no ONVIF PTZ service`);
+      this.discovered = true;
       return null;
     }
 
@@ -219,7 +246,7 @@ export class TapoPtz {
     // reach it on the address known to work — firmwares hand back hostnames the
     // LAN cannot resolve, or their own idea of their IP behind a NAT.
     const target = new URL(address);
-    this.serviceUrl = `http://${this.ip}:${ONVIF_PORT}${target.pathname}${target.search}`;
+    const serviceUrl = `http://${this.ip}:${ONVIF_PORT}${target.pathname}${target.search}`;
 
     // The media profiles come from the Media service, whose address is read the
     // same way — deriving it from the device URL by string surgery would break
@@ -231,30 +258,33 @@ export class TapoPtz {
     // A camera declaring PTZ but no Media service would be nonsense; falling
     // back to the PTZ address is what the Tapo firmwares serve anyway (both
     // live on `/onvif/service`).
-    const mediaUrl = mediaAddress
-      ? `http://${this.ip}:${ONVIF_PORT}${new URL(mediaAddress).pathname}`
-      : this.serviceUrl;
+    const mediaTarget = mediaAddress ? new URL(mediaAddress) : null;
+    const mediaUrl = mediaTarget
+      ? `http://${this.ip}:${ONVIF_PORT}${mediaTarget.pathname}${mediaTarget.search}`
+      : serviceUrl;
 
     const profilesXml = await this.call(mediaUrl, '<trt:GetProfiles/>');
     const profileMatch = /<(?:[\w.-]+:)?Profiles\b[^>]*\btoken="([^"]*)"/i.exec(profilesXml);
     if (!profileMatch) {
       throw new Error('ONVIF_NO_PROFILE');
     }
-    // The first profile is the main stream, which is the one a PTZ
-    // configuration is attached to on these cameras.
-    this.profileToken = profileMatch[1];
-
     // The profile response already carries the configuration spaces, so the
     // capabilities are read from it rather than spending a second round trip.
     const spaces = parsePtzSpaces(profilesXml);
+
+    // Committed together, only now that every piece is known. The first profile
+    // is the main stream, which is the one a PTZ configuration is attached to on
+    // these cameras.
+    this.serviceUrl = serviceUrl;
+    this.profileToken = profileMatch[1];
     this.capabilities = {
       panTilt: spaces.panTilt,
       zoom: spaces.zoom,
-      // Continuous is what a press-and-hold needs; relative is what a lone value
-      // needs. A firmware declaring neither still gets relative attempted, since
-      // Tapo cameras support it whether or not they advertise the space.
+      // Informative only: every movement is a RelativeMove, which Tapo cameras
+      // honour whether or not they advertise the translation space.
       relative: spaces.relative,
     };
+    this.discovered = true;
     logger.debug(
       `${this.ip} PTZ: pan/tilt=${this.capabilities.panTilt} zoom=${this.capabilities.zoom}`,
     );
@@ -302,7 +332,7 @@ export class TapoPtz {
    * await ptz.getPresets();
    */
   async getPresets() {
-    if (!this.serviceUrl) {
+    if (!this.discovered) {
       await this.discover();
     }
     if (!this.serviceUrl) {
@@ -324,7 +354,7 @@ export class TapoPtz {
    * await ptz.gotoPreset('1');
    */
   async gotoPreset(token) {
-    if (!this.serviceUrl) {
+    if (!this.discovered) {
       await this.discover();
     }
     if (!this.serviceUrl) {
@@ -358,7 +388,7 @@ export class TapoPtz {
     if (!vector) {
       throw new Error(`PTZ_UNKNOWN_MOVEMENT_${movement}`);
     }
-    if (!this.serviceUrl) {
+    if (!this.discovered) {
       await this.discover();
     }
     if (!this.serviceUrl) {
@@ -409,12 +439,17 @@ export class TapoPtz {
       return;
     }
 
+    // Only the axes the camera has: naming an absent one is answered with a
+    // fault on some firmwares, and a camera without zoom would then refuse to
+    // stop its pan as well.
+    const axes =
+      (this.capabilities?.panTilt !== false ? `<tptz:PanTilt>true</tptz:PanTilt>` : '') +
+      (this.capabilities?.zoom ? `<tptz:Zoom>true</tptz:Zoom>` : '');
     await this.call(
       this.serviceUrl,
       `<tptz:Stop>` +
         `<tptz:ProfileToken>${escapeXml(this.profileToken)}</tptz:ProfileToken>` +
-        `<tptz:PanTilt>true</tptz:PanTilt>` +
-        `<tptz:Zoom>true</tptz:Zoom>` +
+        axes +
         `</tptz:Stop>`,
     );
   }

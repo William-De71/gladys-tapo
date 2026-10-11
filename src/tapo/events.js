@@ -1,15 +1,20 @@
 // -----------------------------------------------------------------------------
-// Doorbell, motion and battery events.
+// Doorbell, motion, battery and privacy events.
 //
-// Tapo cameras have no local event push, so the events are polled from the cloud
-// and turned into feature states. The rules that matter:
+// Two sources, chosen per camera:
+//   - ONVIF (port 2020), when the camera serves it: the camera PUSHES its
+//     detections the moment they happen (see onvif.js);
+//   - the camera's local API (port 443) otherwise, POLLED every round: it lists
+//     the detections recorded since the last look, and is also where the
+//     battery level and the privacy mode are read, whichever source applies.
 //
-//   - only NEW events count. The cloud returns a window of recent events, so a
-//     timestamp watermark per camera avoids replaying the same ring at every tick;
+// The rules that matter on the polled path:
+//   - only NEW events count. The camera returns a window of recent events, so a
+//     timestamp watermark per camera avoids replaying the same ring every tick;
 //   - a first tick never fires anything. Starting the integration must not
 //     trigger the scenes of a doorbell press that happened an hour ago;
 //   - a binary motion feature has to come back down, otherwise it stays "motion
-//     detected" forever — the cloud only reports the rising edge.
+//     detected" forever — the polled list only reports the rising edge.
 // -----------------------------------------------------------------------------
 
 import { logger, DEVICE_FEATURE_CATEGORIES } from '@gladysassistant/integration-sdk';
@@ -173,6 +178,28 @@ export class EventWatcher {
     this.motionPending = new Map();
     /** Pending falling edges, held back to swallow the firmware's blips. */
     this.motionFalls = new Map();
+    /**
+     * Camera IPs whose ONVIF setup is in flight. The setup awaits a probe and a
+     * subscription, and the tick retries every camera that has none: without
+     * this, a slow setup was started again on the next tick, both succeeded, and
+     * the first client — overwritten in the map but still pulling — published
+     * every doorbell press twice and held a subscription slot nobody released.
+     * @type {Set<string>}
+     */
+    this.onvifPending = new Set();
+    /**
+     * Bumped by every `stop()`. A setup started before a restart compares it
+     * after its awaits: if it changed, the client it built belongs to a watcher
+     * that no longer exists (old credentials, possibly) and is released.
+     */
+    this.generation = 0;
+    /**
+     * Battery-model cameras that answered they have no battery at all — a mains
+     * doorbell or camera sharing a model prefix with battery ones. They are
+     * neither asked again nor throttled like a cell.
+     * @type {Set<string>}
+     */
+    this.batteryUnsupported = new Set();
     this.config = null;
     this.running = false;
   }
@@ -199,6 +226,9 @@ export class EventWatcher {
    * if (watcher.isBatteryPowered(device)) { ... }
    */
   isBatteryPowered(device) {
+    if (this.batteryUnsupported.has(device.external_id)) {
+      return false;
+    }
     const hasBatteryFeature = (device.features || []).some((feature) =>
       String(feature.external_id || '').endsWith(`:${FEATURE_SUFFIXES.BATTERY}`),
     );
@@ -245,13 +275,39 @@ export class EventWatcher {
     // The config carries the camera accounts, so there is nothing to try before
     // the watcher has been started — this method is also called straight from
     // the "save a camera account" action, which may land first.
-    if (!ip || !cloudDeviceId || !this.config || this.onvifClients.has(ip)) {
+    if (
+      !ip ||
+      !cloudDeviceId ||
+      !this.config ||
+      this.onvifClients.has(ip) ||
+      this.onvifPending.has(ip)
+    ) {
       return false;
     }
 
     if (this.isBatteryPowered(device)) {
       return false;
     }
+
+    this.onvifPending.add(ip);
+    try {
+      return await this.openOnvif(device, ip, cloudDeviceId);
+    } finally {
+      this.onvifPending.delete(ip);
+    }
+  }
+
+  /**
+   * The setup proper, once `setupOnvif` has claimed the camera.
+   * @param {object} device - The Gladys device.
+   * @param {string} ip - The camera address.
+   * @param {string} cloudDeviceId - The cloud device id.
+   * @returns {Promise<boolean>} True when the camera now pushes its events.
+   * @example
+   * await watcher.openOnvif(device, '10.0.0.2', 'ID1');
+   */
+  async openOnvif(device, ip, cloudDeviceId) {
+    const generation = this.generation;
 
     // The CAMERA account, not the Tapo one: ONVIF authenticates against the
     // credentials created per camera in the app.
@@ -272,6 +328,14 @@ export class EventWatcher {
       await client.subscribe();
     } catch (e) {
       logger.debug(`ONVIF subscription to "${device.name}" failed: ${e.message}`);
+      return false;
+    }
+
+    // The watcher was stopped or restarted while the camera answered: this
+    // client was built for a configuration that is gone. Released, or its
+    // subscription would sit on one of the camera's few slots.
+    if (generation !== this.generation) {
+      client.stop();
       return false;
     }
 
@@ -518,6 +582,7 @@ export class EventWatcher {
    * watcher.stop();
    */
   stop() {
+    this.generation += 1;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -579,11 +644,16 @@ export class EventWatcher {
         logger.debug(`Retrying the ONVIF subscriptions failed: ${e.message}`),
       );
 
-      for (const device of eventDevices) {
-        await this.checkDevice(device).catch((e) =>
-          logger.debug(`Event check failed for "${device.name}": ${e.message}`),
-        );
-      }
+      // Together, not one after the other: each camera has its own address and
+      // its own session, and a camera that is off used to hold every other one
+      // — doorbells included — for the length of its timeouts.
+      await Promise.all(
+        eventDevices.map((device) =>
+          this.checkDevice(device).catch((e) =>
+            logger.debug(`Event check failed for "${device.name}": ${e.message}`),
+          ),
+        ),
+      );
     } finally {
       this.running = false;
     }
@@ -812,6 +882,11 @@ export class EventWatcher {
    * const api = watcher.getLocalApi('192.168.1.20');
    */
   getLocalApi(ip) {
+    if (!this.config) {
+      // Before the first start there is no password to log in with; said
+      // plainly rather than as a TypeError on `null.password`.
+      throw new Error('TAPO_NOT_CONFIGURED');
+    }
     let api = this.localApis.get(ip);
     if (!api) {
       api = new TapoLocalApi(ip, this.config.password);
@@ -937,9 +1012,18 @@ export class EventWatcher {
     // level from a wired camera, or a lens mask from a camera that has no
     // switch, is pure cost with nothing to gain.
     const [battery, events, privacy] = await Promise.all([
-      wantsBattery
+      wantsBattery && !this.batteryUnsupported.has(device.external_id)
         ? api.getBatteryLevel().catch((e) => {
-            logger.debug(`Reading the battery of ${ip} failed: ${e.message}`);
+            // The camera says it has no such method: a mains model sharing a
+            // battery model's prefix. Recorded so it stops being asked, and
+            // stops being throttled like a cell that never reports.
+            if (/getBatteryStatus:-40210/.test(e.message)) {
+              this.batteryUnsupported.add(device.external_id);
+              this.batteryGuard?.markMains(device.external_id);
+              logger.info(`"${device.name}" has no battery: it is handled as a mains camera`);
+            } else {
+              logger.debug(`Reading the battery of ${ip} failed: ${e.message}`);
+            }
             return null;
           })
         : Promise.resolve(null),

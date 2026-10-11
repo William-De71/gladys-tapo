@@ -35,6 +35,7 @@ import {
   FEATURE_SUFFIXES,
   POLL_FREQUENCY_MS,
   CAMERA_MOVE,
+  LOCAL_API_BACKOFF_MS,
 } from './tapo/constants.js';
 import { TapoPtz } from './tapo/ptz.js';
 import { TapoOnvif } from './tapo/onvif.js';
@@ -470,8 +471,8 @@ const authRefused = new Map();
  * longer: it only ever costs a missing switch, never a lockout.
  */
 const AUTH_RETRY_DELAY_MS = {
-  LOCKED: 35 * 60 * 1000,
-  REFUSED: 6 * 60 * 60 * 1000,
+  LOCKED: LOCAL_API_BACKOFF_MS.LOCKED,
+  REFUSED: LOCAL_API_BACKOFF_MS.REFUSED,
 };
 
 /**
@@ -496,9 +497,9 @@ export function forgetRefusedCredentials() {
  *
  * Authenticated with the TP-Link account password (username "admin"), one
  * attempt per scan. Measured: a C500 opens its local API with it; some cameras
- * refuse it and simply get no switch. A refusal is remembered and never retried
- * (see `authRefused`) — the single most important guard here, because retrying
- * is what walks a camera into an escalating lockout.
+ * refuse it and simply get no switch. A refusal is remembered and backed off
+ * for a while (see `authRefused`) — the single most important guard here,
+ * because retrying is what walks a camera into an escalating lockout.
  * @param {object} camera - The resolved camera.
  * @param {object} config - The normalized configuration.
  * @returns {Promise<boolean|null>} The current state, or null when the camera

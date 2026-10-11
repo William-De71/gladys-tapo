@@ -118,7 +118,7 @@ export function isBatteryModel(model) {
  * @param {string} model - The camera model.
  * @returns {boolean} True when no local capture can work.
  * @example
- * hasNoLocalAccess('C610'); // true
+ * hasNoLocalAccess('C210'); // false — the list is empty until a capture trace backs an entry
  */
 export function hasNoLocalAccess(model) {
   const normalized = String(model || '').toUpperCase();

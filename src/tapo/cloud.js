@@ -27,6 +27,13 @@ const REQUEST_TIMEOUT_MS = 15 * 1000;
 const INVALID_CREDENTIALS_CODES = [-20601, -20200];
 
 /**
+ * Error codes the cloud returns for a token it no longer honours. Not a
+ * credentials problem: logging in again is the fix, and without it the token
+ * kept failing until its own TTL lapsed — up to fifty minutes.
+ */
+const TOKEN_EXPIRED_CODES = [-20651];
+
+/**
  * Decode a TP-Link cloud alias. The cloud stores camera names base64-encoded,
  * and the encoding of the decoded bytes varies: UTF-16LE (with or without BOM)
  * for names typed in the app, UTF-8 for others. Getting this wrong shows the
@@ -141,7 +148,9 @@ export class TapoCloud {
       if (INVALID_CREDENTIALS_CODES.includes(data.error_code)) {
         throw new TapoAuthError('TAPO_INVALID_CREDENTIALS');
       }
-      throw new Error(`TAPO_CLOUD_ERROR_${data.error_code}`);
+      throw Object.assign(new Error(`TAPO_CLOUD_ERROR_${data.error_code}`), {
+        code: data.error_code,
+      });
     }
     return data.result || {};
   }
@@ -193,7 +202,7 @@ export class TapoCloud {
     try {
       return await this.request(`${config.cloud_url}?token=${this.token}`, body);
     } catch (e) {
-      if (!(e instanceof TapoAuthError)) {
+      if (!(e instanceof TapoAuthError) && !TOKEN_EXPIRED_CODES.includes(e.code)) {
         throw e;
       }
       logger.debug('The cloud token was rejected, logging in again');

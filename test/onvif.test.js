@@ -9,8 +9,10 @@ import {
   hasDoorbellTopic,
   faultSummary,
   isBenignDisconnect,
+  postSoap,
   TapoOnvif,
 } from '../src/tapo/onvif.js';
+import http from 'node:http';
 
 // The envelope a C210 actually answered `GetCapabilities` with, trimmed to the
 // Events section. Kept verbatim — including the `tt:`/`SOAP-ENV:` prefixes and
@@ -339,6 +341,7 @@ test('a camera refusing the termination time is subscribed without it', async ()
   // sensor stayed dead while its neighbour worked.
   const client = new TapoOnvif('10.0.0.9', 'user', 'pass');
   client.eventsUrl = 'http://10.0.0.9:2020/onvif/service';
+  client.pullPointSupport = true;
 
   const bodies = [];
   client.call = async (url, body) => {
@@ -360,6 +363,7 @@ test('a subscription refused for another reason is not retried', async () => {
   // the same way.
   const client = new TapoOnvif('10.0.0.10', 'user', 'pass');
   client.eventsUrl = 'http://10.0.0.10:2020/onvif/service';
+  client.pullPointSupport = true;
 
   let calls = 0;
   client.call = async () => {
@@ -400,4 +404,143 @@ test('a motion ending is still read as inactive', () => {
     '<tt:Data><tt:SimpleItem Name="IsMotion" Value="false"/></tt:Data>' +
     '</tt:Message></wsnt:Message></wsnt:NotificationMessage>';
   assert.equal(parsePullMessages(xml)[0].active, false);
+});
+
+/**
+ * Start a throwaway HTTP server for one test.
+ * @param {Function} handler - The request handler.
+ * @returns {Promise<{ url: string, close: Function }>} Where it listens.
+ * @example
+ * const server = await listen((req, res) => res.end('ok'));
+ */
+function listen(handler) {
+  return new Promise((resolve) => {
+    const server = http.createServer(handler);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      resolve({
+        url: `http://127.0.0.1:${port}/onvif/service`,
+        close: () => new Promise((done) => server.close(done)),
+      });
+    });
+  });
+}
+
+test('a SOAP answer cut in the middle of its body rejects instead of hanging', async () => {
+  // Headers out, then the connection dies: the socket timeout dies with the
+  // socket, and nothing used to settle the promise — the pull loop of that
+  // camera froze for good, with nothing in the logs.
+  const server = await listen((req, res) => {
+    res.writeHead(200, { 'Content-Length': '1000' });
+    res.write('<partial');
+    setTimeout(() => res.socket.destroy(), 20);
+  });
+  try {
+    await assert.rejects(() => postSoap(server.url, '<x/>', 2000));
+  } finally {
+    await server.close();
+  }
+});
+
+test('a SOAP answer trickling past its budget is cut by the overall deadline', async () => {
+  // A byte every 50ms keeps the inactivity timeout from ever firing; only the
+  // overall deadline bounds the exchange.
+  let interval;
+  const server = await listen((req, res) => {
+    res.writeHead(200);
+    interval = setInterval(() => res.write(' '), 50);
+  });
+  try {
+    const started = Date.now();
+    await assert.rejects(() => postSoap(server.url, '<x/>', 200), /ONVIF_TIMEOUT/);
+    assert.ok(Date.now() - started < 5000, 'bounded by timeout + margin');
+  } finally {
+    clearInterval(interval);
+    await server.close();
+  }
+});
+
+test('a subscribe that times out is a failure, never a quiet pull', async () => {
+  // Read as benign, it was retried every 250ms, forever, with no warning.
+  const client = new TapoOnvif('10.0.0.11', 'user', 'pass');
+  client.subscribe = async () => {
+    throw new Error('ONVIF_TIMEOUT');
+  };
+  client.running = true;
+  client.sleep = async () => {
+    client.running = false;
+  };
+  await client.loop();
+  assert.equal(client.failures, 1, 'counted as a failure, with its backoff');
+});
+
+test('a run of pull timeouts ends up counted as a failure', async () => {
+  const client = new TapoOnvif('10.0.0.12', 'user', 'pass');
+  client.pullPointUrl = 'http://10.0.0.12:2020/onvif/sub1';
+  client.call = async () => {
+    throw new Error('ONVIF_TIMEOUT');
+  };
+  client.running = true;
+  client.sleep = async () => {
+    if (client.failures > 0) {
+      client.running = false;
+    }
+  };
+  await client.loop();
+  assert.equal(client.failures, 1);
+  assert.equal(client.pullPointUrl, null, 'the silent subscription is dropped');
+});
+
+test('a dropped subscription is released on the camera', async () => {
+  const client = new TapoOnvif('10.0.0.13', 'user', 'pass');
+  client.pullPointUrl = 'http://10.0.0.13:2020/onvif/sub1';
+  const bodies = [];
+  client.call = async (url, body) => {
+    bodies.push(body);
+    if (body.includes('PullMessages')) {
+      throw new Error('ONVIF_HTTP_500:ter:Action: error');
+    }
+    return '';
+  };
+  client.running = true;
+  client.sleep = async () => {
+    client.running = false;
+  };
+  await client.loop();
+  assert.ok(
+    bodies.some((body) => body.includes('Unsubscribe')),
+    'the slot is freed rather than abandoned',
+  );
+});
+
+test('a subscription that completes after stop() releases itself', async () => {
+  const client = new TapoOnvif('10.0.0.14', 'user', 'pass');
+  client.eventsUrl = 'http://10.0.0.14:2020/onvif/service';
+  client.pullPointSupport = true;
+  const bodies = [];
+  client.call = async (url, body) => {
+    bodies.push(body);
+    if (body.includes('CreatePullPointSubscription')) {
+      client.stop();
+      return '<wsa:Address>http://10.0.0.14:2020/onvif/sub1</wsa:Address>';
+    }
+    return '';
+  };
+  await assert.rejects(() => client.subscribe(), /ONVIF_STOPPED/);
+  assert.equal(client.pullPointUrl, null);
+  assert.ok(bodies.some((body) => body.includes('Unsubscribe')));
+});
+
+test('the pull point support is checked even after the doorbell probe read the address', async () => {
+  // `hasDoorbell` fills `eventsUrl` during a scan; the check used to hang on
+  // that URL being empty, so it was skipped for every camera already visited.
+  const client = new TapoOnvif('10.0.0.15', 'user', 'pass');
+  client.call = async (url, body) => {
+    if (body.includes('GetCapabilities')) {
+      return '<tt:Events><tt:XAddr>http://10.0.0.15:2020/onvif/service</tt:XAddr><tt:WSPullPointSupport>false</tt:WSPullPointSupport></tt:Events>';
+    }
+    return '<tev:TopicSet></tev:TopicSet>';
+  };
+  await client.hasDoorbell();
+  await assert.rejects(() => client.subscribe(), /ONVIF_NO_PULLPOINT_SUPPORT/);
 });

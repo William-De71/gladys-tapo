@@ -55,18 +55,13 @@ export function md5(data) {
 function parseKeyValueHeader(raw) {
   /** @type {Record<string, string>} */
   const parsed = {};
-  raw.split(' ').forEach((part) => {
-    const eqIndex = part.indexOf('=');
-    if (eqIndex === -1) {
-      return;
-    }
-    const key = part.slice(0, eqIndex).trim().replace(/"/g, '');
-    const value = part
-      .slice(eqIndex + 1)
-      .trim()
-      .replace(/"/g, '');
-    parsed[key] = value;
-  });
+  // A quoted value may contain a space; splitting on spaces first cut it.
+  const pattern = /([\w-]+)\s*=\s*(?:"([^"]*)"|([^\s"]*))/g;
+  let match = pattern.exec(raw);
+  while (match !== null) {
+    parsed[match[1]] = match[2] !== undefined ? match[2] : match[3];
+    match = pattern.exec(raw);
+  }
   return parsed;
 }
 
@@ -122,6 +117,11 @@ export class AesHelper {
     const parsed = parseKeyValueHeader(keyExchange.toString());
     if (parsed.nonce === undefined) {
       throw new Error('TAPO_NONCE_MISSING');
+    }
+    // Without it the IV would be derived from ":<nonce>" — a key that decrypts
+    // nothing, failing every packet with no hint as to why.
+    if (parsed.username === undefined) {
+      throw new Error('TAPO_KEY_EXCHANGE_USERNAME_MISSING');
     }
     return new AesHelper({
       username: Buffer.from(parsed.username || ''),

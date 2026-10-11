@@ -95,3 +95,26 @@ test('a Key-Exchange header without a nonce is rejected', () => {
     /TAPO_NONCE_MISSING/,
   );
 });
+
+test('a Key-Exchange value holding a space is read whole', () => {
+  const aes = AesHelper.fromKeyExchange(
+    Buffer.from('username="my user" nonce="ab12"'),
+    Buffer.from('pwd'),
+    Buffer.from(''),
+    'md5',
+  );
+  assert.deepEqual(aes.iv, md5(Buffer.from('my user:ab12')));
+});
+
+test('a Key-Exchange without a username is refused rather than mis-keyed', () => {
+  assert.throws(
+    () =>
+      AesHelper.fromKeyExchange(
+        Buffer.from('nonce="ab12"'),
+        Buffer.from('pwd'),
+        Buffer.from(''),
+        'md5',
+      ),
+    /USERNAME_MISSING/,
+  );
+});

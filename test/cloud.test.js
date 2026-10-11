@@ -179,3 +179,24 @@ test('a camera without a cloud IP falls back to the manual address', async () =>
     fetchStub.restore();
   }
 });
+
+test('an expired token is renewed at once rather than at the end of its TTL', async () => {
+  let deviceListCalls = 0;
+  const fetchStub = stubFetch((url, options) => {
+    const body = JSON.parse(options.body);
+    if (body.method === 'login') {
+      return { error_code: 0, result: { token: `tok-${fetchStub.calls.length}` } };
+    }
+    deviceListCalls += 1;
+    return deviceListCalls === 1
+      ? { error_code: -20651 }
+      : { error_code: 0, result: { deviceList: [] } };
+  });
+  try {
+    const cloud = new TapoCloud();
+    assert.deepEqual(await cloud.getCameras(config), []);
+    assert.equal(deviceListCalls, 2, 'the call is replayed with a fresh token');
+  } finally {
+    fetchStub.restore();
+  }
+});

@@ -174,3 +174,42 @@ test('the handshake timeout rejects and closes the session', async () => {
   await assert.rejects(() => session.start(100), /TAPO_STREAM_TIMEOUT/);
   assert.equal(session.socket, null);
 });
+
+test('a quoted realm containing a comma is read whole', () => {
+  const challenge = parseAuthChallenge(
+    'Digest realm="TP-Link, Inc.", nonce="abc", qop="auth", encrypt_type="3"',
+  );
+  assert.equal(challenge.realm, 'TP-Link, Inc.');
+  assert.equal(challenge.nonce, 'abc');
+  assert.equal(challenge.encrypt_type, '3');
+});
+
+test('an error with nobody listening does not throw out of the socket callback', () => {
+  // The capture path listens to 'packet' and 'close' only. An unlistened
+  // 'error' made the EventEmitter throw from inside a socket handler, which
+  // only the process-wide guard caught — once per failed capture.
+  const { session } = buildSession();
+  assert.doesNotThrow(() => session.onError(new Error('TAPO_STREAM_HTTP_401')));
+});
+
+test('a camera hanging up before the handshake fails the start at once', async () => {
+  const session = new TapoMediaSession({ ip: '127.0.0.1', password: 'pwd', port: 1 });
+  const started = Date.now();
+  // Port 1 refuses the connection (or closes it): either way the start must
+  // fail long before its 15s budget.
+  await assert.rejects(() => session.start(15000));
+  assert.ok(Date.now() - started < 5000);
+  session.close();
+});
+
+test('stream data that never parses is bounded, not buffered forever', () => {
+  const { session } = buildSession();
+  session.phase = 'streaming';
+  let failure = null;
+  session.on('error', (e) => {
+    failure = e;
+  });
+  session.onData(Buffer.alloc(5 * 1024 * 1024));
+  assert.match(String(failure?.message), /TAPO_STREAM_UNPARSEABLE/);
+  assert.equal(session.buffer.length, 0);
+});
