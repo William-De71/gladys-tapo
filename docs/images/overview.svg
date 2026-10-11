@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 460" width="880" height="460" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>How the Tapo integration talks to your devices</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="880" height="460" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+
+  <!-- Gladys -->
+  <rect x="30" y="40" width="200" height="110" rx="10" fill="#eef6ff" stroke="#0969da" stroke-width="1.5"/>
+  <text x="130" y="80" text-anchor="middle" font-size="16" font-weight="600" fill="#0a3069">Gladys</text>
+  <text x="130" y="104" text-anchor="middle" font-size="12" fill="#24292f">dashboard, scenes,</text>
+  <text x="130" y="122" text-anchor="middle" font-size="12" fill="#24292f">energy monitoring</text>
+
+  <!-- Integration -->
+  <rect x="330" y="40" width="220" height="110" rx="10" fill="#fff8e6" stroke="#bf8700" stroke-width="1.5"/>
+  <text x="440" y="80" text-anchor="middle" font-size="16" font-weight="600" fill="#6b4600">Tapo integration</text>
+  <text x="440" y="104" text-anchor="middle" font-size="12" fill="#24292f">its own container,</text>
+  <text x="440" y="122" text-anchor="middle" font-size="12" fill="#24292f">managed by Gladys</text>
+
+  <!-- Cloud -->
+  <rect x="650" y="40" width="200" height="110" rx="10" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>
+  <text x="750" y="80" text-anchor="middle" font-size="16" font-weight="600" fill="#24292f">TP-Link cloud</text>
+  <text x="750" y="104" text-anchor="middle" font-size="12" fill="#24292f">list of your devices</text>
+  <text x="750" y="122" text-anchor="middle" font-size="12" fill="#57606a">no image, no address</text>
+
+  <!-- Top links -->
+  <line x1="230" y1="95" x2="328" y2="95" stroke="#57606a" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="280" y="80" text-anchor="middle" font-size="11" fill="#57606a">WebSocket</text>
+  <text x="280" y="114" text-anchor="middle" font-size="11" fill="#57606a">+ host API</text>
+  <line x1="550" y1="95" x2="648" y2="95" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="600" y="80" text-anchor="middle" font-size="11" fill="#57606a">HTTPS</text>
+  <text x="600" y="114" text-anchor="middle" font-size="11" fill="#57606a">login, device list</text>
+
+  <!-- Local network -->
+  <rect x="30" y="220" width="820" height="215" rx="12" fill="#f6fff8" stroke="#1a7f37" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="440" y="245" text-anchor="middle" font-size="13" font-weight="600" fill="#116329">Your local network — everything here stays at home</text>
+
+  <rect x="60" y="265" width="370" height="150" rx="10" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="80" y="292" font-size="15" font-weight="600" fill="#24292f">Cameras &amp; doorbells</text>
+  <text x="80" y="318" font-size="12" fill="#24292f">RTSP 554 · images and live view</text>
+  <text x="80" y="340" font-size="12" fill="#24292f">Tapo protocol 8800 · images without RTSP</text>
+  <text x="80" y="362" font-size="12" fill="#24292f">ONVIF 2020 · motion, doorbell, pan/tilt</text>
+  <text x="80" y="384" font-size="12" fill="#24292f">HTTPS 443 · battery, detections, privacy</text>
+
+  <rect x="450" y="265" width="370" height="150" rx="10" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="470" y="292" font-size="15" font-weight="600" fill="#24292f">Plugs, bulbs, switches, hub</text>
+  <text x="470" y="318" font-size="12" fill="#24292f">HTTP 80 · KLAP or securePassthrough</text>
+  <text x="470" y="340" font-size="12" fill="#24292f">read every 5 s, only changes sent</text>
+  <text x="470" y="362" font-size="12" fill="#24292f">commands: on/off, brightness, color,</text>
+  <text x="470" y="384" font-size="12" fill="#24292f">set point</text>
+
+  <!-- Integration to devices -->
+  <polyline points="410,150 410,190 245,190 245,263" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <polyline points="470,150 470,190 635,190 635,263" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Scan -->
+  <line x1="110" y1="150" x2="110" y2="263" stroke="#1a7f37" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+  <text x="120" y="182" font-size="11" fill="#116329">network scan</text>
+  <text x="120" y="196" font-size="11" fill="#116329">UDP 20002</text>
+</svg>

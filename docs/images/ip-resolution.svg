@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 380" width="880" height="380" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>How the integration finds the local address of a device</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="880" height="380" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="30" y="36" font-size="15" font-weight="600" fill="#24292f">Where a device's IP address comes from — first match wins</text>
+
+  <g font-size="12" fill="#24292f">
+    <rect x="30" y="60" width="170" height="96" rx="10" fill="#eef6ff" stroke="#0969da" stroke-width="1.5"/>
+    <text x="115" y="86" text-anchor="middle" font-size="14" font-weight="600" fill="#0a3069">1. Entered by you</text>
+    <text x="115" y="110" text-anchor="middle">"Set a device IP</text>
+    <text x="115" y="126" text-anchor="middle">address" action, or</text>
+    <text x="115" y="142" text-anchor="middle">the manual field</text>
+
+    <rect x="230" y="60" width="170" height="96" rx="10" fill="#f6fff8" stroke="#1a7f37" stroke-width="1.5"/>
+    <text x="315" y="86" text-anchor="middle" font-size="14" font-weight="600" fill="#116329">2. Network scan</text>
+    <text x="315" y="110" text-anchor="middle">UDP 20002 probe,</text>
+    <text x="315" y="126" text-anchor="middle">reply matched on</text>
+    <text x="315" y="142" text-anchor="middle">the MAC address</text>
+
+    <rect x="430" y="60" width="170" height="96" rx="10" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>
+    <text x="515" y="86" text-anchor="middle" font-size="14" font-weight="600">3. Tapo cloud</text>
+    <text x="515" y="110" text-anchor="middle">when it reports one</text>
+    <text x="515" y="126" text-anchor="middle">(rare)</text>
+
+    <rect x="630" y="60" width="170" height="96" rx="10" fill="#fff8e6" stroke="#bf8700" stroke-width="1.5"/>
+    <text x="715" y="86" text-anchor="middle" font-size="14" font-weight="600" fill="#6b4600">4. Last known</text>
+    <text x="715" y="110" text-anchor="middle">kept when a scan</text>
+    <text x="715" y="126" text-anchor="middle">fails or is refused</text>
+  </g>
+
+  <g stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)">
+    <line x1="200" y1="108" x2="228" y2="108"/>
+    <line x1="400" y1="108" x2="428" y2="108"/>
+    <line x1="600" y1="108" x2="628" y2="108"/>
+    <line x1="115" y1="156" x2="115" y2="203"/>
+    <line x1="315" y1="156" x2="315" y2="203"/>
+    <line x1="515" y1="156" x2="515" y2="203"/>
+    <line x1="715" y1="156" x2="715" y2="203"/>
+  </g>
+  <text x="214" y="100" text-anchor="middle" font-size="10" fill="#57606a">none</text>
+  <text x="414" y="100" text-anchor="middle" font-size="10" fill="#57606a">none</text>
+  <text x="614" y="100" text-anchor="middle" font-size="10" fill="#57606a">none</text>
+
+  <rect x="30" y="205" width="770" height="52" rx="10" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+  <text x="415" y="236" text-anchor="middle" font-size="13" font-weight="600" fill="#116329">Address used — shown with its origin in "Test the connection"</text>
+
+  <polyline points="800,108 845,108 845,314 802,314" fill="none" stroke="#cf222e" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="852" y="210" font-size="10" fill="#cf222e" transform="rotate(90 852 210)" text-anchor="middle">none</text>
+  <rect x="330" y="288" width="470" height="54" rx="10" fill="#ffebe9" stroke="#cf222e" stroke-width="1.5"/>
+  <text x="565" y="311" text-anchor="middle" font-size="13" font-weight="600" fill="#82071e">✖ Not found on your network</text>
+  <text x="565" y="330" text-anchor="middle" font-size="12" fill="#24292f">run "Set a device IP address" — the address is in the Tapo app</text>
+</svg>

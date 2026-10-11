@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 400" width="880" height="400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>Tapo devices supported, and what Gladys gets from each</title>
+  <rect x="0" y="0" width="880" height="400" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+
+  <g font-size="12" fill="#24292f">
+    <!-- Row 1 -->
+    <rect x="30" y="30" width="260" height="160" rx="10" fill="#eef6ff" stroke="#0969da" stroke-width="1.5"/>
+    <text x="48" y="58" font-size="15" font-weight="600" fill="#0a3069">Cameras &amp; doorbells</text>
+    <text x="48" y="78" fill="#57606a">C100–C720, TC, D130–D235…</text>
+    <text x="48" y="104">• image, live view (RTSP)</text>
+    <text x="48" y="124">• motion, doorbell press</text>
+    <text x="48" y="144">• pan/tilt, presets</text>
+    <text x="48" y="164">• private mode, battery</text>
+
+    <rect x="310" y="30" width="260" height="160" rx="10" fill="#fff8e6" stroke="#bf8700" stroke-width="1.5"/>
+    <text x="328" y="58" font-size="15" font-weight="600" fill="#6b4600">Plugs &amp; power strips</text>
+    <text x="328" y="78" fill="#57606a">P100, P110, P115, P300, P304M…</text>
+    <text x="328" y="104">• on / off</text>
+    <text x="328" y="124">• power (W)</text>
+    <text x="328" y="144">• energy index (kWh)</text>
+    <text x="328" y="164">• one device per socket</text>
+
+    <rect x="590" y="30" width="260" height="160" rx="10" fill="#fbefff" stroke="#8250df" stroke-width="1.5"/>
+    <text x="608" y="58" font-size="15" font-weight="600" fill="#512a97">Bulbs &amp; light strips</text>
+    <text x="608" y="78" fill="#57606a">L510, L530, L630, L900, L920…</text>
+    <text x="608" y="104">• on / off, brightness</text>
+    <text x="608" y="124">• color</text>
+    <text x="608" y="144">• white temperature (K)</text>
+
+    <!-- Row 2 -->
+    <rect x="30" y="210" width="260" height="160" rx="10" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>
+    <text x="48" y="238" font-size="15" font-weight="600">Wall switches</text>
+    <text x="48" y="258" fill="#57606a">S500, S505, S500D, S505D</text>
+    <text x="48" y="284">• on / off</text>
+    <text x="48" y="304">• brightness on dimmers</text>
+
+    <rect x="310" y="210" width="260" height="160" rx="10" fill="#f6fff8" stroke="#1a7f37" stroke-width="1.5"/>
+    <text x="328" y="238" font-size="15" font-weight="600" fill="#116329">H100 hub sensors</text>
+    <text x="328" y="258" fill="#57606a">one Gladys device per sensor</text>
+    <text x="328" y="284">• T310/T315 temperature, humidity</text>
+    <text x="328" y="304">• T100 motion · T110 opening</text>
+    <text x="328" y="324">• T300 leak · S200 buttons</text>
+    <text x="328" y="344">• KE100 valve set point · battery</text>
+
+    <rect x="590" y="210" width="260" height="160" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-dasharray="5 4"/>
+    <text x="608" y="238" font-size="15" font-weight="600" fill="#57606a">Not supported yet</text>
+    <text x="608" y="264" fill="#57606a">• H200 hub</text>
+    <text x="608" y="284" fill="#57606a">• Kasa devices (IOT protocol)</text>
+    <text x="608" y="304" fill="#57606a">• robot vacuums</text>
+    <text x="608" y="324" fill="#57606a">• S210 / S220 hub switches</text>
+    <text x="608" y="350" font-size="11" fill="#57606a">listed in "Test the connection"</text>
+  </g>
+</svg>
