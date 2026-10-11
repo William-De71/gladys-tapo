@@ -153,6 +153,12 @@ export const ONVIF_MAX_RESPONSE_BYTES = 1024 * 1024;
 export const ONVIF_QUIET_TIMEOUTS_BEFORE_FAILURE = 3;
 
 /**
+ * Age at which a subscription is renewed explicitly. Subscriptions are opened
+ * for ten minutes (`PT10M`); renewing at eight leaves room for a slow answer.
+ */
+export const ONVIF_RENEW_AFTER_MS = 8 * 60 * 1000;
+
+/**
  * How long a motion stays reported when the camera never sends the falling edge.
  *
  * ONVIF normally reports both edges, so the sensor comes back down on the

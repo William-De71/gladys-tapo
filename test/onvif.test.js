@@ -37,13 +37,15 @@ test('the security header carries a digest, never the password itself', () => {
   assert.ok(header.includes('<wsse:Username>gladys</wsse:Username>'));
   assert.ok(!header.includes('MonMotDePasse'), 'the password must not travel in clear');
   assert.ok(header.includes('PasswordDigest'));
-  assert.ok(/<wsse:Nonce>[A-Za-z0-9+/=]+<\/wsse:Nonce>/.test(header));
+  assert.ok(
+    /<wsse:Nonce EncodingType="[^"]+Base64Binary">[A-Za-z0-9+/=]+<\/wsse:Nonce>/.test(header),
+  );
 });
 
 test('two headers built in a row use different nonces', () => {
   // A reused nonce is what a replay looks like; the camera rejects it.
-  const first = /<wsse:Nonce>([^<]+)</.exec(buildSecurityHeader('u', 'p'))[1];
-  const second = /<wsse:Nonce>([^<]+)</.exec(buildSecurityHeader('u', 'p'))[1];
+  const first = /<wsse:Nonce[^>]*>([^<]+)</.exec(buildSecurityHeader('u', 'p'))[1];
+  const second = /<wsse:Nonce[^>]*>([^<]+)</.exec(buildSecurityHeader('u', 'p'))[1];
   assert.notEqual(first, second);
 });
 
@@ -543,4 +545,33 @@ test('the pull point support is checked even after the doorbell probe read the a
   };
   await client.hasDoorbell();
   await assert.rejects(() => client.subscribe(), /ONVIF_NO_PULLPOINT_SUPPORT/);
+});
+
+test('an old subscription is renewed before it lapses, a fresh one is not', async () => {
+  const client = new TapoOnvif('10.0.0.16', 'user', 'pass');
+  client.pullPointUrl = 'http://10.0.0.16:2020/onvif/sub1';
+  const bodies = [];
+  client.call = async (url, body) => {
+    bodies.push(body);
+    return '';
+  };
+  client.subscribedAt = Date.now();
+  await client.renewIfDue();
+  assert.equal(bodies.length, 0);
+
+  client.subscribedAt = Date.now() - 9 * 60 * 1000;
+  await client.renewIfDue();
+  assert.ok(bodies[0].includes('<wsnt:Renew>'));
+  assert.equal(client.pullPointUrl, 'http://10.0.0.16:2020/onvif/sub1');
+});
+
+test('a renewal refused because the subscription is gone forces a new one', async () => {
+  const client = new TapoOnvif('10.0.0.17', 'user', 'pass');
+  client.pullPointUrl = 'http://10.0.0.17:2020/onvif/sub1';
+  client.subscribedAt = 0;
+  client.call = async () => {
+    throw new Error('ONVIF_HTTP_400:wsrf-rw:ResourceUnknownFault');
+  };
+  await client.renewIfDue();
+  assert.equal(client.pullPointUrl, null);
 });

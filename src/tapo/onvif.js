@@ -29,6 +29,7 @@ import {
   ONVIF_DEADLINE_MARGIN_MS,
   ONVIF_MAX_RESPONSE_BYTES,
   ONVIF_QUIET_TIMEOUTS_BEFORE_FAILURE,
+  ONVIF_RENEW_AFTER_MS,
 } from './constants.js';
 
 /** XML namespaces of the services this module and the PTZ client talk to. */
@@ -38,6 +39,7 @@ export const NS = {
   wsu: 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd',
   device: 'http://www.onvif.org/ver10/device/wsdl',
   events: 'http://www.onvif.org/ver10/events/wsdl',
+  notification: 'http://docs.oasis-open.org/wsn/b-2',
   addressing: 'http://www.w3.org/2005/08/addressing',
   media: 'http://www.onvif.org/ver10/media/wsdl',
   ptz: 'http://www.onvif.org/ver20/ptz/wsdl',
@@ -62,6 +64,10 @@ const ONVIF_FAILURES_BEFORE_WARNING = 3;
  * connection immediately cannot turn the loop into a busy wait.
  */
 const ONVIF_QUIET_PULL_PAUSE_MS = 250;
+
+/** Encoding declared for the nonce: strict firmwares refuse a nonce without it. */
+const NONCE_ENCODING_TYPE =
+  'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary';
 
 /** Password type declared by the UsernameToken digest profile. */
 const PASSWORD_DIGEST_TYPE =
@@ -113,7 +119,7 @@ export function buildSecurityHeader(username, password) {
     `<wsse:UsernameToken>` +
     `<wsse:Username>${escapeXml(username)}</wsse:Username>` +
     `<wsse:Password Type="${PASSWORD_DIGEST_TYPE}">${digest}</wsse:Password>` +
-    `<wsse:Nonce>${nonce.toString('base64')}</wsse:Nonce>` +
+    `<wsse:Nonce EncodingType="${NONCE_ENCODING_TYPE}">${nonce.toString('base64')}</wsse:Nonce>` +
     `<wsu:Created>${created}</wsu:Created>` +
     `</wsse:UsernameToken></wsse:Security>`
   );
@@ -132,7 +138,7 @@ export function buildEnvelope(body, securityHeader, extraHeader = '') {
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<s:Envelope xmlns:s="${NS.soap}" xmlns:tds="${NS.device}" ` +
-    `xmlns:tev="${NS.events}" xmlns:wsa="${NS.addressing}" ` +
+    `xmlns:tev="${NS.events}" xmlns:wsa="${NS.addressing}" xmlns:wsnt="${NS.notification}" ` +
     // Media and PTZ travel with the same envelope: the PTZ client below reuses
     // this builder, and a body referencing an undeclared prefix is answered with
     // a parse fault rather than a usable error.
@@ -533,6 +539,8 @@ export class TapoOnvif {
      * @type {boolean|undefined}
      */
     this.pullPointSupport = undefined;
+    /** When the subscription was opened or last renewed. */
+    this.subscribedAt = 0;
     /** Cuts the current backoff wait short, so `stop()` is not held by it. */
     this.wake = null;
   }
@@ -709,7 +717,42 @@ export class TapoOnvif {
       throw new Error('ONVIF_STOPPED');
     }
     this.pullPointUrl = pullPointUrl;
+    this.subscribedAt = Date.now();
     logger.debug(`ONVIF subscription open on ${this.ip}`);
+  }
+
+  /**
+   * Renew the subscription before it lapses.
+   *
+   * The standard has a pull extend the subscription, but nothing obliges a
+   * firmware to: one that does not lets it expire after its ten minutes, and the
+   * camera goes blind for a resubscribe every time. An explicit `Renew` a little
+   * before the term costs one call every few minutes. A camera that refuses it
+   * is left alone unless it says the subscription is gone.
+   * @returns {Promise<void>} Resolves once renewed, or when no renewal was due.
+   * @example
+   * await client.renewIfDue();
+   */
+  async renewIfDue() {
+    if (!this.pullPointUrl || Date.now() - this.subscribedAt < ONVIF_RENEW_AFTER_MS) {
+      return;
+    }
+    try {
+      await this.call(
+        this.pullPointUrl,
+        '<wsnt:Renew><wsnt:TerminationTime>PT10M</wsnt:TerminationTime></wsnt:Renew>',
+        { timeoutMs: ONVIF_REQUEST_TIMEOUT_MS },
+      );
+    } catch (e) {
+      if (/ResourceUnknown|UnknownSubscription/i.test(String(e.message))) {
+        // Gone already: the next pull opens a new one.
+        this.pullPointUrl = null;
+      }
+      logger.debug(`Renewing the ONVIF subscription of ${this.ip} failed: ${e.message}`);
+    }
+    // Stamped either way: a camera refusing Renew is not asked again on every
+    // pull, only at the next term.
+    this.subscribedAt = Date.now();
   }
 
   /**
@@ -740,6 +783,7 @@ export class TapoOnvif {
    * const events = await client.pull();
    */
   async pull() {
+    await this.renewIfDue();
     if (!this.pullPointUrl) {
       try {
         await this.subscribe();

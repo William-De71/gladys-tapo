@@ -917,6 +917,18 @@ gladys.onAction('refresh_images', async () => {
   };
 });
 
+/**
+ * The configuration the watchers were last started with, serialized.
+ *
+ * The SDK emits `connected` again on every WebSocket reconnection. Restarting
+ * everything then — logging out of every camera, unsubscribing every ONVIF
+ * pull point, a capture round — turned a network blip between the container
+ * and Gladys into a burst of logins on every camera. A reconnection with the
+ * same configuration now leaves the running watchers alone.
+ * @type {string|null}
+ */
+let startedWith = null;
+
 // --- Configuration updated by the user ---------------------------------------
 gladys.onConfigUpdated(async () => {
   logger.info('onConfigUpdated -> reloading the configuration');
@@ -936,9 +948,11 @@ gladys.onConfigUpdated(async () => {
     batteryGuard.configure(config);
     watcher.start(config);
     startImageRefresh();
+    startedWith = JSON.stringify(config);
   } else {
     watcher.stop();
     stopImageRefresh();
+    startedWith = null;
   }
 });
 
@@ -948,6 +962,10 @@ gladys.on('connected', async () => {
     // Load the devices the user created, so the event watcher knows what to poll.
     const devices = await gladys.getDevices();
     await publishDevices();
+    if (isConfigured(config) && startedWith === JSON.stringify(config) && watcher.timer) {
+      logger.info('Reconnected to Gladys: the watchers keep running');
+      return;
+    }
     if (isConfigured(config)) {
       // Thresholds before anything captures, and battery models declared before
       // the startup refresh: a camera the guard does not yet know about would be
@@ -958,6 +976,7 @@ gladys.on('connected', async () => {
       });
       watcher.start(config);
       startImageRefresh();
+      startedWith = JSON.stringify(config);
 
       // Read the battery of every camera BEFORE the startup capture. At boot the
       // guard has no readings at all, so without this pass a battery camera is
