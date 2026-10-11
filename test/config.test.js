@@ -7,6 +7,9 @@ import {
   isConfigured,
   hasRtspAccount,
   resolveRtspAccount,
+  manualAddressFor,
+  normalizeName,
+  parseStore,
   DEFAULT_CONFIG,
 } from '../src/config.js';
 import { BATTERY_EVENT_POLL_INTERVAL } from '../src/tapo/constants.js';
@@ -73,7 +76,9 @@ test('the camera accounts are parsed per camera', () => {
   // The Tapo app creates that account PER CAMERA, so a single global pair only
   // fits users who reused the same credentials everywhere.
   const accounts = parseCameraAccounts('Camera_jardin|gladys|secret\n Salon | user2 | pass2');
-  assert.deepEqual(accounts.camera_jardin, { username: 'gladys', password: 'secret' });
+  // Keys are compared through `normalizeName`: case, accents and underscores
+  // are not what tells two cameras apart.
+  assert.deepEqual(accounts['camera jardin'], { username: 'gladys', password: 'secret' });
   // The password keeps its leading space (only the whole line was trimmed): a
   // password is taken verbatim, unlike the name and the username.
   assert.deepEqual(accounts.salon, { username: 'user2', password: ' pass2' });
@@ -117,7 +122,7 @@ test('entries are separated by a comma, as the single-line input requires', () =
   // The Gladys config form renders string/secret as a one-line input: a newline
   // cannot be typed there, so the comma is the real-world separator.
   const ips = parseCameraIps('Camera_jardin|192.168.1.42, Camera_salon|192.168.1.43');
-  assert.deepEqual(ips, { camera_jardin: '192.168.1.42', camera_salon: '192.168.1.43' });
+  assert.deepEqual(ips, { 'camera jardin': '192.168.1.42', 'camera salon': '192.168.1.43' });
 
   const accounts = parseCameraAccounts('jardin|user|pass, salon|user2|pass2');
   assert.deepEqual(Object.keys(accounts), ['jardin', 'salon']);
@@ -130,17 +135,50 @@ test('newlines still work, for a pasted value', () => {
   assert.deepEqual(Object.keys(ips), ['jardin', 'salon']);
 });
 
-test('accounts survive a serialize/parse round-trip', () => {
-  // The "Save a camera account" action rewrites the whole field from the parsed
-  // accounts: a lossy round-trip would silently drop the other cameras.
-  const accounts = {
-    camera_jardin: { username: 'gladys', password: 'p@ss' },
-    camera_salon: { username: 'user2', password: 'other' },
-  };
-  const serialized = Object.entries(accounts)
-    .map(([name, account]) => `${name}|${account.username}|${account.password}`)
-    .join(', ');
-  assert.deepEqual(parseCameraAccounts(serialized), accounts);
+test('an account saved by the action is found by cloud id, whatever the name became', () => {
+  // The action stores accounts keyed by cloud device id, as JSON: a password
+  // may hold a comma or a trailing space, and renaming the camera in Gladys or
+  // in the Tapo app does not lose it.
+  const config = normalizeConfig({
+    rtsp_username: 'default',
+    rtsp_password: 'defaultpass',
+    camera_account_store: JSON.stringify({ abc123: { username: 'cam', password: 'a, b ' } }),
+  });
+  assert.deepEqual(resolveRtspAccount(config, { name: 'Renamed', cloudDeviceId: 'ABC123' }), {
+    username: 'cam',
+    password: 'a, b ',
+  });
+});
+
+test('names are compared the way a person reads them', () => {
+  // A user typed "Tapo_C230_Salon" for the camera the cloud reports as
+  // "Tapo C230 Salon", or an accent composed differently: the address was
+  // never applied, and the logs kept asking for it.
+  assert.equal(normalizeName('Tapo_C660  Fac\u0327ade'), normalizeName('tapo c660 façade'));
+  const config = normalizeConfig({ camera_ips: 'Tapo_C230_Salon=192.168.1.50' });
+  assert.equal(manualAddressFor(config, { name: 'Tapo C230 Salon' }), '192.168.1.50');
+});
+
+test('a manual address may name the device by MAC or cloud id', () => {
+  const config = normalizeConfig({
+    camera_ips: '28:EE:52:00:00:01|192.168.1.51, 8022ABCD|192.168.1.52',
+  });
+  assert.equal(manualAddressFor(config, { mac: '28-ee-52-00-00-01' }), '192.168.1.51');
+  assert.equal(manualAddressFor(config, { cloudDeviceId: '8022abcd' }), '192.168.1.52');
+});
+
+test('an address saved by the action wins over the manual field', () => {
+  const config = normalizeConfig({
+    camera_ips: 'Salon|192.168.1.10',
+    device_addresses: JSON.stringify({ id9: '192.168.1.99' }),
+  });
+  assert.equal(manualAddressFor(config, { name: 'Salon', cloudDeviceId: 'ID9' }), '192.168.1.99');
+});
+
+test('an unreadable store is ignored rather than fatal', () => {
+  assert.deepEqual(parseStore('{not json'), {});
+  assert.deepEqual(parseStore('[1,2]'), {});
+  assert.deepEqual(normalizeConfig({ device_addresses: 'garbage' }).device_addresses, {});
 });
 
 test('the image refresh interval is configurable, one minute by default', () => {

@@ -33,7 +33,7 @@ const PROBE_TIMEOUT_MS = 2500;
  */
 export function buildRtspUrl(camera, config) {
   // The camera account is per camera in the Tapo app, so it is resolved by name.
-  const account = resolveRtspAccount(config, camera.name);
+  const account = resolveRtspAccount(config, camera);
   const user = encodeURIComponent(account.username);
   const password = encodeURIComponent(account.password);
   return `rtsp://${user}:${password}@${camera.ip}:${RTSP_PORT}/${config.rtsp_stream}`;
@@ -173,7 +173,7 @@ export async function detectCaptureMode(camera, config) {
     isPortOpen(camera.ip, STREAM_PORT),
   ]);
 
-  const hasAccount = hasRtspAccount(config, camera.name);
+  const hasAccount = hasRtspAccount(config, camera);
   if (rtspOpen && hasAccount) {
     return CAPTURE_MODES.RTSP;
   }

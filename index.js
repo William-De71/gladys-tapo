@@ -39,7 +39,9 @@ import {
   FEATURE_SUFFIXES,
 } from './src/tapo/constants.js';
 import { BatteryGuard } from './src/tapo/batteryGuard.js';
-import { isBatteryModel } from './src/tapo/rtsp.js';
+import { isBatteryModel, probePort } from './src/tapo/rtsp.js';
+import { buildConnectionReport, connectionStatusFor, isValidAddress } from './src/report.js';
+import { forgetLastScan } from './src/tapo/discovery.js';
 
 const gladys = new GladysIntegration();
 const cloud = new TapoCloud();
@@ -77,6 +79,10 @@ const ptzClients = new Map();
  * isBatteryDevice(device);
  */
 function isBatteryDevice(device) {
+  // A model that looked like a battery one but answered it has none.
+  if (batteryGuard.isKnownMains(device.external_id)) {
+    return false;
+  }
   if (batteryGuard.isBatteryCamera(device.external_id)) {
     return true;
   }
@@ -95,10 +101,11 @@ function isBatteryDevice(device) {
  * them on every arrow press would make the camera feel sluggish.
  *
  * The device is RE-READ rather than used as handed over: a command payload
- * carries only the external id, the selector and the params — no `name`. The
- * camera account is indexed BY NAME (the Tapo app creates one per camera), so
- * building the client from the payload alone looked up an account for
- * "undefined" and every movement was refused.
+ * carries only the external id, the selector and the params — no `name`. A
+ * camera account typed in the manual field is indexed BY NAME, so building the
+ * client from the payload alone looked up an account for "undefined" and every
+ * movement was refused. (An account saved by the action is keyed by cloud id,
+ * which the external id carries.)
  * @param {object} device - The Gladys device, as the command payload carries it.
  * @returns {Promise<object|null>} The client, or null without a camera account.
  * @example
@@ -122,7 +129,10 @@ async function getPtzClient(device) {
   // sent — but a re-read device carries them too when the payload has none.
   const params = device.params || known?.params || [];
   const ip = params.find((param) => param.name === DEVICE_PARAMS.IP)?.value;
-  const account = resolveRtspAccount(config, name);
+  const account = resolveRtspAccount(config, {
+    name,
+    cloudDeviceId: parseCloudDeviceId(device.external_id),
+  });
   if (!ip || !account.username || !account.password) {
     return null;
   }
@@ -238,7 +248,7 @@ async function runCapture(device) {
     // capture that follows would only wait for its timeout, once per cycle.
     throw new Error('TAPO_NO_CAPTURE_MODE');
   }
-  if (camera.captureMode === CAPTURE_MODES.RTSP && !hasRtspAccount(config, camera.name)) {
+  if (camera.captureMode === CAPTURE_MODES.RTSP && !hasRtspAccount(config, camera)) {
     // Failing with a precise reason: the user has a fix to apply (fill in the
     // camera account), which a generic ffmpeg error would not convey.
     throw new Error('TAPO_RTSP_ACCOUNT_MISSING');
@@ -370,13 +380,47 @@ const watcher = new EventWatcher({
   },
 });
 
+/** The publish in flight, and the one queued behind it. */
+let publishing = null;
+let publishQueued = null;
+
 /**
  * Refresh the configuration, list the cameras and publish them.
+ *
+ * Coalesced: saving the configuration, the action that saves an address and the
+ * scan button can all ask within the same second, and each publish probes every
+ * camera (and logs in to several of them). A call arriving during a publish
+ * waits for it and runs ONE more — so the latest configuration is always the
+ * one published — instead of stacking a run per call.
  * @returns {Promise<object[]>} The published devices.
  * @example
  * const devices = await publishDevices();
  */
-async function publishDevices() {
+function publishDevices() {
+  if (publishing) {
+    if (!publishQueued) {
+      publishQueued = publishing
+        .catch(() => {})
+        .then(() => {
+          publishQueued = null;
+          return publishDevices();
+        });
+    }
+    return publishQueued;
+  }
+  publishing = runPublish().finally(() => {
+    publishing = null;
+  });
+  return publishing;
+}
+
+/**
+ * The publish itself (see `publishDevices`).
+ * @returns {Promise<object[]>} The published devices.
+ * @example
+ * await runPublish();
+ */
+async function runPublish() {
   config = normalizeConfig(await gladys.getConfig());
 
   if (!isConfigured(config)) {
@@ -401,16 +445,12 @@ async function publishDevices() {
     batteryGuard.trackBatteryCamera(device.external_id);
   });
 
-  if (devices.length > 0) {
-    await gladys.setConnectionStatus(true).catch(() => {});
-  } else {
-    await gladys
-      .setConnectionStatus(false, {
-        en: 'No camera found on your Tapo account. Check that your cameras appear in the Tapo app.',
-        fr: "Aucune caméra trouvée sur votre compte Tapo. Vérifiez que vos caméras apparaissent dans l'application Tapo.",
-      })
-      .catch(() => {});
-  }
+  // Connected as soon as the cloud answered, but a device without an address is
+  // named on the Configuration screen, with the fix: the badge used to read
+  // "connected" while every image stayed empty, which is how users ended up
+  // guessing at the address fields.
+  const status = connectionStatusFor(devices);
+  await gladys.setConnectionStatus(status.connected, status.message).catch(() => {});
   return devices;
 }
 
@@ -602,37 +642,20 @@ gladys.onAction('test_connection', async () => {
       };
     }
 
-    const cameras = await cloud.getCameras(config);
-    if (cameras.length === 0) {
+    // A fresh scan: the user is asking what the integration sees NOW, and the
+    // answer is wasted if it comes from a cache filled before they plugged a
+    // camera in or moved it to another network.
+    forgetLastScan();
+    const devices = await publishDevices();
+    if (devices.length === 0) {
       return {
-        en: 'Connection to the Tapo cloud OK, but no camera is attached to this account.',
-        fr: "Connexion au cloud Tapo OK, mais aucune caméra n'est rattachée à ce compte.",
+        en: 'Connection to the Tapo cloud OK, but no device is attached to this account.',
+        fr: "Connexion au cloud Tapo OK, mais aucun appareil n'est rattaché à ce compte.",
       };
     }
-
-    // Report what the user needs to know: which cameras can actually be captured.
-    const devices = await buildDiscoveredDevices(gladys, cameras, config);
-    const capturable = devices.filter((device) =>
-      (device.params || []).some(
-        (param) => param.name === DEVICE_PARAMS.CAPTURE_MODE && param.value,
-      ),
-    ).length;
-    const blocked = cameras.length - capturable;
-
-    // The exact names matter: they are what the "Save a camera account" action
-    // expects, and Gladys cannot render a camera dropdown there today.
-    const names = cameras.map((camera) => camera.name).join(', ');
-
-    if (blocked === 0) {
-      return {
-        en: `Connection OK: ${cameras.length} camera(s) found and reachable on your network — ${names}.`,
-        fr: `Connexion OK : ${cameras.length} caméra(s) trouvée(s) et joignable(s) sur votre réseau — ${names}.`,
-      };
-    }
-    return {
-      en: `Connection OK: ${cameras.length} camera(s) found (${names}), ${capturable} reachable. The other ${blocked} do not answer locally: check that they are powered on, on the same network, and that "Third-Party Compatibility" is enabled in the Tapo app.`,
-      fr: `Connexion OK : ${cameras.length} caméra(s) trouvée(s) (${names}), ${capturable} joignable(s). Les ${blocked} autres ne répondent pas en local : vérifiez qu'elles sont allumées, sur le même réseau, et que la « Compatibilité tierce » est activée dans l'application Tapo.`,
-    };
+    // One line per device: where it is, where that address came from, and
+    // what to do when it is missing or silent.
+    return buildConnectionReport(devices);
   } catch (e) {
     logger.error('The Tapo connection test failed', e);
     if (e instanceof TapoAuthError) {
@@ -648,78 +671,220 @@ gladys.onAction('test_connection', async () => {
   }
 });
 
-// --- Manifest action: save the camera account of one camera ------------------
-// A dedicated mini-form beats asking the user to type `name|user|password` into
-// a single box: the camera is picked from a list, and the password goes into a
-// masked field instead of sitting in clear next to the username.
-gladys.onAction('set_camera_account', async (fields) => {
-  const { camera: cameraName, username, password } = fields || {};
-
-  // Matched on the name rather than a dropdown: a `select` fed by the dynamic
-  // `devices` source is rejected by Gladys today (it validates the value against
-  // an empty option list), so the name typed by the user is the reliable input.
+/**
+ * Find one of the integration's devices from the value of a `source: "devices"`
+ * select, which is the device external id.
+ * @param {string} externalId - The selected value.
+ * @returns {Promise<object|null>} The device, or null when unknown.
+ * @example
+ * const device = await findDevice(fields.device);
+ */
+async function findDevice(externalId) {
   const devices = await gladys.getDevices();
-  const wanted = String(cameraName || '')
-    .trim()
-    .toLowerCase();
-  const device = devices.find((entry) => String(entry.name || '').toLowerCase() === wanted);
-  if (!device) {
-    const known = devices.map((entry) => entry.name).join(', ');
-    return {
-      en: `No camera named "${cameraName}". Known cameras: ${known || 'none yet'}.`,
-      fr: `Aucune caméra nommée « ${cameraName} ». Caméras connues : ${known || 'aucune pour le moment'}.`,
-    };
+  return devices.find((entry) => entry.external_id === externalId) || null;
+}
+
+/**
+ * Write one entry of an off-schema store, or remove it.
+ * @param {string} key - The config key (`device_addresses`, `camera_account_store`).
+ * @param {string} cloudDeviceId - The entry key.
+ * @param {unknown} value - The value, or null to remove the entry.
+ * @returns {Promise<void>} Resolves once Gladys stored it.
+ * @example
+ * await writeStoreEntry('device_addresses', 'ID1', '192.168.1.20');
+ */
+async function writeStoreEntry(key, cloudDeviceId, value) {
+  const current = normalizeConfig(await gladys.getConfig())[key] || {};
+  const next = { ...current };
+  const id = String(cloudDeviceId).toUpperCase();
+  if (value === null) {
+    delete next[id];
+  } else {
+    next[id] = value;
   }
-
-  // The accounts live in the same config key as the manual field, so both ways
-  // of entering them stay interchangeable.
+  await gladys.setConfig({ [key]: JSON.stringify(next) });
   config = normalizeConfig(await gladys.getConfig());
-  const accounts = {
-    ...config.camera_accounts,
-    [device.name.toLowerCase()]: { username, password },
-  };
-  const serialized = Object.entries(accounts)
-    .map(([name, account]) => `${name}|${account.username}|${account.password}`)
-    .join(', ');
+}
 
-  await gladys.setConfig({ camera_accounts: serialized });
-  config = normalizeConfig(await gladys.getConfig());
-
-  // Re-publish so CAMERA_URL is rebuilt with the new credentials: it is what the
-  // rtsp-camera service reads to serve the live view, and a stale URL would keep
-  // the live broken even though the account is now right.
-  await publishDevices().catch((e) =>
-    logger.warn(`Re-publish after saving the account failed: ${e.message}`),
+/**
+ * The cloud device id of a Gladys device.
+ * @param {object} device - The Gladys device.
+ * @returns {string|null} The id.
+ * @example
+ * cloudIdOf(device);
+ */
+function cloudIdOf(device) {
+  return (
+    (device.params || []).find((param) => param.name === DEVICE_PARAMS.CLOUD_DEVICE_ID)?.value ||
+    parseCloudDeviceId(device.external_id)
   );
+}
 
-  // The account that was just saved is exactly what ONVIF authenticates against,
-  // so this is the moment the camera becomes able to push its events. Without
-  // this the subscription would only be attempted at the next restart, and the
-  // camera would keep being polled for no reason in the meantime.
-  // Dropped first: an existing client still holds the PREVIOUS credentials, and
-  // `setupOnvif` treats a camera it already has a client for as done — so a
-  // corrected password would never be picked up.
-  watcher.dropOnvif(device);
-  watcher
-    .setupOnvif(device)
-    .catch((e) => logger.debug(`ONVIF setup after saving the account failed: ${e.message}`));
-
-  // Capture right away: the user learns immediately whether the account works,
-  // instead of discovering it later through an empty widget.
+/**
+ * Try a test capture after a setting changed, and phrase the outcome.
+ * @param {object} device - The Gladys device, re-read after the publish.
+ * @param {{ en: string, fr: string }} saved - What was saved, for the message.
+ * @returns {Promise<{ en: string, fr: string }>} The message.
+ * @example
+ * await reportTestCapture(device, { en: 'Saved.', fr: 'Enregistré.' });
+ */
+async function reportTestCapture(device, saved) {
+  const isCamera = (device.features || []).some((feature) => feature.category === 'camera');
+  if (!isCamera) {
+    return saved;
+  }
   try {
     const image = await captureDeviceImage(device);
     await gladys.publishCameraImage(device.external_id, image);
     return {
-      en: `Account saved for "${device.name}", and an image was captured successfully.`,
-      fr: `Compte enregistré pour « ${device.name} », et une image a bien été capturée.`,
+      en: `${saved.en}\nAn image was captured: the camera works.`,
+      fr: `${saved.fr}\nUne image a été capturée : la caméra fonctionne.`,
     };
   } catch (e) {
     logger.warn(`The test capture of "${device.name}" failed: ${e.message}`);
     return {
-      en: `Account saved for "${device.name}", but the test capture failed: ${e.message}`,
-      fr: `Compte enregistré pour « ${device.name} », mais la capture de test a échoué : ${e.message}`,
+      en: `${saved.en}\nBut the test capture failed: ${e.message}`,
+      fr: `${saved.fr}\nMais la capture de test a échoué : ${e.message}`,
     };
   }
+}
+
+// --- Manifest action: set the IP address of one device -----------------------
+// The fix for the most common support question: a device the scan cannot see
+// (another subnet or VLAN, broadcast filtered by the router). The device is
+// PICKED from a list (`source: "devices"`) rather than typed by name, and the
+// address is stored against its cloud id — so neither a typo, nor an accent, nor
+// renaming the device later can make it miss.
+gladys.onAction('set_device_address', async (fields) => {
+  const { device: externalId, ip: rawIp } = fields || {};
+  const device = await findDevice(externalId);
+  if (!device) {
+    return {
+      en: 'Pick a device in the list. If it is empty, run a scan from the Discover tab first.',
+      fr: "Choisissez un appareil dans la liste. Si elle est vide, lancez d'abord un scan depuis l'onglet Découverte.",
+    };
+  }
+  const cloudDeviceId = cloudIdOf(device);
+  const ip = String(rawIp || '').trim();
+
+  if (!ip) {
+    // Clearing the field hands the device back to the automatic detection.
+    await writeStoreEntry('device_addresses', cloudDeviceId, null);
+    forgetLastScan();
+    const republished = await publishDevices().catch(() => []);
+    const updated = republished.find((entry) => entry.external_id === device.external_id);
+    const found = updated && reportLineIp(updated);
+    return found
+      ? {
+          en: `Manual address removed for "${device.name}". The scan found it at ${found}.`,
+          fr: `Adresse manuelle supprimée pour « ${device.name} ». Le scan l'a trouvé à ${found}.`,
+        }
+      : {
+          en: `Manual address removed for "${device.name}", but the scan does not see it: it has no address now.`,
+          fr: `Adresse manuelle supprimée pour « ${device.name} », mais le scan ne le voit pas : il n'a plus d'adresse.`,
+        };
+  }
+
+  if (!isValidAddress(ip)) {
+    return {
+      en: `"${ip}" is not an IP address. Expected something like 192.168.1.42.`,
+      fr: `« ${ip} » n'est pas une adresse IP. Attendu : quelque chose comme 192.168.1.42.`,
+    };
+  }
+
+  // Saved whatever the probe says — the device may simply be asleep — but the
+  // user is told at once when nothing answers at that address.
+  const ports = [443, 554, 2020, 8800];
+  const outcomes = await Promise.all(ports.map((port) => probePort(ip, port)));
+  const answers = outcomes.some((outcome) => outcome === 'open');
+
+  await writeStoreEntry('device_addresses', cloudDeviceId, ip);
+  // Re-published so the address reaches the device params (and CAMERA_URL,
+  // which the live view reads) right away.
+  await publishDevices().catch((e) =>
+    logger.warn(`Re-publish after saving the address failed: ${e.message}`),
+  );
+  const updated = (await findDevice(externalId)) || device;
+  watcher.dropOnvif(updated);
+  watcher
+    .setupOnvif(updated)
+    .catch((e) => logger.debug(`ONVIF setup after saving the address failed: ${e.message}`));
+
+  if (!answers) {
+    return {
+      en: `Address ${ip} saved for "${device.name}", but nothing answers there right now. Check the address in the Tapo app (device settings > Device info), and that the device is powered on and on the same network as Gladys.`,
+      fr: `Adresse ${ip} enregistrée pour « ${device.name} », mais rien ne répond à cette adresse pour l'instant. Vérifiez-la dans l'application Tapo (paramètres de l'appareil > Infos sur l'appareil), et que l'appareil est allumé et sur le même réseau que Gladys.`,
+    };
+  }
+  return reportTestCapture(updated, {
+    en: `Address ${ip} saved for "${device.name}".`,
+    fr: `Adresse ${ip} enregistrée pour « ${device.name} ».`,
+  });
+});
+
+/**
+ * The address a published device ended up with.
+ * @param {object} device - The published device.
+ * @returns {string} The address, or ''.
+ * @example
+ * reportLineIp(device);
+ */
+function reportLineIp(device) {
+  return (device.params || []).find((param) => param.name === DEVICE_PARAMS.IP)?.value || '';
+}
+
+// --- Manifest action: save the camera account of one camera ------------------
+// A dedicated mini-form beats asking the user to type `name|user|password` into
+// a single box: the camera is picked from a list, and the account is stored as
+// JSON against its cloud id — so a password may hold commas or spaces, and the
+// account survives renaming the camera.
+gladys.onAction('set_camera_account', async (fields) => {
+  const { device: externalId, username, password } = fields || {};
+  const device = await findDevice(externalId);
+  if (!device) {
+    return {
+      en: 'Pick a camera in the list. If it is empty, run a scan from the Discover tab first.',
+      fr: "Choisissez une caméra dans la liste. Si elle est vide, lancez d'abord un scan depuis l'onglet Découverte.",
+    };
+  }
+  const cloudDeviceId = cloudIdOf(device);
+  const user = String(username || '').trim();
+
+  if (!user && !password) {
+    await writeStoreEntry('camera_account_store', cloudDeviceId, null);
+  } else if (!user || !password) {
+    return {
+      en: 'Fill in both the username and the password of the camera account (or leave both empty to remove it).',
+      fr: "Renseignez l'identifiant et le mot de passe du compte caméra (ou laissez les deux vides pour le supprimer).",
+    };
+  } else {
+    await writeStoreEntry('camera_account_store', cloudDeviceId, { username: user, password });
+  }
+
+  // The account feeds the RTSP URL (live view), the PTZ client and ONVIF: all
+  // three are rebuilt. A client still holding the previous credentials would
+  // otherwise keep failing until the next restart.
+  ptzClients.delete(device.external_id);
+  forgetRefusedCredentials();
+  await publishDevices().catch((e) =>
+    logger.warn(`Re-publish after saving the account failed: ${e.message}`),
+  );
+  const updated = (await findDevice(externalId)) || device;
+  watcher.dropOnvif(updated);
+  watcher
+    .setupOnvif(updated)
+    .catch((e) => logger.debug(`ONVIF setup after saving the account failed: ${e.message}`));
+
+  if (!user && !password) {
+    return {
+      en: `Camera account removed for "${device.name}": the default account (or the Tapo protocol) is used again.`,
+      fr: `Compte caméra supprimé pour « ${device.name} » : le compte par défaut (ou le protocole Tapo) est de nouveau utilisé.`,
+    };
+  }
+  return reportTestCapture(updated, {
+    en: `Account saved for "${device.name}".`,
+    fr: `Compte enregistré pour « ${device.name} ».`,
+  });
 });
 
 // --- Manifest action: refresh every image ------------------------------------

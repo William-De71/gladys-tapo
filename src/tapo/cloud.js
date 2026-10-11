@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { logger } from '@gladysassistant/integration-sdk';
 import { CLOUD_APP_TYPE, CAMERA_DEVICE_TYPE_PATTERNS } from './constants.js';
+import { normalizeMac } from './discovery.js';
 
 /** The cloud token expires; refresh it a little before the hour it lasts. */
 const TOKEN_TTL_MS = 50 * 60 * 1000;
@@ -232,10 +233,13 @@ export class TapoCloud {
         cloudDeviceId: cloudDevice.deviceId,
         name,
         model: cloudDevice.deviceModel || '',
-        // `ip` is only present on some firmwares; `parseCameraIps` fills the gap.
-        ip: cloudDevice.ip || config.camera_ips[name.toLowerCase()] || '',
-        // Reachability as the cloud sees it, useful to explain a failed capture.
-        online: cloudDevice.status === 1 || cloudDevice.status === undefined,
+        // Rarely present: the cloud does not report local addresses for these
+        // devices. The address is resolved afterwards (see `resolveAddress`).
+        ip: cloudDevice.ip || '',
+        // What a discovery reply is matched on: the MAC is the one identifier
+        // the cloud and the device both state in clear.
+        mac: normalizeMac(cloudDevice.deviceMac),
+        deviceType: cloudDevice.deviceType || '',
       };
     });
     logger.info(`${cameras.length} Tapo camera(s) found in the cloud`);

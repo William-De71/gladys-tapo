@@ -25,8 +25,8 @@ import {
   buildRtspUrl,
   hasOnvif,
 } from './tapo/rtsp.js';
-import { hasRtspAccount, resolveRtspAccount } from './config.js';
-import { discoverLocalAddresses } from './tapo/discovery.js';
+import { hasRtspAccount, resolveRtspAccount, manualAddressFor } from './config.js';
+import { discoverDevices, indexByMac, normalizeMac } from './tapo/discovery.js';
 import { TapoLocalApi } from './tapo/localApi.js';
 import {
   EXTERNAL_ID_TYPE,
@@ -336,7 +336,7 @@ export function buildFeatures(gladys, camera) {
  */
 export async function probePtz(camera, config) {
   const empty = { movements: [], presets: [] };
-  const account = resolveRtspAccount(config, camera.name);
+  const account = resolveRtspAccount(config, camera);
   if (!camera.ip || !camera.hasOnvif || !account.username || !account.password) {
     return empty;
   }
@@ -386,7 +386,7 @@ export async function probePtz(camera, config) {
  * const hasButton = await probeDoorbell(camera, config);
  */
 export async function probeDoorbell(camera, config) {
-  const account = resolveRtspAccount(config, camera.name);
+  const account = resolveRtspAccount(config, camera);
   if (!camera.ip || !camera.hasOnvif || !account.username || !account.password) {
     // Nothing was asked, so nothing is known — notably the battery models, whose
     // events travel through the cloud and never through ONVIF.
@@ -423,6 +423,8 @@ export function buildDevice(gladys, camera) {
     params: [
       { name: DEVICE_PARAMS.CLOUD_DEVICE_ID, value: camera.cloudDeviceId },
       { name: DEVICE_PARAMS.IP, value: camera.ip || '' },
+      { name: DEVICE_PARAMS.IP_SOURCE, value: camera.ipSource || '' },
+      { name: DEVICE_PARAMS.MAC, value: camera.mac || '' },
       { name: DEVICE_PARAMS.MODEL, value: camera.model || '' },
       { name: DEVICE_PARAMS.CAPTURE_MODE, value: camera.captureMode || '' },
       // The live view of the dashboard widget calls the rtsp-camera service,
@@ -630,9 +632,12 @@ export async function resolveCamera(cloudCamera, config, knownHasEvents = false)
   }
 
   if (!camera.ip) {
-    // Nothing to probe: the cloud reported no address and none was configured.
+    // Nothing to probe: neither the scan nor the user gave an address. Said in
+    // the user's terms, with the one fix that always works.
     logger.warn(
-      `"${camera.name}" (${camera.model}) has no known local address. Add it under "Camera addresses" as "${camera.name}|192.168.x.y".`,
+      `"${camera.name}" (${camera.model}) was not found on the local network. ` +
+        `Run the "Set a device IP address" action and pick "${camera.name}" ` +
+        `(its address is in the Tapo app: device settings > Device info).`,
     );
     return camera;
   }
@@ -686,7 +691,7 @@ export async function resolveCamera(cloudCamera, config, knownHasEvents = false)
   // Only an RTSP camera can feed the live view: the rtsp-camera service hands the
   // URL straight to ffmpeg, so the proprietary protocol — which needs an
   // encrypted session this integration owns — cannot be expressed as a URL.
-  if (camera.captureMode === CAPTURE_MODES.RTSP && hasRtspAccount(config, camera.name)) {
+  if (camera.captureMode === CAPTURE_MODES.RTSP && hasRtspAccount(config, camera)) {
     camera.streamUrl = buildRtspUrl(camera, config);
   }
 
@@ -701,6 +706,67 @@ export async function resolveCamera(cloudCamera, config, knownHasEvents = false)
 }
 
 /**
+ * Decide the local address of one device, and say where it came from.
+ *
+ * Order of trust:
+ *   1. what the user entered (the action, then the manual field) — they did so
+ *      precisely because the automatic answer did not suit;
+ *   2. the network scan, matched on the MAC address;
+ *   3. an address the cloud reported (rare);
+ *   4. the address the device had at the last publish. A scan that fails or
+ *      is rate-limited says nothing about the device, and republishing used to
+ *      blank the address of every camera in that case — the
+ *      `TAPO_CAMERA_IP_UNKNOWN` reports on the forum.
+ * @param {object} cloudDevice - The device as the cloud lists it.
+ * @param {object} config - The normalized configuration.
+ * @param {Map<string, object>} scannedByMac - Scan results by MAC.
+ * @param {object} [known] - The Gladys device already published, if any.
+ * @returns {{ ip: string, source: string|null }} The address and its origin.
+ * @example
+ * resolveAddress(cloudDevice, config, byMac, known);
+ */
+export function resolveAddress(cloudDevice, config, scannedByMac, known) {
+  const manual = manualAddressFor(config, cloudDevice);
+  if (manual) {
+    return { ip: manual, source: 'manual' };
+  }
+  const scanned = cloudDevice.mac ? scannedByMac.get(cloudDevice.mac) : null;
+  if (scanned && scanned.ip) {
+    return { ip: scanned.ip, source: 'scan' };
+  }
+  if (cloudDevice.ip) {
+    return { ip: cloudDevice.ip, source: 'cloud' };
+  }
+  const previous = known ? getParam(known, DEVICE_PARAMS.IP) : null;
+  // Only an address that was not typed by hand: a manual one the user has since
+  // removed must not survive through this fallback.
+  const previousSource = known ? getParam(known, DEVICE_PARAMS.IP_SOURCE) : null;
+  if (previous && previousSource !== 'manual') {
+    return { ip: previous, source: 'previous' };
+  }
+  return { ip: '', source: null };
+}
+
+/**
+ * Index the devices Gladys already has by cloud device id.
+ * @param {object[]} devices - The Gladys devices.
+ * @returns {Map<string, object>} The devices, by upper-cased cloud device id.
+ * @example
+ * indexKnownDevices(await gladys.getDevices());
+ */
+export function indexKnownDevices(devices) {
+  const byId = new Map();
+  (devices || []).forEach((device) => {
+    const id =
+      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    if (id) {
+      byId.set(String(id).toUpperCase(), device);
+    }
+  });
+  return byId;
+}
+
+/**
  * Resolve every cloud camera and build the devices to publish.
  * @param {object} gladys - The SDK instance, which namespaces the ids.
  * @param {object[]} cloudCameras - The cameras returned by the cloud.
@@ -710,20 +776,32 @@ export async function resolveCamera(cloudCamera, config, knownHasEvents = false)
  * const devices = await buildDiscoveredDevices(gladys, cameras, config);
  */
 export async function buildDiscoveredDevices(gladys, cloudCameras, config) {
-  // The cloud knows WHICH cameras exist but not WHERE they are, so the local
-  // addresses come from a network scan. A manual address stays authoritative:
-  // the user typed it precisely because automatic detection did not suit.
-  const discovered = await discoverLocalAddresses(gladys);
-  const located = cloudCameras.map((cloudCamera) => ({
-    ...cloudCamera,
-    ip: cloudCamera.ip || discovered.get(String(cloudCamera.cloudDeviceId).toUpperCase()) || '',
-  }));
+  // The cloud knows WHICH devices exist but not WHERE they are: the addresses
+  // come from the user, then from a network scan matched on the MAC.
+  const [found, knownDevices] = await Promise.all([
+    discoverDevices(gladys),
+    gladys.getDevices().catch((e) => {
+      logger.debug(`Listing the known devices failed: ${e.message}`);
+      return [];
+    }),
+  ]);
+  const byMac = indexByMac(found);
+  const knownById = indexKnownDevices(knownDevices);
+
+  const located = cloudCameras.map((cloudCamera) => {
+    const id = String(cloudCamera.cloudDeviceId).toUpperCase();
+    const known = knownById.get(id);
+    const mac = cloudCamera.mac || normalizeMac(known && getParam(known, DEVICE_PARAMS.MAC));
+    const withMac = { ...cloudCamera, mac };
+    const { ip, source } = resolveAddress(withMac, config, byMac, known);
+    return { ...withMac, ip, ipSource: source };
+  });
 
   // What Gladys ALREADY knows about these cameras, so a probe that cannot run
   // does not strip a capability the camera demonstrably had. Republishing is a
   // refresh, not a reset: only an answer from the camera should take a feature
   // away.
-  const known = await knownEventCameras(gladys);
+  const known = knownEventCameras(knownDevices);
 
   // Probing is I/O bound and independent per camera, so resolve them together.
   const cameras = await Promise.all(
@@ -740,18 +818,14 @@ export async function buildDiscoveredDevices(gladys, cloudCameras, config) {
  * Read from the devices themselves rather than kept in memory: the discovery
  * runs on a fresh process too, and that is precisely the case where the
  * information would otherwise be lost.
- * @param {object} gladys - The SDK instance.
- * @returns {Promise<Set<string>>} The ids, uppercased.
+ * @param {object[]} devices - The devices Gladys holds for this integration.
+ * @returns {Set<string>} The ids, uppercased.
  * @example
- * const known = await knownEventCameras(gladys);
+ * const known = knownEventCameras(await gladys.getDevices());
  */
-export async function knownEventCameras(gladys) {
-  const devices = await gladys.getDevices().catch((e) => {
-    logger.debug(`Listing the known devices failed: ${e.message}`);
-    return [];
-  });
+export function knownEventCameras(devices) {
   const known = new Set();
-  devices.forEach((device) => {
+  (devices || []).forEach((device) => {
     const hasEventFeature = (device.features || []).some(
       (feature) =>
         feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR ||
@@ -791,14 +865,17 @@ export async function cameraFromDevice(device, config) {
     captureMode: getParam(device, DEVICE_PARAMS.CAPTURE_MODE) || null,
   };
 
-  // The user may have typed the address by hand after creating the device. The
-  // device can also have been renamed in Gladys since, so the cloud device id is
-  // accepted as a key too — the only name that never changes.
-  if (!camera.ip) {
-    camera.ip =
-      config.camera_ips[camera.name.toLowerCase()] ||
-      config.camera_ips[String(cloudDeviceId).toLowerCase()] ||
-      '';
+  // An address the user entered wins over the one stored on the device: the
+  // action re-publishes right after saving, but a capture may land in between,
+  // and the field can be edited without any re-publish at all. Looked up by
+  // cloud id, MAC and name, so a device renamed in Gladys keeps it.
+  const manual = manualAddressFor(config, {
+    cloudDeviceId,
+    name: camera.name,
+    mac: getParam(device, DEVICE_PARAMS.MAC),
+  });
+  if (manual) {
+    camera.ip = manual;
   }
 
   if (!camera.captureMode && camera.ip) {

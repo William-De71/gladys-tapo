@@ -6,9 +6,9 @@ This integration adds your **TP-Link Tapo** cameras and doorbells to Gladys: the
 
 Two channels, each doing what it is good at:
 
-- **The TP-Link cloud** is used to find the list of your cameras and to report their events (ring, motion, battery). It is the same account as in the Tapo app. It does **not**, however, report the local address of the cameras.
-- **A scan of your network** then locates each camera, exactly like the Tapo app does on startup. This is what saves you from typing any IP address.
-- **Your local network** delivers the images. They never travel through the cloud: Gladys talks to the camera directly, at your home.
+- **The TP-Link cloud** is used to find the list of your cameras. It is the same account as in the Tapo app. It does **not**, however, report the local address of the cameras.
+- **A scan of your network** then locates each camera, exactly like the Tapo app does on startup. In most setups this saves you from typing any IP address (see [Your cameras' IP address](#your-cameras-ip-address) when it does not).
+- **Your local network** delivers everything else: images, doorbell, motion, battery. None of it travels through the cloud: Gladys talks to the camera directly, at your home.
 
 To capture an image, the integration automatically picks one of two modes, depending on what the camera accepts:
 
@@ -37,21 +37,54 @@ If your cameras are wired (C100, C200, C210, C500…), RTSP is the better mode: 
 Beware: this camera account is **not** your Tapo account, and it is created **per camera**. Two ways to fill it in:
 
 - if you used the **same credentials** on every camera, simply fill the **Default account username / password** fields;
-- otherwise fill in **Accounts per camera**, separating cameras with a **comma**, each in the form `name|username|password`:
+- otherwise, once the cameras are added (step 3), use the **Save a camera account** action at the bottom of the Configuration screen: pick the camera in the list, type the username and the password, run it. Gladys tries a capture right away and tells you whether the account works. Repeat for each camera.
 
-```
-Camera_jardin|gladys|MyPassword, Camera_salon|gladys|OtherPassword
-```
+Per-camera accounts take precedence over the default one, and stay attached to the camera even if you rename it. If you leave everything empty, the integration will use the proprietary mode for every camera.
 
-The input is a single line, so the comma is what separates the cameras. A password containing a comma must therefore go in the default fields. Use the camera name exactly as it appears in the Tapo app. These accounts take precedence over the default one. If you leave everything empty, the integration will use the proprietary mode for every camera.
+The **Accounts per camera (advanced)** field still accepts a typed list (`name|username|password`, comma-separated), but the action is simpler and accepts any password, commas included.
 
 On some models you also need to enable **Third-Party Compatibility** (in the Tapo app, under _Me_ → _Tapo Lab_) before the RTSP stream becomes reachable.
 
 ### 3. Run a scan
 
-Click **Test the connection** to check that your credentials are accepted: Gladys reports how many cameras were found and how many answer on your network.
+Click **Test the connection**: Gladys logs in to the cloud, scans your network and prints **one line per camera** — its address, where that address came from, and how the image will be captured:
+
+```
+Connected to the Tapo cloud: 3 device(s), 2 reachable on your network.
+✔ Living room (C230): 192.168.1.20 (found on the network), images over RTSP
+✔ Garage (C210): 192.168.1.21 (found on the network), images over RTSP
+✖ Garden (C660): not found on your network → run "Set a device IP address" below.
+```
 
 Then go to the **Discover** screen and run a scan. Your cameras show up there, ready to be added. Once created, add the **Camera** widget to your dashboard.
+
+If a camera is marked ✖, read on.
+
+## Your cameras' IP address
+
+To get the images, Gladys needs the **local IP address** of each camera (for example `192.168.1.42`). The TP-Link cloud does not provide it: the integration finds it by scanning your network, and recognizes each camera by its MAC address.
+
+### When the scan does not find a camera
+
+That happens when the camera is on **another subnet or VLAN** than Gladys, or when your router **filters broadcast** traffic. The fix:
+
+1. In the Tapo app, open the camera, then **Settings** (gear icon) → **Device info**: the **IP address** is shown there.
+2. In Gladys, on the integration's **Configuration** screen, scroll down to the **Set a device IP address** action.
+3. Pick the camera in the list, type its address, run it.
+
+Gladys checks right away that something answers at that address, captures an image and tells you whether everything works. The address is attached to the camera itself: it stays valid if you rename the camera, in Gladys or in the Tapo app.
+
+To go back to automatic detection, run the action again with an **empty** address.
+
+> **Tip** — reserve each camera's address in your router ("DHCP reservation" or "static lease"). Otherwise the router may hand it another one after an outage, and a typed address would become wrong.
+
+### What about the cloud, without an IP address?
+
+Not possible. TP-Link offers third-party applications **no way** to fetch a camera's image or stream over the Internet: the Tapo app goes through relay servers reserved for its own use. Every existing integration — Home Assistant's included — therefore works over the local network, which is also what guarantees your images never leave your home.
+
+### The "Manual addresses (advanced)" field
+
+It is still there for typing addresses by hand: comma-separated entries, each as `name|ip` (or `name=ip`), for example `Garden camera|192.168.1.42, Living room|192.168.1.43`. The name is matched without regard to case, accents, spaces or underscores, and may also be the camera's MAC address. The action above remains safer: no name to copy, and the address is checked.
 
 ## What battery cameras do — and do not do
 
@@ -147,7 +180,7 @@ One note on speed: Tapo firmwares largely ignore the requested speed and derive 
 ## Options
 
 - **Image quality** — HD gives a sharper image, SD is lighter and faster to capture.
-- **Camera addresses** — only needed when the cloud does not report the local address of a camera. One per line, in the form `name|ip`.
+- **Manual addresses (advanced)** — see [Your cameras' IP address](#your-cameras-ip-address); the **Set a device IP address** action is simpler.
 - **Event check interval** — how often the integration looks for a ring or a motion. Shorter reacts faster but talks to your cameras more often. This setting only affects cameras without ONVIF: those that use it tell Gladys on their own, with nothing to wait for.
 - **Capture timeout** — how long a camera is given to deliver an image.
 
@@ -157,7 +190,9 @@ The **Refresh the images** action forces a new capture of every camera, handy to
 
 **"Connection refused"** — check the email and password of your Tapo account. Two-step verification on your TP-Link account prevents this login.
 
-**A camera is found but does not answer locally** — the integration logs state which case you hit: unknown address, or no port answering. If the scan does not locate it (another VLAN, broadcast filtered by your router), type its address into the **Camera addresses** field: it always wins.
+**The widget stays empty, the logs show `TAPO_CAMERA_IP_UNKNOWN`** — Gladys does not know the camera's address: the scan did not find it. Run **Test the connection** to see which cameras are affected, then follow [When the scan does not find a camera](#when-the-scan-does-not-find-a-camera).
+
+**A camera has an address but does not answer** — **Test the connection** flags it with a ⚠ and says where the address came from. Check that the camera is powered on, on the same network as Gladys, and that **Third-Party Compatibility** is enabled in the Tapo app. If the address changed (no DHCP reservation), fix it with the **Set a device IP address** action.
 
 **The widget shows an error even though the camera answers** — if the camera uses RTSP, make sure its camera account is filled in. This is by far the most common cause: the logs then show `TAPO_RTSP_ACCOUNT_MISSING`. Remember that this account is specific to each camera.
 

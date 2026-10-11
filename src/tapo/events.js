@@ -311,7 +311,7 @@ export class EventWatcher {
 
     // The CAMERA account, not the Tapo one: ONVIF authenticates against the
     // credentials created per camera in the app.
-    const account = resolveRtspAccount(this.config, device.name);
+    const account = resolveRtspAccount(this.config, { name: device.name, cloudDeviceId });
     if (!account.username || !account.password) {
       logger.debug(`No camera account for "${device.name}", ONVIF events unavailable`);
       return false;

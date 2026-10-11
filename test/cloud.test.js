@@ -126,6 +126,7 @@ test('the camera list is normalized, non-cameras dropped', async () => {
             deviceModel: 'C210',
             alias: Buffer.from('Jardin', 'utf-8').toString('base64'),
             ip: '192.168.1.20',
+            deviceMac: '28EE52000001',
             status: 1,
           },
           { deviceId: 'ID2', deviceType: 'SMART.TAPOPLUG', alias: 'UGx1Zw==' },
@@ -141,40 +142,9 @@ test('the camera list is normalized, non-cameras dropped', async () => {
       name: 'Jardin',
       model: 'C210',
       ip: '192.168.1.20',
-      online: true,
+      mac: '28EE52000001',
+      deviceType: 'SMART.IPCAMERA',
     });
-  } finally {
-    fetchStub.restore();
-  }
-});
-
-test('a camera without a cloud IP falls back to the manual address', async () => {
-  // Some firmwares never report the IP; the config field is the only source then.
-  const withIps = normalizeConfig({
-    email: 'a@b.c',
-    password: 'x',
-    camera_ips: 'Sonnette|192.168.1.42',
-  });
-  const fetchStub = stubFetch((url, options) => {
-    if (JSON.parse(options.body).method === 'login') {
-      return { error_code: 0, result: { token: 'tok' } };
-    }
-    return {
-      error_code: 0,
-      result: {
-        deviceList: [
-          {
-            deviceId: 'ID1',
-            deviceType: 'SMART.IPCAMERA',
-            alias: Buffer.from('Sonnette', 'utf-8').toString('base64'),
-          },
-        ],
-      },
-    };
-  });
-  try {
-    const cameras = await new TapoCloud().getCameras(withIps);
-    assert.equal(cameras[0].ip, '192.168.1.42');
   } finally {
     fetchStub.restore();
   }

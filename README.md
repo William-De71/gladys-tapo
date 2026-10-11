@@ -6,7 +6,7 @@ External integration bringing **TP-Link Tapo** cameras and doorbells to [Gladys 
 
 ## What it does
 
-- **Discovery** through the TP-Link cloud: your cameras are listed automatically, no IP address to type.
+- **Discovery** through the TP-Link cloud, then a **network scan** (TDP probe on UDP 20002, relayed by the core) matched on the MAC address locates each device. A device the scan cannot see (other subnet, filtered broadcast) gets its address from the "Set a device IP address" action — picked from a list, stored against its cloud id.
 - **Images captured locally**, never through the cloud, in one of two modes picked per camera:
   - **RTSP** when the camera exposes a stream (needs a camera account created in the Tapo app);
   - **the TP-Link proprietary protocol** (TCP 8800) for the models that expose no RTSP stream, typically the battery doorbells.
@@ -18,11 +18,16 @@ External integration bringing **TP-Link Tapo** cameras and doorbells to [Gladys 
 ```
 index.js                    SDK wiring: handlers, actions, lifecycle
 src/
-  config.js                 defaults, normalization, free-text parsing
-  devices.js                cameras -> Gladys devices and features
+  config.js                 defaults, normalization, free-text parsing, action stores
+  devices.js                cameras -> Gladys devices and features, address resolution
+  report.js                 per-device connection report and status messages
   tapo/
     constants.js            protocol values and device params
     cloud.js                TP-Link cloud client (login, camera list)
+    discovery.js            TDP network scan (UDP 20002), MAC matching, scan cache
+    localApi.js             camera local API (HTTPS 443): battery, detections, privacy
+    ptz.js                  ONVIF PTZ (pan/tilt/zoom steps, presets)
+    batteryGuard.js         capture/poll throttling for battery cameras
     rtsp.js                 RTSP URL + capture mode detection (port probing)
     onvif.js                ONVIF pull point events (port 2020), motion pushed
     snapshot.js             ffmpeg capture, both modes, size-bounded
@@ -78,7 +83,7 @@ Probing port 2020 is also what gives a WIRED camera a motion sensor: those have 
 
 The two paths never run together on the same camera: they report the same detections, so a camera covered by ONVIF is skipped by the polled path entirely — otherwise every motion would fire its scene twice. The battery level keeps being read either way, since ONVIF does not carry it.
 
-The SOAP is written out by hand rather than pulled from a WSDL stack: the integration makes three calls (`GetCapabilities`, `CreatePullPointSubscription`, `PullMessages`) out of a standard covering hundreds. Two things measured on a C210 and worth keeping in mind: device management is served on `/onvif/device_service` but every other service, Events included, on `/onvif/service` — so the address is read from the capabilities rather than assumed; and `UtcTime` is an attribute of `<tt:Message>`, not an element.
+The SOAP is written out by hand rather than pulled from a WSDL stack: the integration makes a handful of calls (`GetDeviceInformation`, `GetCapabilities`, `GetEventProperties`, `CreatePullPointSubscription`, `PullMessages`, `Unsubscribe`) out of a standard covering hundreds. Two things measured on a C210 and worth keeping in mind: device management is served on `/onvif/device_service` but every other service, Events included, on `/onvif/service` — so the address is read from the capabilities rather than assumed; and `UtcTime` is an attribute of `<tt:Message>`, not an element.
 
 ## License
 

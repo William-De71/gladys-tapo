@@ -237,6 +237,18 @@ export const DISCOVERY_PORT = 20002;
 /** How long the core listens for discovery replies. */
 export const DISCOVERY_TIMEOUT_SECONDS = 5;
 
+/**
+ * How long a network scan result is reused.
+ *
+ * The core allows one scan every ten seconds per integration and refuses the
+ * next with 429; a configuration save and the re-publish it triggers would
+ * otherwise race for it.
+ */
+export const DISCOVERY_CACHE_MS = 60 * 1000;
+
+/** Largest probe the core agrees to broadcast (spec B.16). */
+export const DISCOVERY_MAX_PAYLOAD_BYTES = 512;
+
 // --- Device params stored on each Gladys device -------------------------------
 
 export const DEVICE_PARAMS = {
@@ -264,6 +276,19 @@ export const DEVICE_PARAMS = {
    * no extra call to the camera.
    */
   PRESET_TOKENS: 'TAPO_PRESET_TOKENS',
+  /**
+   * MAC address, twelve hex digits. The one identifier a discovery reply and the
+   * cloud list share in clear, so it is what re-locates a device whose address
+   * changed.
+   */
+  MAC: 'TAPO_MAC',
+  /**
+   * Where the current address came from: `manual`, `scan`, `cloud` or
+   * `previous` (kept from the last publish because nothing newer was found).
+   * Shown in the connection test, which is how a user learns why an address is
+   * what it is.
+   */
+  IP_SOURCE: 'TAPO_IP_SOURCE',
 };
 
 /** How the image of a camera is captured. */

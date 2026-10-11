@@ -6,8 +6,15 @@
 // `gladys.onConfigUpdated()`.
 //
 // This module provides the defaults, normalizes the received object (a numeric
-// field arrives as a string from the form), and parses the one free-text field
-// the manifest cannot express structurally: the manual camera addresses.
+// field arrives as a string from the form), and parses the free-text fields the
+// manifest cannot express structurally (manual addresses and camera accounts).
+//
+// Two more keys live OUTSIDE the schema, written by the configuration actions
+// rather than typed by the user (the spec allows an integration free storage
+// under keys the schema does not declare): `device_addresses` and
+// `camera_account_store`. Both are JSON objects keyed by the CLOUD DEVICE ID —
+// the one identifier that survives a rename in Gladys, a rename in the Tapo app
+// and an IP change — which is what makes them more robust than the text fields.
 // -----------------------------------------------------------------------------
 
 import {
@@ -62,13 +69,56 @@ function splitEntries(raw) {
 }
 
 /**
- * Parse the "camera addresses" field: one `name|ip` pair per line. The name is
- * lower-cased so an address entered as "Sonnette" still matches the camera the
- * cloud reports as "sonnette".
- * @param {unknown} raw - The raw field value.
- * @returns {Record<string, string>} IPs indexed by lower-cased camera name.
+ * Reduce a device name to what a person means by it.
+ *
+ * Names reach this code from three places that spell them differently: the
+ * cloud alias (sometimes in decomposed Unicode, "e" + combining accent), what
+ * the user typed (composed "é", maybe another case, spaces where the app shows
+ * underscores) and the Gladys device name. Comparing them raw is how an
+ * address typed for "Tapo_C230_Salon" could fail to match the camera of the
+ * same name. Case, accents, and runs of spaces, underscores and dashes are not
+ * what tells two devices apart.
+ * @param {unknown} name - The name.
+ * @returns {string} The comparable form.
  * @example
- * parseCameraIps('sonnette|192.168.1.42'); // { sonnette: '192.168.1.42' }
+ * normalizeName('Tapo_C660  Façade'); // 'tapo c660 facade'
+ */
+export function normalizeName(name) {
+  return String(name ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[\s_-]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Normalize a MAC address to twelve uppercase hex digits, or null.
+ * @param {unknown} value - The candidate.
+ * @returns {string|null} The MAC, or null when the value is not one.
+ * @example
+ * macKey('28:ee:52:00:00:01'); // '28EE52000001'
+ */
+function macKey(value) {
+  const text = String(value ?? '').trim();
+  if (!/^[0-9a-f]{2}([-:]?[0-9a-f]{2}){5}$/i.test(text)) {
+    return null;
+  }
+  return text.replace(/[-:]/g, '').toUpperCase();
+}
+
+/**
+ * Parse the "manual addresses" field: `name|ip` entries, separated by commas
+ * (or new lines).
+ *
+ * `=` is accepted as well as `|`, since it is what people reach for. The left
+ * side may be the device name (compared through `normalizeName`), its cloud
+ * device id, or its MAC address. Keys are stored in their comparable form;
+ * a MAC under `mac:<HEX>`.
+ * @param {unknown} raw - The raw field value.
+ * @returns {Record<string, string>} IPs indexed by comparable key.
+ * @example
+ * parseCameraIps('Sonnette|192.168.1.42'); // { sonnette: '192.168.1.42' }
  */
 export function parseCameraIps(raw) {
   /** @type {Record<string, string>} */
@@ -76,17 +126,63 @@ export function parseCameraIps(raw) {
   splitEntries(raw).forEach((line) => {
     // Only the FIRST separator splits: splitting on all of them would silently
     // truncate a malformed entry instead of ignoring it.
-    const separator = line.indexOf('|');
+    const separator = line.search(/[|=]/);
     if (separator <= 0) {
       return;
     }
-    const name = line.slice(0, separator).trim().toLowerCase();
+    const left = line.slice(0, separator).trim();
     const ip = line.slice(separator + 1).trim();
-    if (name && ip) {
-      ips[name] = ip;
+    if (!left || !ip) {
+      return;
     }
+    const mac = macKey(left);
+    ips[mac ? `mac:${mac}` : normalizeName(left)] = ip;
   });
   return ips;
+}
+
+/**
+ * Find the address the user entered for one device, in the action store first,
+ * then in the manual field.
+ * @param {object} config - The normalized configuration.
+ * @param {object} device - What is known of the device.
+ * @param {string} [device.cloudDeviceId] - The cloud device id.
+ * @param {string} [device.name] - Its name (cloud or Gladys).
+ * @param {string} [device.mac] - Its MAC address.
+ * @returns {string} The address, or '' when none was entered.
+ * @example
+ * manualAddressFor(config, { cloudDeviceId: '8022...', name: 'Salon' });
+ */
+export function manualAddressFor(config, { cloudDeviceId, name, mac } = {}) {
+  const id = String(cloudDeviceId || '').toUpperCase();
+  if (id && config.device_addresses?.[id]) {
+    return config.device_addresses[id];
+  }
+  const ips = config.camera_ips || {};
+  const macEntry = mac ? ips[`mac:${macKey(mac) || ''}`] : undefined;
+  return (id && ips[normalizeName(id)]) || macEntry || (name && ips[normalizeName(name)]) || '';
+}
+
+/**
+ * Parse one of the off-schema JSON stores, tolerating anything unusable.
+ * @param {unknown} raw - The stored value (a JSON string, or already an object).
+ * @returns {Record<string, any>} The object, empty when unreadable.
+ * @example
+ * parseStore('{"ID1":"192.168.1.2"}');
+ */
+export function parseStore(raw) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw;
+  }
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -99,8 +195,9 @@ export function parseCameraIps(raw) {
  *
  * The password is taken as the rest of the entry, so it may legitimately contain
  * a `|`; only the first two separators split. It cannot, however, contain a
- * comma, which separates the entries — the documentation says so, and the global
- * account fields remain available for such a password.
+ * comma, which separates the entries, nor start or end with a space, since each
+ * entry is trimmed — the "Save a camera account" action stores any password
+ * as is, and is the way to go for those.
  * @param {unknown} raw - The raw field value.
  * @returns {Record<string, { username: string, password: string }>} Accounts
  * indexed by lower-cased camera name.
@@ -119,9 +216,8 @@ export function parseCameraAccounts(raw) {
     if (second === -1) {
       return;
     }
-    const name = line.slice(0, first).trim().toLowerCase();
+    const name = normalizeName(line.slice(0, first));
     const username = line.slice(first + 1, second).trim();
-    // Never trimmed: a password may legitimately start or end with a space.
     const password = line.slice(second + 1);
     if (name && username && password) {
       accounts[name] = { username, password };
@@ -193,7 +289,24 @@ export function normalizeConfig(raw = {}) {
     battery_resume: numberOrDefault(raw.battery_resume, 'battery_resume'),
     camera_ips: parseCameraIps(raw.camera_ips),
     camera_accounts: parseCameraAccounts(raw.camera_accounts),
+    // Written by the actions, keyed by cloud device id (see the header).
+    device_addresses: upperKeys(parseStore(raw.device_addresses)),
+    camera_account_store: upperKeys(parseStore(raw.camera_account_store)),
   };
+}
+
+/**
+ * Upper-case the keys of a store, so a cloud device id matches whatever case
+ * it was written in.
+ * @param {Record<string, any>} store - The store.
+ * @returns {Record<string, any>} The same entries, keys upper-cased.
+ * @example
+ * upperKeys({ abc: 1 }); // { ABC: 1 }
+ */
+function upperKeys(store) {
+  return Object.fromEntries(
+    Object.entries(store).map(([key, value]) => [key.toUpperCase(), value]),
+  );
 }
 
 /**
@@ -211,17 +324,26 @@ export function isConfigured(config) {
 /**
  * Resolve the camera account to use for one camera.
  *
- * The Tapo app creates that account per camera, so the per-camera entry wins;
- * the global fields act as the default for users who reused the same credentials
- * on every camera.
+ * The Tapo app creates that account per camera, so a per-camera entry wins: the
+ * one saved through the action (keyed by cloud device id, so a renamed camera
+ * keeps it), then the manual field (by name or id). The global fields act as the
+ * default for users who reused the same credentials on every camera.
  * @param {object} config - The normalized configuration.
- * @param {string} cameraName - The camera name, as the cloud reports it.
+ * @param {string|{ name?: string, cloudDeviceId?: string }} camera - The camera,
+ * or just its name.
  * @returns {{ username: string, password: string }} The account, possibly empty.
  * @example
- * resolveRtspAccount(config, 'Camera_jardin');
+ * resolveRtspAccount(config, { name: 'Camera_jardin', cloudDeviceId: '8022...' });
  */
-export function resolveRtspAccount(config, cameraName) {
-  const specific = config.camera_accounts[String(cameraName || '').toLowerCase()];
+export function resolveRtspAccount(config, camera) {
+  const { name, cloudDeviceId } = typeof camera === 'object' && camera ? camera : { name: camera };
+  const id = String(cloudDeviceId || '').toUpperCase();
+  const stored = id ? config.camera_account_store?.[id] : null;
+  if (stored && stored.username && stored.password) {
+    return { username: stored.username, password: stored.password };
+  }
+  const accounts = config.camera_accounts || {};
+  const specific = (id && accounts[normalizeName(id)]) || accounts[normalizeName(name)];
   if (specific) {
     return specific;
   }
@@ -232,12 +354,13 @@ export function resolveRtspAccount(config, cameraName) {
  * Tell whether a camera has usable RTSP credentials. Without them, an RTSP
  * camera cannot be captured — the proprietary protocol is the only fallback.
  * @param {object} config - The normalized configuration.
- * @param {string} [cameraName] - The camera name; omit to test the global account.
+ * @param {string|object} [camera] - The camera (or its name); omit to test the
+ * global account.
  * @returns {boolean} True when RTSP capture is possible.
  * @example
- * hasRtspAccount(config, 'Camera_jardin');
+ * hasRtspAccount(config, camera);
  */
-export function hasRtspAccount(config, cameraName) {
-  const account = resolveRtspAccount(config, cameraName);
+export function hasRtspAccount(config, camera) {
+  const account = resolveRtspAccount(config, camera);
   return Boolean(account.username && account.password);
 }
