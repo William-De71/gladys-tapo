@@ -79,6 +79,20 @@ export function classifyEvent(event) {
   return null;
 }
 
+/**
+ * Tell whether a device carries a feature, by external id suffix.
+ * @param {object} device - The Gladys device.
+ * @param {string} suffix - The feature suffix.
+ * @returns {boolean} True when present.
+ * @example
+ * hasFeature(device, 'enabled');
+ */
+function hasFeature(device, suffix) {
+  return (device.features || []).some((feature) =>
+    String(feature.external_id || '').endsWith(`:${suffix}`),
+  );
+}
+
 export function eventTimestamp(event) {
   const raw = Number(event.start_time ?? event.timestamp ?? event.time ?? event.startTime ?? 0);
   if (!Number.isFinite(raw) || raw <= 0) {
@@ -695,12 +709,20 @@ export class EventWatcher {
       // black frame instead of failing, so the capture path has no way of
       // noticing on its own (see `isPrivacyModeOn`).
       this.privacyModes.set(device.external_id, privacy);
-      await this.gladys
-        .publishState(
-          cameraIds(this.gladys, cloudDeviceId).feature(FEATURE_SUFFIXES.PRIVACY),
-          privacy ? 1 : 0,
-        )
-        .catch(() => {});
+      const ids = cameraIds(this.gladys, cloudDeviceId);
+      // `camera/enabled` is the inverse of the mask: enabled = not masked.
+      if (hasFeature(device, FEATURE_SUFFIXES.ENABLED)) {
+        await this.gladys
+          .publishState(ids.feature(FEATURE_SUFFIXES.ENABLED), privacy ? 0 : 1)
+          .catch(() => {});
+      }
+      // The switch of devices created before 1.3, kept in step until the user
+      // updates the device.
+      if (hasFeature(device, FEATURE_SUFFIXES.PRIVACY)) {
+        await this.gladys
+          .publishState(ids.feature(FEATURE_SUFFIXES.PRIVACY), privacy ? 1 : 0)
+          .catch(() => {});
+      }
     }
 
     // ONVIF already delivered these detections, instantly. Publishing them again
@@ -962,7 +984,10 @@ export class EventWatcher {
     const wants = (suffix) =>
       features.some((feature) => String(feature.external_id || '').endsWith(`:${suffix}`));
     const wantsBattery = wants(FEATURE_SUFFIXES.BATTERY);
-    const wantsPrivacy = wants(FEATURE_SUFFIXES.PRIVACY);
+    // The lens mask is read for a camera known to have one: the param set at
+    // publish time, or the legacy switch of a device created before 1.3.
+    const wantsPrivacy =
+      getParam(device, DEVICE_PARAMS.LENS_MASK) === '1' || wants(FEATURE_SUFFIXES.PRIVACY);
     if (skipDetections && !wantsBattery && !wantsPrivacy) {
       return { events: [], battery: null, privacy: null };
     }

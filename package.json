@@ -17,7 +17,7 @@
     "node": ">=22.20"
   },
   "dependencies": {
-    "@gladysassistant/integration-sdk": "^0.12.0"
+    "@gladysassistant/integration-sdk": "^0.14.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

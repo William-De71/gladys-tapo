@@ -122,6 +122,27 @@ export function getParam(device, name) {
 const knownPrivacyCameras = new Set();
 
 /**
+ * Tell whether a camera has a lens mask, remembering a positive answer.
+ *
+ * `hasPrivacyMode` is null when the question could not be asked — no local
+ * address, camera asleep, locked out, firmware without the method — and an
+ * unanswered probe falls back to what the camera answered BEFORE
+ * (`knownPrivacyCameras`): a camera serving a lockout used to answer null and
+ * lose a control it had for weeks, until a restart into a lucky scan.
+ * @param {object} camera - The resolved camera.
+ * @returns {boolean} True when the lens mask is known to exist.
+ * @example
+ * hasLensMask(camera);
+ */
+export function hasLensMask(camera) {
+  const answered = camera.hasPrivacyMode !== null && camera.hasPrivacyMode !== undefined;
+  if (answered) {
+    knownPrivacyCameras.add(camera.cloudDeviceId);
+  }
+  return answered || knownPrivacyCameras.has(camera.cloudDeviceId);
+}
+
+/**
  * Build the features of a camera. The doorbell and motion features only exist on
  * battery models, whose events the cloud reports; a wired camera would carry a
  * feature that never updates.
@@ -197,13 +218,10 @@ export function buildFeatures(gladys, camera) {
       // selector is derived from the name, so both come back missing. Measured:
       // publishing without it left the camera impossible to add back.
       //
-      // The English suffix stays, and no translated label can replace it. Gladys
-      // shows its own translated label only for a feature that is UNIQUE on the
-      // device, and `matchFeature` (front/src/utils/device.js) compares the TYPE
-      // alone: `motion-sensor/binary` and the privacy `switch/binary` collide, so
-      // any camera carrying both falls back to this name whatever it contains.
-      // That is why the one camera without a privacy switch reads "Détection
-      // mouvement Oui/Non" while its neighbours do not.
+      // The English suffix stays: Gladys shows its own translated label only for
+      // a feature whose TYPE is unique on the device (`matchFeature`,
+      // front/src/utils/device.js), and on devices created before 1.3 the
+      // motion `binary` still shares its type with the legacy privacy switch.
       name: `${camera.name} - Motion`,
       external_id: ids.feature(FEATURE_SUFFIXES.MOTION),
       category: DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
@@ -216,37 +234,25 @@ export function buildFeatures(gladys, camera) {
     });
   }
 
-  // Created unless the camera EXPLICITLY answered that it has no lens mask.
-  // `hasPrivacyMode` is null when the question could not be asked — no local
-  // address, camera asleep, locked out, firmware without the method — and a
-  // switch that is missing is worse than one that is briefly unresponsive: the
-  // scenes built on it would break silently.
-  //
-  // Which is why an unanswered probe falls back to what the camera answered
-  // BEFORE (`knownPrivacyCameras`). The comment above always claimed this, but
-  // the condition alone did the opposite: a camera serving a lockout answered
-  // null and lost a switch it had been publishing for weeks, and it only came
-  // back once the container was restarted into a scan that happened to succeed.
-  const answeredPrivacy = camera.hasPrivacyMode !== null && camera.hasPrivacyMode !== undefined;
-  if (answeredPrivacy) {
-    knownPrivacyCameras.add(camera.cloudDeviceId);
-  }
-  if (answeredPrivacy || knownPrivacyCameras.has(camera.cloudDeviceId)) {
-    features.push({
-      name: `${camera.name} - Privacy mode`,
-      external_id: ids.feature(FEATURE_SUFFIXES.PRIVACY),
-      category: DEVICE_FEATURE_CATEGORIES.SWITCH,
-      type: DEVICE_FEATURE_TYPES.SWITCH.BINARY,
-      read_only: false,
-      keep_history: true,
-      // The only feature here whose state is genuinely readable back from the
-      // camera: the poll re-reads it, so a toggle made in the Tapo app shows up
-      // in Gladys instead of leaving the switch lying.
-      has_feedback: true,
-      min: 0,
-      max: 1,
-    });
-  }
+  // The private-mode gate of the spec (camera-enable-disable.md), on EVERY
+  // camera: 0 makes Gladys stop polling, serving and storing its image. On a
+  // camera with a lens mask it also drives the mask itself — the spec's
+  // "vendor privacy mode maps onto this feature" — and the poll reads the mask
+  // back, so a toggle made in the Tapo app shows up here (`has_feedback`).
+  // Without a mask, Gladys stores the state itself.
+  const lensMask = hasLensMask(camera);
+  features.push({
+    name: `${camera.name} - Enabled`,
+    external_id: ids.feature(FEATURE_SUFFIXES.ENABLED),
+    category: DEVICE_FEATURE_CATEGORIES.CAMERA,
+    type: DEVICE_FEATURE_TYPES.CAMERA.ENABLED,
+    read_only: false,
+    // The spec's choice: the state is a setting, not a measurement.
+    keep_history: false,
+    has_feedback: lensMask,
+    min: 0,
+    max: 1,
+  });
 
   // PTZ: only what the camera actually declared when probed. A pan/tilt camera
   // without motorized zoom publishes four movements, so the dashboard renders
@@ -425,6 +431,7 @@ export function buildDevice(gladys, camera) {
       { name: DEVICE_PARAMS.IP, value: camera.ip || '' },
       { name: DEVICE_PARAMS.IP_SOURCE, value: camera.ipSource || '' },
       { name: DEVICE_PARAMS.MAC, value: camera.mac || '' },
+      { name: DEVICE_PARAMS.LENS_MASK, value: hasLensMask(camera) ? '1' : '' },
       { name: DEVICE_PARAMS.MODEL, value: camera.model || '' },
       { name: DEVICE_PARAMS.CAPTURE_MODE, value: camera.captureMode || '' },
       // The live view of the dashboard widget calls the rtsp-camera service,

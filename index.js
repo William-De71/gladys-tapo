@@ -37,6 +37,7 @@ import {
   DEVICE_PARAMS,
   CAMERA_MOVE,
   FEATURE_SUFFIXES,
+  EXTERNAL_ID_TYPE,
 } from './src/tapo/constants.js';
 import { BatteryGuard } from './src/tapo/batteryGuard.js';
 import { isBatteryModel, probePort } from './src/tapo/rtsp.js';
@@ -228,6 +229,9 @@ function captureDeviceImage(device) {
  * await runCapture(device);
  */
 async function runCapture(device) {
+  if (isCameraDisabled(device)) {
+    throw new Error('TAPO_CAMERA_DISABLED');
+  }
   if (!batteryGuard.allowsOnDemand(device.external_id)) {
     throw new Error(`TAPO_BATTERY_TOO_LOW:${batteryGuard.levelOf(device.external_id)}%`);
   }
@@ -283,6 +287,10 @@ async function refreshImages(devices, { force = false } = {}) {
   const failures = [];
 
   for (const device of cameras) {
+    // Disabled in Gladys (private mode): not a failure, a choice.
+    if (isCameraDisabled(device)) {
+      continue;
+    }
     // The scheduled refresh is the expensive part, so it is the first thing a
     // draining battery gives up — an explicit request still goes through.
     if (!force && !batteryGuard.allowsScheduled(device.external_id)) {
@@ -473,36 +481,103 @@ gladys.onGetImage(async (device) => {
   }
 });
 
+/**
+ * Cameras whose `camera/enabled` gate was set from Gladys during this process,
+ * by external id. The device list also carries the state (`last_value`), but a
+ * command lands before the next read of that list.
+ * @type {Map<string, boolean>}
+ */
+const enabledOverrides = new Map();
+
+/**
+ * Tell whether a camera is disabled in Gladys (private mode).
+ *
+ * The core already refuses to poll, serve or store the image of a disabled
+ * camera; checking here as well keeps the refresh loop from capturing — and
+ * waking a battery camera — for a frame Gladys will throw away.
+ * @param {object} device - The Gladys device.
+ * @returns {boolean} True when the camera must be left alone.
+ * @example
+ * isCameraDisabled(device);
+ */
+function isCameraDisabled(device) {
+  if (enabledOverrides.has(device.external_id)) {
+    return enabledOverrides.get(device.external_id) === false;
+  }
+  const gate = (device.features || []).find((feature) =>
+    String(feature.external_id || '').endsWith(`:${FEATURE_SUFFIXES.ENABLED}`),
+  );
+  return gate?.last_value === 0;
+}
+
+/**
+ * Turn a camera on or off, as the `camera/enabled` gate asks.
+ *
+ * On a camera with a lens mask, the mask follows: disabling covers the lens, as
+ * the Tapo app's privacy mode does. Without one, the gate is Gladys-side only —
+ * the core stops polling and serving the camera, and this integration stops
+ * capturing it.
+ * @param {object} device - The device, as the command payload carries it.
+ * @param {boolean} enabled - The requested state.
+ * @returns {Promise<void>} Resolves once applied.
+ * @example
+ * await setCameraEnabled(device, false);
+ */
+async function setCameraEnabled(device, enabled) {
+  // The selector, not the name: a command payload carries no `name`.
+  const label = device.selector || device.external_id;
+  logger.info(`onSetValue <- camera ${enabled ? 'enabled' : 'disabled'} on "${label}"`);
+
+  const params = device.params || [];
+  const lensMask = params.find((param) => param.name === DEVICE_PARAMS.LENS_MASK)?.value === '1';
+  const legacySwitch = (device.features || []).some((feature) =>
+    String(feature.external_id || '').endsWith(`:${FEATURE_SUFFIXES.PRIVACY}`),
+  );
+  if (lensMask || legacySwitch) {
+    const ip = params.find((param) => param.name === DEVICE_PARAMS.IP)?.value;
+    if (!ip) {
+      throw new Error(`No local address known for "${label}"`);
+    }
+    // Through the watcher's client, never a fresh one: the firmware only
+    // accepts a handful of sessions and a second client would eventually get
+    // every login refused.
+    await watcher.getLocalApi(ip).setPrivacyMode(!enabled);
+    // Remembered right away rather than at the next poll: a camera the user
+    // just un-masked would otherwise stay skipped by the capture guard.
+    watcher.setPrivacyMode(device.external_id, !enabled);
+  }
+  enabledOverrides.set(device.external_id, enabled);
+
+  // `has_feedback` is set on the cameras whose mask is read back: Gladys then
+  // waits for the integration to report the new state rather than storing it.
+  const cloudDeviceId = parseCloudDeviceId(device.external_id);
+  if (lensMask && cloudDeviceId) {
+    await gladys
+      .publishState(
+        gladys.externalIds(EXTERNAL_ID_TYPE, cloudDeviceId).feature(FEATURE_SUFFIXES.ENABLED),
+        enabled ? 1 : 0,
+      )
+      .catch((e) => logger.debug(`Publishing the camera state failed: ${e.message}`));
+  }
+}
+
 // --- Commands: Gladys writes a value on one of our features ------------------
 // ONE handler for the whole integration, on purpose: the SDK stores a single
 // `setValue` callback, so a second `onSetValue` would silently replace this one
 // and take the other feature down with it. Everything writable routes from here.
 gladys.onSetValue(async (device, deviceFeature, value) => {
-  // The privacy switch is routed on the CATEGORY, not on the type: `binary` is
-  // the same string for eight categories in Gladys, and the motion sensor of
-  // these very cameras already uses `sensor.binary`. Matching on the type alone
-  // would make a privacy command indistinguishable from a write to the motion
-  // sensor.
-  if (deviceFeature.category === DEVICE_FEATURE_CATEGORIES.SWITCH) {
-    // The selector, not the name: a command payload carries no `name`.
-    const label = device.selector || device.external_id;
-    const ip = (device.params || []).find((param) => param.name === DEVICE_PARAMS.IP)?.value;
-    if (!ip) {
-      throw new Error(`No local address known for "${label}"`);
-    }
+  const featureId = String(deviceFeature.external_id || '');
 
-    const enabled = Number(value) === 1;
-    logger.info(`onSetValue <- privacy ${enabled ? 'on' : 'off'} on "${label}"`);
-
-    // Through the watcher's client, never a fresh one: the firmware only accepts
-    // a handful of sessions and a second client would eventually get every login
-    // refused.
-    await watcher.getLocalApi(ip).setPrivacyMode(enabled);
-
-    // Remembered right away rather than at the next poll: otherwise a camera the
-    // user just un-masked would keep being skipped by the capture guard for up
-    // to a minute, which looks like the switch did nothing.
-    watcher.setPrivacyMode(device.external_id, enabled);
+  // The private-mode gate (`camera/enabled`), and the privacy switch it replaced
+  // on devices created before 1.3 — kept working so the scenes built on it do not
+  // break before the user updates the device. Routed on the SUFFIX: `binary` is
+  // shared by the motion sensor, and `camera` by the image and PTZ features.
+  const isEnabledGate = featureId.endsWith(`:${FEATURE_SUFFIXES.ENABLED}`);
+  const isLegacyPrivacy = featureId.endsWith(`:${FEATURE_SUFFIXES.PRIVACY}`);
+  if (isEnabledGate || isLegacyPrivacy) {
+    // The legacy switch reads the other way round: 1 = masked = disabled.
+    const enabled = isEnabledGate ? Number(value) === 1 : Number(value) !== 1;
+    await setCameraEnabled(device, enabled);
     return;
   }
 

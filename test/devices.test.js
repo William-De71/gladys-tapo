@@ -46,12 +46,13 @@ test('the cloud device id is recovered from either external id', () => {
   assert.equal(parseCloudDeviceId(''), null);
 });
 
-test('a wired camera only carries the image feature', () => {
+test('a wired camera carries the image and the private-mode gate only', () => {
   // A doorbell feature on a wired camera would never update.
   const features = buildFeatures(gladys, camera);
-  assert.equal(features.length, 1);
-  assert.equal(features[0].category, 'camera');
-  assert.equal(features[0].type, 'image');
+  assert.deepEqual(
+    features.map((feature) => `${feature.category}/${feature.type}`),
+    ['camera/image', 'camera/enabled'],
+  );
   assert.equal(features[0].read_only, false, 'the widget must be able to ask for an image');
 });
 
@@ -59,7 +60,7 @@ test('a battery doorbell carries image, doorbell, capture, motion and battery', 
   const features = buildFeatures(gladys, { ...camera, hasBattery: true, hasEvents: true });
   assert.deepEqual(
     features.map((feature) => feature.category),
-    ['camera', 'button', 'button', 'motion-sensor', 'battery'],
+    ['camera', 'button', 'button', 'motion-sensor', 'camera', 'battery'],
   );
   const motion = features.find((feature) => feature.category === 'motion-sensor');
   assert.equal(motion.type, 'binary');
@@ -220,68 +221,62 @@ test('a camera with no stream URL publishes an empty one, never a broken one', (
   assert.equal(getParam(device, DEVICE_PARAMS.CAMERA_URL), '');
 });
 
-// --- Privacy mode feature -----------------------------------------------------
+// --- Private mode (`camera/enabled`) ------------------------------------------
 
-test('a camera that answered gets a privacy switch, in either state', () => {
+/**
+ * The `camera/enabled` feature of a feature list.
+ * @param {object[]} features - The features.
+ * @returns {object|undefined} The gate.
+ * @example
+ * gateOf(features);
+ */
+function gateOf(features) {
+  return features.find((feature) => feature.type === 'enabled');
+}
+
+test('every camera gets the private-mode gate the spec defines', () => {
+  // camera-enable-disable.md: `camera/enabled`, writable, 0/1, no history.
+  const gate = gateOf(buildFeatures(gladys, { ...camera, cloudDeviceId: 'GATE_ANY' }));
+  assert.equal(gate.category, 'camera');
+  assert.equal(gate.read_only, false);
+  assert.equal(gate.keep_history, false);
+  assert.equal(gate.min, 0);
+  assert.equal(gate.max, 1);
+  assert.ok(gate.external_id.endsWith(':enabled'));
+});
+
+test('the gate reports feedback only where the lens mask is read back', () => {
+  // A lens-mask camera's state is read back every round (a toggle in the Tapo
+  // app shows up); without one, Gladys stores the state itself.
   [true, false].forEach((state) => {
-    const features = buildFeatures(gladys, { ...camera, hasPrivacyMode: state });
-    const privacy = features.find((feature) => feature.category === 'switch');
-    assert.ok(privacy, `a camera reporting ${state} must expose the switch`);
-    assert.equal(privacy.type, 'binary');
-    assert.equal(privacy.read_only, false);
-    // The one feature here whose state is genuinely readable back, which is what
-    // lets a toggle made in the Tapo app show up in Gladys.
-    assert.equal(privacy.has_feedback, true);
-    assert.equal(privacy.min, 0);
-    assert.equal(privacy.max, 1);
+    const withMask = { ...camera, cloudDeviceId: `MASK_${state}`, hasPrivacyMode: state };
+    assert.equal(gateOf(buildFeatures(gladys, withMask)).has_feedback, true);
+    assert.equal(getParam(buildDevice(gladys, withMask), DEVICE_PARAMS.LENS_MASK), '1');
   });
+  const without = { ...camera, cloudDeviceId: 'NEVER_ASKED', hasPrivacyMode: null };
+  assert.equal(gateOf(buildFeatures(gladys, without)).has_feedback, false);
+  assert.equal(getParam(buildDevice(gladys, without), DEVICE_PARAMS.LENS_MASK), '');
 });
 
-test('a camera that was NEVER asked gets no privacy switch', () => {
-  // `null` is "unknown", and an unknown capability must not become a switch
-  // wired to nothing. A cloud id of its own: a camera that answered once is
-  // remembered, and reusing that id here would be testing the opposite case.
-  const unknown = { ...camera, cloudDeviceId: 'NEVER_ASKED' };
-  assert.ok(
-    !buildFeatures(gladys, { ...unknown, hasPrivacyMode: null }).some(
-      (feature) => feature.category === 'switch',
-    ),
-  );
-  assert.ok(!buildFeatures(gladys, unknown).some((feature) => feature.category === 'switch'));
-});
-
-test('a camera that answered once keeps its privacy switch when a later scan fails', () => {
-  // The regression that cost a working switch: a camera serving a temporary
-  // lockout answers `null`, and the switch used to vanish from the device —
+test('a camera that answered once keeps its lens mask when a later scan fails', () => {
+  // The regression that cost a working control: a camera serving a temporary
+  // lockout answers `null`, and the control used to vanish from the device —
   // breaking the scenes built on it until the container was restarted.
   const locked = { ...camera, cloudDeviceId: 'LOCKED_LATER' };
-  assert.ok(
-    buildFeatures(gladys, { ...locked, hasPrivacyMode: false }).some(
-      (feature) => feature.category === 'switch',
-    ),
-    'the camera answers first, so it publishes the switch',
+  assert.equal(
+    gateOf(buildFeatures(gladys, { ...locked, hasPrivacyMode: false })).has_feedback,
+    true,
   );
-  assert.ok(
-    buildFeatures(gladys, { ...locked, hasPrivacyMode: null }).some(
-      (feature) => feature.category === 'switch',
-    ),
-    'an unanswered probe must not remove a switch the camera already had',
+  assert.equal(
+    gateOf(buildFeatures(gladys, { ...locked, hasPrivacyMode: null })).has_feedback,
+    true,
+    'an unanswered probe must not forget a mask the camera already had',
   );
 });
 
-test('the privacy switch is told apart from the motion sensor', () => {
-  // Both are typed `binary` in Gladys — only the category separates them, which
-  // is exactly why the command path routes on the category.
-  const features = buildFeatures(gladys, {
-    ...camera,
-    hasEvents: true,
-    hasPrivacyMode: false,
-  });
-  const binaries = features.filter((feature) => feature.type === 'binary');
-  assert.equal(binaries.length, 2, 'motion and privacy both type as binary');
-  assert.deepEqual(binaries.map((feature) => feature.category).sort(), ['motion-sensor', 'switch']);
-  // Only one of the two is writable.
-  assert.deepEqual(binaries.map((feature) => feature.read_only).sort(), [false, true]);
+test('the legacy privacy switch is no longer published', () => {
+  const features = buildFeatures(gladys, { ...camera, hasEvents: true, hasPrivacyMode: false });
+  assert.ok(!features.some((feature) => feature.category === 'switch'));
 });
 
 // --- Privacy probe credentials and lockout ------------------------------------

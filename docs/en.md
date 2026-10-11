@@ -132,6 +132,9 @@ Each camera becomes one device in Gladys:
 - **Image** — the picture shown by the camera widget, refreshed on demand.
 - **Doorbell** — a press on the button, usable as a scene trigger.
 - **Motion** — motion detection, also usable as a trigger.
+- **Enabled** — private mode: see [Private mode](#private-mode).
+- **Capture** — a button to ask for an image right away (battery models, refreshed less often).
+- **Move** and **Preset** — on motorized cameras: see [PTZ](#pointing-a-motorized-camera-ptz).
 - **Battery** — the remaining level, as a percentage (battery models).
 
 When someone rings, the integration immediately captures an image and pushes it to Gladys: the widget already shows the visitor by the time you open the notification.
@@ -153,17 +156,17 @@ Wired cameras (C210, C200, C500…) generally offer ONVIF, which gives them a mo
 
 There is nothing to configure: if the camera account is filled in and the camera accepts ONVIF, the integration uses it; otherwise it polls the camera as before.
 
-## Privacy mode
+## Private mode
 
-Tapo cameras have a privacy mode that physically covers the lens. It shows up in Gladys as a switch, usable in a scene — "when I get home, blind the living room camera".
+Every camera gets an **Enabled** control — Gladys' standard private mode for cameras (Gladys 5.0 or later). Turn it off and Gladys stops capturing, displaying and storing that camera's image, everywhere: dashboard, chat, scenes. It is usable in a scene — "when we get home, turn the living room camera off".
 
-It does not go through ONVIF (it is TP-Link's own feature) but through the same local channel as the battery level. No camera account is needed, then: your Tapo account password is enough, and battery models get it too.
+On Tapo cameras that have a **privacy mode** (the lens is physically covered), the control drives it as well: turning the camera off covers the lens, turning it back on uncovers it. That goes through the same local channel as the battery level: no camera account needed, and battery models get it too. It works **both ways** — a privacy mode toggled from the Tapo app shows up in Gladys at the next check, within the minute.
 
-The switch works **both ways**. A toggle made from the Tapo app shows up in Gladys at the next check, within the minute.
+On a camera without a privacy mode, the control only acts on Gladys' side: the camera keeps running, Gladys just leaves it alone.
 
-While privacy mode is on, the camera keeps streaming but only shows a black frame reading "Privacy Mode is on". The integration therefore does not capture it: the widget keeps its last useful image instead of turning black, and a battery camera is not woken up for nothing. Images resume as soon as privacy mode is turned off.
+While a camera is off, a battery camera is not woken up for nothing, and the widget shows that the camera is disabled rather than an old image.
 
-If a camera does not offer this feature, the switch simply is not created.
+> **Coming from version 1.2 or earlier** — the privacy mode used to be a separate **switch**. It keeps working on your existing cameras, so your scenes are not broken. When you update a camera from the **Discover** screen, the switch is replaced by the **Enabled** control: re-point the scenes that used the switch (beware, the values are reversed — the switch was "on" when the lens was covered, the control is "on" when the camera is active).
 
 ## Pointing a motorized camera (PTZ)
 

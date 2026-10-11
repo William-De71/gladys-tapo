@@ -47,11 +47,12 @@ test('the store categories match the vocabulary Gladys 4.86 publishes', () => {
     assert.ok(STORE_CATEGORIES.includes(category), `unknown store category: ${category}`);
   }
   // Older cores REJECT a manifest carrying a field they do not know, so
-  // declaring `categories` is what pins the floor at 4.86.
+  // declaring `categories` pins the floor at 4.86 — and the `camera/enabled`
+  // feature (camera-enable-disable.md) at 5.0, which raises it further.
   assert.match(
     manifest.gladys_version,
-    /^>=4\.(8[6-9]|9\d|\d{3,})\./,
-    'declaring categories requires gladys_version >= 4.86.0',
+    /^>=(5|[6-9]|\d{2,})\./,
+    'camera/enabled requires gladys_version >= 5.0.0',
   );
 });
 

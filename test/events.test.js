@@ -350,15 +350,15 @@ test('stopping the watcher releases every ONVIF subscription', () => {
 
 // --- Privacy mode -------------------------------------------------------------
 
-test('the privacy mode is published and remembered on every check', async () => {
+test('the lens mask is published as the camera gate, and remembered', async () => {
   const { watcher, device, gladys } = buildWatcher({ privacy: true });
   await watcher.checkDevice(device);
 
   const published = gladys.published.states.filter((state) =>
-    state.featureExternalId.endsWith(':privacy'),
+    state.featureExternalId.endsWith(':enabled'),
   );
   assert.equal(published.length, 1);
-  assert.equal(published[0].value, 1, 'a masked lens publishes 1');
+  assert.equal(published[0].value, 0, 'a masked lens is a disabled camera');
   // Remembered too: the capture path has no other way of knowing, since a masked
   // camera answers with a black frame instead of failing.
   assert.equal(watcher.isPrivacyModeOn(device.external_id), true);
@@ -371,7 +371,7 @@ test('a camera without a lens mask publishes no privacy state', async () => {
   await watcher.checkDevice(device);
 
   assert.equal(
-    gladys.published.states.filter((state) => state.featureExternalId.endsWith(':privacy')).length,
+    gladys.published.states.filter((state) => state.featureExternalId.endsWith(':enabled')).length,
     0,
   );
   assert.equal(watcher.isPrivacyModeOn(device.external_id), false);
@@ -382,10 +382,26 @@ test('an unmasked camera is not held back from being captured', async () => {
   await watcher.checkDevice(device);
 
   const published = gladys.published.states.filter((state) =>
+    state.featureExternalId.endsWith(':enabled'),
+  );
+  assert.equal(published[0].value, 1);
+  assert.equal(watcher.isPrivacyModeOn(device.external_id), false);
+});
+
+test('a device created before 1.3 keeps its privacy switch in step', async () => {
+  // Its scenes point at the `switch/binary` feature until the user updates the
+  // device: the state keeps being published there, with its own polarity.
+  const { watcher, device, gladys } = buildWatcher({ privacy: true });
+  device.features = [
+    ...device.features.filter((feature) => !feature.external_id.endsWith(':enabled')),
+    { external_id: `${device.external_id}:privacy`, category: 'switch', type: 'binary' },
+  ];
+  await watcher.checkDevice(device);
+  const legacy = gladys.published.states.filter((state) =>
     state.featureExternalId.endsWith(':privacy'),
   );
-  assert.equal(published[0].value, 0);
-  assert.equal(watcher.isPrivacyModeOn(device.external_id), false);
+  assert.equal(legacy.length, 1);
+  assert.equal(legacy[0].value, 1, 'the legacy switch reads 1 for masked');
 });
 
 test('a command updates the remembered state without waiting for a poll', async () => {

@@ -132,6 +132,9 @@ Chaque caméra devient un appareil dans Gladys :
 - **Image** — la photo affichée par le widget caméra, rafraîchie à la demande.
 - **Sonnette** — un appui sur le bouton, utilisable comme déclencheur de scène.
 - **Mouvement** — la détection de mouvement, également utilisable comme déclencheur.
+- **Activée** — le mode privé : voir [Mode privé](#mode-privé).
+- **Capture** — un bouton pour demander une image tout de suite (modèles sur batterie, rafraîchis moins souvent).
+- **Orientation** et **Positions** — sur les caméras motorisées : voir [PTZ](#orienter-une-caméra-motorisée-ptz).
 - **Batterie** — le niveau restant, en pourcentage (modèles sur batterie).
 
 Lorsque quelqu'un sonne, l'intégration capture immédiatement une image et l'envoie à Gladys : le widget affiche déjà le visiteur au moment où vous consultez la notification.
@@ -155,15 +158,15 @@ Vous n'avez rien à configurer : si le compte caméra est renseigné et que la c
 
 ## Mode privé
 
-Les caméras Tapo disposent d'un mode privé qui masque physiquement l'objectif. Il apparaît dans Gladys comme un interrupteur, utilisable dans une scène — « quand j'arrive, coupe la caméra du salon ».
+Chaque caméra reçoit une commande **Activée** — le mode privé standard des caméras dans Gladys (Gladys 5.0 ou plus récent). Désactivez-la et Gladys cesse de capturer, d'afficher et d'enregistrer l'image de cette caméra, partout : tableau de bord, chat, scènes. Elle s'utilise dans une scène — « quand on rentre, désactive la caméra du salon ».
 
-Il ne passe pas par ONVIF (c'est une fonction propre à TP-Link) mais par le même canal local que le niveau de batterie. Aucun compte caméra n'est donc nécessaire : le mot de passe de votre compte Tapo suffit, et les modèles sur batterie en bénéficient aussi.
+Sur les caméras Tapo qui ont un **mode privé** (l'objectif est physiquement masqué), la commande le pilote aussi : désactiver la caméra masque l'objectif, la réactiver le découvre. Cela passe par le même canal local que le niveau de batterie : aucun compte caméra n'est nécessaire, et les modèles sur batterie en bénéficient aussi. Cela fonctionne **dans les deux sens** — un mode privé basculé depuis l'application Tapo remonte dans Gladys à la vérification suivante, dans la minute.
 
-L'interrupteur fonctionne **dans les deux sens**. Une bascule faite depuis l'application Tapo remonte dans Gladys à la vérification suivante, dans la minute.
+Sur une caméra sans mode privé, la commande n'agit que côté Gladys : la caméra continue de tourner, Gladys la laisse simplement tranquille.
 
-Pendant que le mode privé est actif, la caméra continue de diffuser mais ne montre plus qu'une image noire portant « Privacy Mode is on ». L'intégration ne la capture donc pas : le widget conserve sa dernière image utile au lieu de virer au noir, et une caméra sur batterie n'est pas réveillée pour rien. Les images reprennent dès que le mode privé est désactivé.
+Tant qu'une caméra est désactivée, une caméra sur batterie n'est pas réveillée pour rien, et le widget indique que la caméra est désactivée plutôt que d'afficher une vieille image.
 
-Si une caméra ne propose pas cette fonction, l'interrupteur n'est simplement pas créé.
+> **Si vous venez de la version 1.2 ou antérieure** — le mode privé était un **interrupteur** séparé. Il continue de fonctionner sur vos caméras existantes : vos scènes ne sont pas cassées. Quand vous mettez à jour une caméra depuis l'écran **Découverte**, l'interrupteur est remplacé par la commande **Activée** : repointez les scènes qui l'utilisaient (attention, les valeurs sont inversées — l'interrupteur était « allumé » quand l'objectif était masqué, la commande est « allumée » quand la caméra est active).
 
 ## Orienter une caméra motorisée (PTZ)
 

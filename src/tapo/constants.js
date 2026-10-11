@@ -295,6 +295,12 @@ export const DEVICE_PARAMS = {
    * what it is.
    */
   IP_SOURCE: 'TAPO_IP_SOURCE',
+  /**
+   * '1' when the camera has a lens mask (TP-Link's privacy mode) its local API
+   * answered for. It is what `camera/enabled` drives on the camera itself; on a
+   * camera without one, disabling only gates Gladys.
+   */
+  LENS_MASK: 'TAPO_LENS_MASK',
 };
 
 /** How the image of a camera is captured. */
@@ -489,7 +495,15 @@ export const FEATURE_SUFFIXES = {
   CAPTURE: 'capture',
   MOTION: 'motion',
   BATTERY: 'battery',
+  /**
+   * The `switch/binary` privacy feature of versions up to 1.2. No longer
+   * published — `camera/enabled` replaced it — but still honoured on devices
+   * created before, so the scenes built on it keep working until the device
+   * is updated from the Discover screen.
+   */
   PRIVACY: 'privacy',
+  /** `camera/enabled`, the spec's private-mode gate (camera-enable-disable.md). */
+  ENABLED: 'enabled',
   MOVE: 'move',
   PRESET: 'preset',
 };
