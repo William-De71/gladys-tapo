@@ -44,6 +44,10 @@ export const DEFAULT_CONFIG = {
   battery_pause_refresh: BATTERY_THRESHOLDS.PAUSE_REFRESH, // percent, below which the auto refresh stops
   battery_stop_all: BATTERY_THRESHOLDS.STOP_ALL, // percent, below which nothing is captured
   battery_resume: BATTERY_THRESHOLDS.RESUME, // percent, at which capturing resumes
+  // seconds, between two reads of the plugs, lights and hub sensors. Short on
+  // purpose: these devices push nothing, so a button press or a door opening
+  // reaches Gladys at the next read.
+  device_poll_interval: 5,
 };
 
 /**
@@ -287,6 +291,7 @@ export function normalizeConfig(raw = {}) {
     battery_pause_refresh: numberOrDefault(raw.battery_pause_refresh, 'battery_pause_refresh'),
     battery_stop_all: numberOrDefault(raw.battery_stop_all, 'battery_stop_all'),
     battery_resume: numberOrDefault(raw.battery_resume, 'battery_resume'),
+    device_poll_interval: numberOrDefault(raw.device_poll_interval, 'device_poll_interval'),
     camera_ips: parseCameraIps(raw.camera_ips),
     camera_accounts: parseCameraAccounts(raw.camera_accounts),
     // Written by the actions, keyed by cloud device id (see the header).

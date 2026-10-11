@@ -86,18 +86,66 @@ export function reportLine(device) {
 }
 
 /**
+ * One line for a device the last publish could not describe.
+ * @param {object} problem - `{ physical, reason, message }` from the manager.
+ * @returns {{ en: string, fr: string, ok: boolean }} The line.
+ * @example
+ * problemLine({ physical, reason: 'unreachable' });
+ */
+export function problemLine({ physical, reason }) {
+  const label = physical.model ? `${physical.name} (${physical.model})` : physical.name;
+  if (reason === 'address') {
+    return {
+      ok: false,
+      en: `✖ ${label}: not found on your network → run "${ADDRESS_ACTION_LABEL.en}" below.`,
+      fr: `✖ ${label} : introuvable sur votre réseau → utilisez « ${ADDRESS_ACTION_LABEL.fr} » ci-dessous.`,
+    };
+  }
+  if (reason === 'unsupported') {
+    return {
+      ok: false,
+      en: `✖ ${label}: not supported yet by this integration.`,
+      fr: `✖ ${label} : pas encore pris en charge par cette intégration.`,
+    };
+  }
+  if (reason === 'credentials') {
+    return {
+      ok: false,
+      en: `✖ ${label}: ${physical.ip} refused your Tapo account. Check the email and password above, as typed in the Tapo app.`,
+      fr: `✖ ${label} : ${physical.ip} refuse votre compte Tapo. Vérifiez l'e-mail et le mot de passe ci-dessus, tels que dans l'application Tapo.`,
+    };
+  }
+  return {
+    ok: false,
+    en: `⚠ ${label}: ${physical.ip} does not answer. Is it powered on and on this network? If the address is wrong, fix it with "${ADDRESS_ACTION_LABEL.en}".`,
+    fr: `⚠ ${label} : ${physical.ip} ne répond pas. Est-il allumé et sur ce réseau ? Si l'adresse est fausse, corrigez-la avec « ${ADDRESS_ACTION_LABEL.fr} ».`,
+  };
+}
+
+/**
  * The full connection report.
  * @param {object[]} devices - The devices as published.
+ * @param {object[]} [problems] - Devices that could not be described.
  * @returns {{ en: string, fr: string }} The report, one device per line.
  * @example
- * buildConnectionReport(devices);
+ * buildConnectionReport(devices, problems);
  */
-export function buildConnectionReport(devices) {
-  const lines = devices.map(reportLine);
+export function buildConnectionReport(devices, problems = []) {
+  // A device already published before keeps its devices while it is down: it
+  // gets the problem line, not a misleading ✔ from its previous params.
+  const troubled = new Set(
+    problems.map((problem) => String(problem.physical.cloudDeviceId).toUpperCase()),
+  );
+  const cloudIdOf = (device) =>
+    String(getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || '').toUpperCase();
+  const lines = [
+    ...devices.filter((device) => !troubled.has(cloudIdOf(device))).map(reportLine),
+    ...problems.map(problemLine),
+  ];
   const usable = lines.filter((line) => line.ok).length;
   const header = {
-    en: `Connected to the Tapo cloud: ${devices.length} device(s), ${usable} reachable on your network.`,
-    fr: `Connexion au cloud Tapo OK : ${devices.length} appareil(s), ${usable} joignable(s) sur votre réseau.`,
+    en: `Connected to the Tapo cloud: ${lines.length} device(s), ${usable} reachable on your network.`,
+    fr: `Connexion au cloud Tapo OK : ${lines.length} appareil(s), ${usable} joignable(s) sur votre réseau.`,
   };
   return {
     en: [header.en, ...lines.map((line) => line.en)].join('\n'),
@@ -116,8 +164,8 @@ export function buildConnectionReport(devices) {
  * @example
  * connectionStatusFor(devices);
  */
-export function connectionStatusFor(devices) {
-  if (devices.length === 0) {
+export function connectionStatusFor(devices, problems = []) {
+  if (devices.length === 0 && problems.length === 0) {
     return {
       connected: false,
       message: {
@@ -126,11 +174,28 @@ export function connectionStatusFor(devices) {
       },
     };
   }
-  const missing = devices.filter((device) => !getParam(device, DEVICE_PARAMS.IP));
-  if (missing.length === 0) {
+  const missing = [
+    ...devices.filter((device) => !getParam(device, DEVICE_PARAMS.IP)).map((device) => device.name),
+    ...problems
+      .filter((problem) => problem.reason === 'address')
+      .map((problem) => problem.physical.name),
+  ];
+  const silent = problems
+    .filter((problem) => problem.reason !== 'address')
+    .map((problem) => problem.physical.name);
+  if (missing.length === 0 && silent.length === 0) {
     return { connected: true };
   }
-  const names = missing.map((device) => device.name).join(', ');
+  if (missing.length === 0) {
+    return {
+      connected: true,
+      message: {
+        en: `Not answering: ${silent.join(', ')}. Run "Test the connection" for details.`,
+        fr: `Ne répondent pas : ${silent.join(', ')}. Lancez « Tester la connexion » pour le détail.`,
+      },
+    };
+  }
+  const names = missing.join(', ');
   return {
     connected: true,
     message: {

@@ -1,6 +1,6 @@
 # gladys-tapo
 
-External integration bringing **TP-Link Tapo** cameras and doorbells to [Gladys Assistant](https://gladysassistant.com): camera snapshots on the dashboard, doorbell and motion events as scene triggers, and battery level.
+External integration bringing **TP-Link Tapo** devices to [Gladys Assistant](https://gladysassistant.com): cameras and doorbells (snapshots, doorbell and motion events, battery level, PTZ, private mode), plugs and power strips (with energy metering), bulbs and light strips, wall switches and dimmers, and the sensors of the H100 hub.
 
 📖 User documentation: [English](docs/en.md) — [Français](docs/fr.md)
 
@@ -12,6 +12,7 @@ External integration bringing **TP-Link Tapo** cameras and doorbells to [Gladys 
   - **the TP-Link proprietary protocol** (TCP 8800) for the models that expose no RTSP stream, typically the battery doorbells.
 - **Events**: doorbell press, motion detection and battery level. Motion arrives **pushed over ONVIF** (TCP 2020) on the cameras that serve it — the camera holds the request open and answers the instant it detects something, instead of being asked every N seconds. Cameras without ONVIF fall back to polling their local detection list.
 - A doorbell press **pushes a fresh image** right away, so the widget shows the visitor immediately.
+- **Plugs, lights, switches and hub sensors** over their local protocol — KLAP (v1/v2 hashing) or the older securePassthrough, picked from the discovery reply or found by trying — polled every few seconds, publishing only the values that changed. Metering plugs feed an ever-growing kWh index (accumulated from the daily counter) for the Gladys energy monitoring.
 
 ## Architecture
 
@@ -28,6 +29,13 @@ src/
     localApi.js             camera local API (HTTPS 443): battery, detections, privacy
     ptz.js                  ONVIF PTZ (pan/tilt/zoom steps, presets)
     batteryGuard.js         capture/poll throttling for battery cameras
+  smart/
+    http.js                 minimal HTTP client (port 80) with deadline and cookies
+    klap.js                 KLAP transport (handshakes, session crypto)
+    aes.js                  securePassthrough transport (RSA handshake, login)
+    client.js               SMART client: transport choice, batches, children, backoff
+    model.js                device answers -> Gladys devices, features and states
+    manager.js              discovery, polling, change-only publishing, commands
     rtsp.js                 RTSP URL + capture mode detection (port probing)
     onvif.js                ONVIF pull point events (port 2020), motion pushed
     snapshot.js             ffmpeg capture, both modes, size-bounded

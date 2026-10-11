@@ -24,7 +24,7 @@ export function fakeGladys({
   failPublishState = () => false,
   delayPublishState = () => undefined,
 } = {}) {
-  const published = { states: [], devices: [], images: [] };
+  const published = { states: [], devices: [], images: [], transports: [] };
 
   return {
     selector,
@@ -57,6 +57,9 @@ export function fakeGladys({
     },
     publishStates: async (states) => {
       published.states.push(...states);
+    },
+    publishTransports: async (transports) => {
+      published.transports.push(...transports);
     },
     publishDiscoveredDevices: async (list) => {
       published.devices = list;

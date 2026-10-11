@@ -1150,3 +1150,45 @@ test('the local API refuses plainly before the watcher was started', () => {
   const watcher = new EventWatcher({ gladys: fakeGladys(), cloud: fakeCloud() });
   assert.throws(() => watcher.getLocalApi('10.0.0.1'), /TAPO_NOT_CONFIGURED/);
 });
+
+test('a hub motion sensor or button is never taken for a camera', async () => {
+  // Same feature categories as a camera's events, but a `sensor` external id:
+  // the camera watcher must leave it to the smart device poller, or it would
+  // log in to the hub's address as if it were a camera.
+  const gladys = fakeGladys();
+  const sensor = {
+    name: 'Couloir',
+    external_id: 'ext:ext-dev-tapo:sensor:T100ID',
+    features: [
+      {
+        category: 'motion-sensor',
+        type: 'binary',
+        external_id: 'ext:ext-dev-tapo:sensor:T100ID:motion',
+      },
+    ],
+    params: [
+      { name: 'TAPO_CLOUD_DEVICE_ID', value: 'HUB1' },
+      { name: 'TAPO_IP', value: '192.168.1.50' },
+    ],
+  };
+  gladys.getDevices = async () => [sensor];
+  const watcher = new EventWatcher({ gladys, cloud: fakeCloud() });
+  watcher.config = normalizeConfig({ email: 'a@b.c', password: 'x' });
+  let checked = 0;
+  watcher.checkDevice = async () => {
+    checked += 1;
+  };
+  watcher.retryOnvifSubscriptions = async (devices) => {
+    assert.equal(devices.length, 0);
+  };
+  await watcher.tick();
+  assert.equal(checked, 0);
+  watcher.getLocalApi = () => {
+    throw new Error('must not be called');
+  };
+  assert.deepEqual(await watcher.fetchDeviceEvents(sensor).catch((e) => e.message), {
+    events: [],
+    battery: null,
+    privacy: null,
+  });
+});

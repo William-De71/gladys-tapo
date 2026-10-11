@@ -774,15 +774,17 @@ export function indexKnownDevices(devices) {
 }
 
 /**
- * Resolve every cloud camera and build the devices to publish.
- * @param {object} gladys - The SDK instance, which namespaces the ids.
- * @param {object[]} cloudCameras - The cameras returned by the cloud.
+ * Locate every cloud device on the network: its address, where that address
+ * came from, and how the device announced it wants to be spoken to.
+ * @param {object} gladys - The SDK instance.
+ * @param {object[]} cloudDevices - The devices the cloud listed.
  * @param {object} config - The normalized configuration.
- * @returns {Promise<object[]>} The devices.
+ * @returns {Promise<{ located: object[], knownDevices: object[] }>} The located
+ * devices, and what Gladys already holds (fetched once for both callers).
  * @example
- * const devices = await buildDiscoveredDevices(gladys, cameras, config);
+ * const { located, knownDevices } = await locateDevices(gladys, cloudDevices, config);
  */
-export async function buildDiscoveredDevices(gladys, cloudCameras, config) {
+export async function locateDevices(gladys, cloudDevices, config) {
   // The cloud knows WHICH devices exist but not WHERE they are: the addresses
   // come from the user, then from a network scan matched on the MAC.
   const [found, knownDevices] = await Promise.all([
@@ -795,15 +797,39 @@ export async function buildDiscoveredDevices(gladys, cloudCameras, config) {
   const byMac = indexByMac(found);
   const knownById = indexKnownDevices(knownDevices);
 
-  const located = cloudCameras.map((cloudCamera) => {
-    const id = String(cloudCamera.cloudDeviceId).toUpperCase();
+  const located = cloudDevices.map((cloudDevice) => {
+    const id = String(cloudDevice.cloudDeviceId).toUpperCase();
     const known = knownById.get(id);
-    const mac = cloudCamera.mac || normalizeMac(known && getParam(known, DEVICE_PARAMS.MAC));
-    const withMac = { ...cloudCamera, mac };
+    const mac = cloudDevice.mac || normalizeMac(known && getParam(known, DEVICE_PARAMS.MAC));
+    const withMac = { ...cloudDevice, mac };
     const { ip, source } = resolveAddress(withMac, config, byMac, known);
-    return { ...withMac, ip, ipSource: source };
+    // How the device asks to be spoken to (plugs, bulbs, hubs): from the scan
+    // when it answered, else from what was recorded at the last publish.
+    const scanned = mac ? byMac.get(mac) : null;
+    const remembered = (name) => (known ? getParam(known, name) : null) || null;
+    return {
+      ...withMac,
+      ip,
+      ipSource: source,
+      encryptType: scanned?.encryptType || remembered('TAPO_ENCRYPT_TYPE'),
+      loginVersion: scanned?.loginVersion || remembered('TAPO_LOGIN_VERSION'),
+      httpPort: scanned?.httpPort || remembered('TAPO_HTTP_PORT'),
+    };
   });
+  return { located, knownDevices };
+}
 
+/**
+ * Resolve located cameras into the Gladys devices to publish.
+ * @param {object} gladys - The SDK instance, which namespaces the ids.
+ * @param {object[]} located - The located cameras.
+ * @param {object} config - The normalized configuration.
+ * @param {object[]} knownDevices - What Gladys already holds.
+ * @returns {Promise<object[]>} The devices.
+ * @example
+ * await buildCameraDevices(gladys, located, config, knownDevices);
+ */
+export async function buildCameraDevices(gladys, located, config, knownDevices) {
   // What Gladys ALREADY knows about these cameras, so a probe that cannot run
   // does not strip a capability the camera demonstrably had. Republishing is a
   // refresh, not a reset: only an answer from the camera should take a feature
@@ -817,6 +843,20 @@ export async function buildDiscoveredDevices(gladys, cloudCameras, config) {
     ),
   );
   return cameras.map((camera) => buildDevice(gladys, camera));
+}
+
+/**
+ * Locate and resolve cloud cameras into the devices to publish.
+ * @param {object} gladys - The SDK instance, which namespaces the ids.
+ * @param {object[]} cloudCameras - The cameras returned by the cloud.
+ * @param {object} config - The normalized configuration.
+ * @returns {Promise<object[]>} The devices.
+ * @example
+ * const devices = await buildDiscoveredDevices(gladys, cameras, config);
+ */
+export async function buildDiscoveredDevices(gladys, cloudCameras, config) {
+  const { located, knownDevices } = await locateDevices(gladys, cloudCameras, config);
+  return buildCameraDevices(gladys, located, config, knownDevices);
 }
 
 /**

@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '@gladysassistant/integration-sdk';
 import { CLOUD_APP_TYPE, CAMERA_DEVICE_TYPE_PATTERNS } from './constants.js';
 import { normalizeMac } from './discovery.js';
+import { familyOf, FAMILIES } from '../smart/model.js';
 
 /** The cloud token expires; refresh it a little before the hour it lasts. */
 const TOKEN_TTL_MS = 50 * 60 * 1000;
@@ -118,6 +119,8 @@ export class TapoCloud {
      * stable for the process lifetime avoids piling up sessions on the account.
      */
     this.terminalUUID = randomUUID();
+    /** Unsupported devices already reported, so each is logged once. */
+    this.skipped = new Set();
   }
 
   /**
@@ -222,12 +225,42 @@ export class TapoCloud {
    * const cameras = await cloud.getCameras(config);
    */
   async getCameras(config) {
+    const devices = await this.getDevices(config);
+    return devices.filter((device) => device.family === FAMILIES.CAMERA);
+  }
+
+  /**
+   * List every device of the account this integration supports — cameras,
+   * plugs, lights, switches, hubs — in a normalized shape.
+   *
+   * Devices it does not support are named once in the logs, so a user who
+   * owns one knows it was seen and skipped rather than missed.
+   * @param {object} config - The normalized configuration.
+   * @returns {Promise<object[]>} The devices, each with its `family`.
+   * @example
+   * const devices = await cloud.getDevices(config);
+   */
+  async getDevices(config) {
     const result = await this.authenticatedRequest(config, { method: 'getDeviceList' });
     if (!Array.isArray(result.deviceList)) {
       logger.warn('The TP-Link cloud returned no device list');
       return [];
     }
-    const cameras = result.deviceList.filter(isCamera).map((cloudDevice) => {
+    const supported = [];
+    result.deviceList.forEach((cloudDevice) => {
+      const family = familyOf(cloudDevice.deviceType);
+      if (!family) {
+        if (!this.skipped.has(cloudDevice.deviceId)) {
+          this.skipped.add(cloudDevice.deviceId);
+          logger.info(
+            `"${decodeAlias(cloudDevice.alias) || cloudDevice.deviceName}" (${cloudDevice.deviceType}, ${cloudDevice.deviceModel}) is not supported by this integration`,
+          );
+        }
+        return;
+      }
+      supported.push({ cloudDevice, family });
+    });
+    const devices = supported.map(({ cloudDevice, family }) => {
       const name = decodeAlias(cloudDevice.alias) || cloudDevice.deviceName || 'Tapo Camera';
       return {
         cloudDeviceId: cloudDevice.deviceId,
@@ -240,9 +273,10 @@ export class TapoCloud {
         // the cloud and the device both state in clear.
         mac: normalizeMac(cloudDevice.deviceMac),
         deviceType: cloudDevice.deviceType || '',
+        family,
       };
     });
-    logger.info(`${cameras.length} Tapo camera(s) found in the cloud`);
-    return cameras;
+    logger.info(`${devices.length} Tapo device(s) found in the cloud`);
+    return devices;
   }
 }

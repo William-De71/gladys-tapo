@@ -93,6 +93,26 @@ function hasFeature(device, suffix) {
   );
 }
 
+/**
+ * The cloud device id of a CAMERA, or null for any other device.
+ *
+ * The plugs, lights and hub sensors live in the same device list, and a hub's
+ * motion sensor or button carries the same feature categories a camera does:
+ * keyed on the features alone, the camera watcher would log in to a plug's
+ * address as if it were a camera. The external id type is what tells them
+ * apart.
+ * @param {object} device - The Gladys device.
+ * @returns {string|null} The id, or null when the device is not a camera.
+ * @example
+ * cameraIdOf(device);
+ */
+function cameraIdOf(device) {
+  if (!parseCloudDeviceId(device.external_id)) {
+    return null;
+  }
+  return getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+}
+
 export function eventTimestamp(event) {
   const raw = Number(event.start_time ?? event.timestamp ?? event.time ?? event.startTime ?? 0);
   if (!Number.isFinite(raw) || raw <= 0) {
@@ -284,8 +304,7 @@ export class EventWatcher {
    */
   async setupOnvif(device) {
     const ip = getParam(device, DEVICE_PARAMS.IP);
-    const cloudDeviceId =
-      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    const cloudDeviceId = cameraIdOf(device);
     // The config carries the camera accounts, so there is nothing to try before
     // the watcher has been started — this method is also called straight from
     // the "save a camera account" action, which may land first.
@@ -377,8 +396,7 @@ export class EventWatcher {
    */
   dropOnvif(device) {
     const ip = getParam(device, DEVICE_PARAMS.IP);
-    const cloudDeviceId =
-      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    const cloudDeviceId = cameraIdOf(device);
     const client = ip ? this.onvifClients.get(ip) : null;
     if (client) {
       client.stop();
@@ -532,12 +550,14 @@ export class EventWatcher {
       logger.debug(`Listing the devices for the ONVIF setup failed: ${e.message}`);
       return [];
     });
-    const cameras = devices.filter((device) =>
-      (device.features || []).some(
-        (feature) =>
-          feature.category === DEVICE_FEATURE_CATEGORIES.BUTTON ||
-          feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
-      ),
+    const cameras = devices.filter(
+      (device) =>
+        cameraIdOf(device) &&
+        (device.features || []).some(
+          (feature) =>
+            feature.category === DEVICE_FEATURE_CATEGORIES.BUTTON ||
+            feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
+        ),
     );
     if (cameras.length === 0) {
       // Said out loud, because "no camera to subscribe" and "every subscription
@@ -571,8 +591,7 @@ export class EventWatcher {
    */
   async retryOnvifSubscriptions(devices) {
     const candidates = devices.filter((device) => {
-      const cloudDeviceId =
-        getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+      const cloudDeviceId = cameraIdOf(device);
       // `onvifCovered` is the record of a subscription that actually opened, so
       // a camera missing from it is one whose push path is not running.
       return cloudDeviceId && !this.onvifCovered.has(cloudDeviceId);
@@ -642,12 +661,14 @@ export class EventWatcher {
         return [];
       });
       // Only the cameras Gladys knows about are worth polling.
-      const eventDevices = devices.filter((device) =>
-        (device.features || []).some(
-          (feature) =>
-            feature.category === DEVICE_FEATURE_CATEGORIES.BUTTON ||
-            feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
-        ),
+      const eventDevices = devices.filter(
+        (device) =>
+          cameraIdOf(device) &&
+          (device.features || []).some(
+            (feature) =>
+              feature.category === DEVICE_FEATURE_CATEGORIES.BUTTON ||
+              feature.category === DEVICE_FEATURE_CATEGORIES.MOTION_SENSOR,
+          ),
       );
       // A camera that has an event feature but no live subscription is retried
       // here. The setup only runs at startup, so a camera that was unreachable
@@ -681,8 +702,7 @@ export class EventWatcher {
    * await watcher.checkDevice(device);
    */
   async checkDevice(device) {
-    const cloudDeviceId =
-      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    const cloudDeviceId = cameraIdOf(device);
     if (!cloudDeviceId) {
       return;
     }
@@ -964,15 +984,16 @@ export class EventWatcher {
    */
   async fetchDeviceEvents(device) {
     const ip = getParam(device, DEVICE_PARAMS.IP);
-    if (!ip) {
+    // Only a camera speaks this API: a plug's or a hub's address must never be
+    // logged in to as if it were one.
+    if (!ip || !cameraIdOf(device)) {
       return { events: [], battery: null, privacy: null };
     }
 
     // A camera pushing its events over ONVIF is not asked for its detections:
     // the answer would be discarded anyway, and every skipped request is one
     // less wake-up for a battery camera.
-    const cloudDeviceId =
-      getParam(device, DEVICE_PARAMS.CLOUD_DEVICE_ID) || parseCloudDeviceId(device.external_id);
+    const cloudDeviceId = cameraIdOf(device);
     const skipDetections = this.onvifCovered.has(cloudDeviceId);
 
     // Nothing to read on this camera: an ONVIF-covered wired camera with no

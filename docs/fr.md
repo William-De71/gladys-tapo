@@ -1,6 +1,6 @@
 # Intégration Tapo pour Gladys Assistant
 
-Cette intégration ajoute vos caméras et sonnettes **TP-Link Tapo** à Gladys : l'image de la caméra sur votre tableau de bord, l'appui sur la sonnette et la détection de mouvement comme déclencheurs de scènes, et le niveau de batterie des modèles sans fil.
+Cette intégration ajoute vos appareils **TP-Link Tapo** à Gladys : les caméras et sonnettes (image sur le tableau de bord, appui sur la sonnette et mouvement comme déclencheurs de scènes, niveau de batterie), mais aussi les prises, multiprises, ampoules, interrupteurs et les capteurs du hub H100 — voir [Prises, ampoules, interrupteurs et capteurs](#prises-ampoules-interrupteurs-et-capteurs).
 
 ## Comment ça marche
 
@@ -180,10 +180,49 @@ Un appui sur une flèche déplace la caméra **d'un pas**, pas en continu. C'est
 
 Une remarque sur la vitesse : les firmwares Tapo ignorent largement la vitesse demandée et déduisent l'allure de la distance à parcourir. Un pas peut donc paraître lent — c'est le comportement de la caméra, pas un réglage manquant.
 
+## Prises, ampoules, interrupteurs et capteurs
+
+Au-delà des caméras, l'intégration prend en charge les autres appareils Tapo de votre compte. Ils apparaissent dans l'écran **Découverte** au même titre que les caméras, et utilisent **votre compte Tapo** : aucun compte supplémentaire à créer.
+
+| Appareil             | Exemples                           | Dans Gladys                                                  |
+| -------------------- | ---------------------------------- | ------------------------------------------------------------ |
+| Prise                | P100, P105, P115                   | Marche/arrêt                                                 |
+| Prise avec mesure    | P110, P110M, P115                  | Marche/arrêt, puissance (W), énergie (kWh)                   |
+| Multiprise           | P300, P304M, P306                  | Un appareil par prise, chacune pilotée seule                 |
+| Ampoule, ruban LED   | L510, L530, L630, L900, L920, L930 | Marche/arrêt, luminosité, couleur et blanc (selon le modèle) |
+| Interrupteur mural   | S500, S505 / S500D, S505D          | Marche/arrêt / variateur (luminosité)                        |
+| Capteurs du hub H100 | T310, T315                         | Température, humidité                                        |
+|                      | T100                               | Mouvement                                                    |
+|                      | T110                               | Ouverture (porte, fenêtre)                                   |
+|                      | T300                               | Fuite d'eau                                                  |
+|                      | S200B, S200D                       | Bouton : simple clic, double clic                            |
+|                      | KE100                              | Température et consigne de la tête thermostatique            |
+
+Chaque capteur de hub devient un appareil à part, avec l'alerte de pile faible (et le niveau de pile quand le capteur le fournit). Les capacités sont **demandées à l'appareil**, jamais déduites du modèle : une ampoule n'a un réglage de couleur que si elle sait le faire.
+
+### Comment ça marche
+
+Ces appareils ne préviennent pas Gladys d'eux-mêmes : l'intégration les lit régulièrement, selon l'option **Intervalle de lecture des prises, lampes et capteurs** (5 secondes par défaut). Un appui sur un bouton ou l'ouverture d'une porte remonte donc à la lecture suivante. Une lecture par appareil physique suffit : un hub avec dix capteurs ne coûte qu'une requête. Seules les **valeurs qui changent** sont envoyées à Gladys.
+
+Le dialogue se fait **en local**, avec le protocole qu'utilise l'application Tapo (KLAP pour les firmwares récents, l'ancien chiffrement pour les autres — choisi automatiquement). L'adresse IP est trouvée par le scan réseau, comme pour les caméras ; sinon, utilisez l'action **Définir l'adresse IP d'un appareil** (pour un capteur, c'est l'adresse de son **hub** qui compte).
+
+### L'énergie des prises avec mesure
+
+Les prises renvoient leur consommation du jour, remise à zéro chaque nuit. L'intégration la transforme en un **compteur qui ne fait que monter** (kWh), ce que le suivi d'énergie de Gladys attend. Seule limite : ce qui est consommé pendant que l'intégration est arrêtée n'est pas compté.
+
+### Pas encore pris en charge
+
+- le **hub H200** (il parle le protocole des caméras) ;
+- les anciens appareils **Kasa** (protocole « IOT ») et les **aspirateurs robots** ;
+- les interrupteurs sans fil **S210 / S220** associés à un hub.
+
+Ils sont signalés dans **Tester la connexion** et dans les logs, plutôt que d'être ignorés en silence.
+
 ## Options
 
 - **Qualité de l'image** — HD donne une image plus nette, SD est plus légère et plus rapide à capturer.
 - **Adresses manuelles (avancé)** — voir [L'adresse IP de vos caméras](#ladresse-ip-de-vos-caméras) ; l'action **Définir l'adresse IP d'un appareil** est plus simple.
+- **Intervalle de lecture des prises, lampes et capteurs** — la fréquence de lecture de ces appareils (5 s par défaut) ; voir [Comment ça marche](#comment-ça-marche-1).
 - **Intervalle de vérification des événements** — la fréquence à laquelle l'intégration cherche une sonnerie ou un mouvement. Plus court, la réaction est plus rapide mais vos caméras sont davantage sollicitées. Ce réglage ne concerne que les caméras sans ONVIF : celles qui l'utilisent préviennent Gladys d'elles-mêmes, sans attendre.
 - **Délai de capture** — le temps accordé à une caméra pour fournir une image.
 

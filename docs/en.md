@@ -1,6 +1,6 @@
 # Tapo integration for Gladys Assistant
 
-This integration adds your **TP-Link Tapo** cameras and doorbells to Gladys: the camera image on your dashboard, doorbell presses and motion detection as scene triggers, and the battery level of the wire-free models.
+This integration adds your **TP-Link Tapo** devices to Gladys: cameras and doorbells (image on the dashboard, doorbell presses and motion as scene triggers, battery level), but also plugs, power strips, bulbs, switches and the sensors of the H100 hub — see [Plugs, bulbs, switches and sensors](#plugs-bulbs-switches-and-sensors).
 
 ## How it works
 
@@ -180,10 +180,49 @@ Pressing an arrow moves the camera **one step**, not continuously. This is delib
 
 One note on speed: Tapo firmwares largely ignore the requested speed and derive the pace from the distance to travel. A step may therefore feel slow — that is the camera's behaviour, not a missing setting.
 
+## Plugs, bulbs, switches and sensors
+
+Beyond cameras, the integration supports the other Tapo devices of your account. They show up on the **Discover** screen like the cameras, and use **your Tapo account**: no extra account to create.
+
+| Device            | Examples                           | In Gladys                                                    |
+| ----------------- | ---------------------------------- | ------------------------------------------------------------ |
+| Plug              | P100, P105, P115                   | On/off                                                       |
+| Metering plug     | P110, P110M, P115                  | On/off, power (W), energy (kWh)                              |
+| Power strip       | P300, P304M, P306                  | One device per socket, each switched on its own              |
+| Bulb, light strip | L510, L530, L630, L900, L920, L930 | On/off, brightness, color and white (depending on the model) |
+| Wall switch       | S500, S505 / S500D, S505D          | On/off / dimmer (brightness)                                 |
+| H100 hub sensors  | T310, T315                         | Temperature, humidity                                        |
+|                   | T100                               | Motion                                                       |
+|                   | T110                               | Opening (door, window)                                       |
+|                   | T300                               | Water leak                                                   |
+|                   | S200B, S200D                       | Button: single click, double click                           |
+|                   | KE100                              | Temperature and set point of the radiator valve              |
+
+Each hub sensor becomes a device of its own, with a low-battery alert (and the battery level when the sensor reports it). Capabilities are **asked of the device**, never guessed from the model: a bulb gets a color control only if it can do color.
+
+### How it works
+
+These devices do not notify Gladys on their own: the integration reads them regularly, at the **Plugs, lights and sensors check interval** option (5 seconds by default). A button press or a door opening therefore reaches Gladys at the next read. One read per physical device is enough: a hub with ten sensors costs a single request. Only **values that change** are sent to Gladys.
+
+The exchange is **local**, with the protocol the Tapo app uses (KLAP on recent firmwares, the older encryption on the others — picked automatically). The IP address comes from the network scan, as for the cameras; otherwise use the **Set a device IP address** action (for a sensor, it is its **hub's** address that matters).
+
+### Energy of metering plugs
+
+The plugs report today's consumption, reset every night. The integration turns it into a **counter that only goes up** (kWh), which is what Gladys' energy monitoring expects. One limit: what is consumed while the integration is stopped is not counted.
+
+### Not supported yet
+
+- the **H200 hub** (it speaks the cameras' protocol);
+- the older **Kasa** devices ("IOT" protocol) and **robot vacuums**;
+- the **S210 / S220** wireless switches paired to a hub.
+
+They are named in **Test the connection** and in the logs, rather than silently ignored.
+
 ## Options
 
 - **Image quality** — HD gives a sharper image, SD is lighter and faster to capture.
 - **Manual addresses (advanced)** — see [Your cameras' IP address](#your-cameras-ip-address); the **Set a device IP address** action is simpler.
+- **Plugs, lights and sensors check interval** — how often those devices are read (5 s by default); see [How it works](#how-it-works-1).
 - **Event check interval** — how often the integration looks for a ring or a motion. Shorter reacts faster but talks to your cameras more often. This setting only affects cameras without ONVIF: those that use it tell Gladys on their own, with nothing to wait for.
 - **Capture timeout** — how long a camera is given to deliver an image.
 

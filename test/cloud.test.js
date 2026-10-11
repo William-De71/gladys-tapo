@@ -144,6 +144,7 @@ test('the camera list is normalized, non-cameras dropped', async () => {
       ip: '192.168.1.20',
       mac: '28EE52000001',
       deviceType: 'SMART.IPCAMERA',
+      family: 'camera',
     });
   } finally {
     fetchStub.restore();

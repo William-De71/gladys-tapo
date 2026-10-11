@@ -26,7 +26,8 @@ import { EventWatcher } from './src/tapo/events.js';
 import { captureImage } from './src/tapo/snapshot.js';
 import { normalizeConfig, isConfigured, hasRtspAccount, resolveRtspAccount } from './src/config.js';
 import {
-  buildDiscoveredDevices,
+  locateDevices,
+  buildCameraDevices,
   cameraFromDevice,
   parseCloudDeviceId,
   forgetRefusedCredentials,
@@ -43,12 +44,16 @@ import { BatteryGuard } from './src/tapo/batteryGuard.js';
 import { isBatteryModel, probePort } from './src/tapo/rtsp.js';
 import { buildConnectionReport, connectionStatusFor, isValidAddress } from './src/report.js';
 import { forgetLastScan } from './src/tapo/discovery.js';
+import { SmartManager, isSmartDevice } from './src/smart/manager.js';
+import { FAMILIES } from './src/smart/model.js';
 
 const gladys = new GladysIntegration();
 const cloud = new TapoCloud();
 // Guards the battery of solar/wire-free cameras: capturing is what drains them,
 // so it backs off well before the cell reaches a level it may not recover from.
 const batteryGuard = new BatteryGuard();
+// Plugs, lights, switches and the sensors paired to a hub.
+const smartManager = new SmartManager({ gladys });
 
 let config = normalizeConfig();
 
@@ -388,6 +393,13 @@ const watcher = new EventWatcher({
   },
 });
 
+/**
+ * The devices the last publish could not describe (unreachable, refused), for
+ * the connection report: they publish nothing, so nothing else would name them.
+ * @type {object[]}
+ */
+let lastProblems = [];
+
 /** The publish in flight, and the one queued behind it. */
 let publishing = null;
 let publishQueued = null;
@@ -441,8 +453,21 @@ async function runPublish() {
     return [];
   }
 
-  const cameras = await cloud.getCameras(config);
-  const devices = await buildDiscoveredDevices(gladys, cameras, config);
+  // Every device of the account, located once: the cameras go through their
+  // own probing, the plugs, lights and hubs are asked what they are.
+  const cloudDevices = await cloud.getDevices(config);
+  const { located, knownDevices } = await locateDevices(gladys, cloudDevices, config);
+  const isCameraEntry = (entry) => entry.family === FAMILIES.CAMERA;
+  const [cameraDevices, smart] = await Promise.all([
+    buildCameraDevices(gladys, located.filter(isCameraEntry), config, knownDevices),
+    smartManager.describe(
+      located.filter((entry) => !isCameraEntry(entry)),
+      knownDevices,
+      config,
+    ),
+  ]);
+  const devices = [...cameraDevices, ...smart.devices];
+  lastProblems = smart.problems;
   await gladys.publishDiscoveredDevices(devices);
 
   // Declare the battery models to the guard right away. It must know a camera
@@ -457,7 +482,7 @@ async function runPublish() {
   // named on the Configuration screen, with the fix: the badge used to read
   // "connected" while every image stayed empty, which is how users ended up
   // guessing at the address fields.
-  const status = connectionStatusFor(devices);
+  const status = connectionStatusFor(devices, smart.problems);
   await gladys.setConnectionStatus(status.connected, status.message).catch(() => {});
   return devices;
 }
@@ -566,6 +591,12 @@ async function setCameraEnabled(device, enabled) {
 // `setValue` callback, so a second `onSetValue` would silently replace this one
 // and take the other feature down with it. Everything writable routes from here.
 gladys.onSetValue(async (device, deviceFeature, value) => {
+  // Plugs, lights, switches and hub sensors have their own command path.
+  if (isSmartDevice(device)) {
+    await smartManager.setValue(device, deviceFeature, value);
+    return;
+  }
+
   const featureId = String(deviceFeature.external_id || '');
 
   // The private-mode gate (`camera/enabled`), and the privacy switch it replaced
@@ -730,7 +761,7 @@ gladys.onAction('test_connection', async () => {
     }
     // One line per device: where it is, where that address came from, and
     // what to do when it is missing or silent.
-    return buildConnectionReport(devices);
+    return buildConnectionReport(devices, lastProblems);
   } catch (e) {
     logger.error('The Tapo connection test failed', e);
     if (e instanceof TapoAuthError) {
@@ -869,7 +900,8 @@ gladys.onAction('set_device_address', async (fields) => {
 
   // Saved whatever the probe says — the device may simply be asleep — but the
   // user is told at once when nothing answers at that address.
-  const ports = [443, 554, 2020, 8800];
+  // 80 for the plugs, lights and hubs; 443/554/2020/8800 for the cameras.
+  const ports = [80, 443, 554, 2020, 8800];
   const outcomes = await Promise.all(ports.map((port) => probePort(ip, port)));
   const answers = outcomes.some((outcome) => outcome === 'open');
 
@@ -880,10 +912,15 @@ gladys.onAction('set_device_address', async (fields) => {
     logger.warn(`Re-publish after saving the address failed: ${e.message}`),
   );
   const updated = (await findDevice(externalId)) || device;
-  watcher.dropOnvif(updated);
-  watcher
-    .setupOnvif(updated)
-    .catch((e) => logger.debug(`ONVIF setup after saving the address failed: ${e.message}`));
+  if (isSmartDevice(updated)) {
+    // The clients are keyed by address: the next poll builds one on the new one.
+    smartManager.clients.clear();
+  } else {
+    watcher.dropOnvif(updated);
+    watcher
+      .setupOnvif(updated)
+      .catch((e) => logger.debug(`ONVIF setup after saving the address failed: ${e.message}`));
+  }
 
   if (!answers) {
     return {
@@ -920,6 +957,12 @@ gladys.onAction('set_camera_account', async (fields) => {
     return {
       en: 'Pick a camera in the list. If it is empty, run a scan from the Discover tab first.',
       fr: "Choisissez une caméra dans la liste. Si elle est vide, lancez d'abord un scan depuis l'onglet Découverte.",
+    };
+  }
+  if (isSmartDevice(device)) {
+    return {
+      en: `"${device.name}" is not a camera: plugs, lights and sensors use your Tapo account, they need no camera account.`,
+      fr: `« ${device.name} » n'est pas une caméra : prises, lampes et capteurs utilisent votre compte Tapo, ils n'ont pas besoin de compte caméra.`,
     };
   }
   const cloudDeviceId = cloudIdOf(device);
@@ -1022,10 +1065,12 @@ gladys.onConfigUpdated(async () => {
     // before the new thresholds were applied would decide on the old ones.
     batteryGuard.configure(config);
     watcher.start(config);
+    smartManager.start(config);
     startImageRefresh();
     startedWith = JSON.stringify(config);
   } else {
     watcher.stop();
+    smartManager.stop();
     stopImageRefresh();
     startedWith = null;
   }
@@ -1050,6 +1095,7 @@ gladys.on('connected', async () => {
         batteryGuard.trackBatteryCamera(device.external_id);
       });
       watcher.start(config);
+      smartManager.start(config);
       startImageRefresh();
       startedWith = JSON.stringify(config);
 
@@ -1058,13 +1104,15 @@ gladys.on('connected', async () => {
       // judged on nothing — and the widget being populated one round sooner is
       // not worth a capture on a camera that may be nearly empty.
       await Promise.all(
-        devices.map((device) =>
-          watcher
-            .checkDevice(device)
-            .catch((e) =>
-              logger.debug(`Initial battery read of "${device.name}" failed: ${e.message}`),
-            ),
-        ),
+        devices
+          .filter((device) => !isSmartDevice(device))
+          .map((device) =>
+            watcher
+              .checkDevice(device)
+              .catch((e) =>
+                logger.debug(`Initial battery read of "${device.name}" failed: ${e.message}`),
+              ),
+          ),
       );
 
       // Publish a first image right away, so the widget is populated at once
@@ -1086,6 +1134,7 @@ gladys.on('connected', async () => {
 gladys.handleShutdown(async (signal) => {
   logger.info(`Received ${signal} -> graceful shutdown`);
   watcher.stop();
+  smartManager.stop();
   stopImageRefresh();
 });
 
