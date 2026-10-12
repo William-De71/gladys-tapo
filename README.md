@@ -2,9 +2,18 @@
 
 ![Tapo integration for Gladys Assistant](cover.jpg)
 
+[![Release](https://img.shields.io/github/v/release/William-De71/gladys-tapo)](https://github.com/William-De71/gladys-tapo/releases)
+[![CI](https://github.com/William-De71/gladys-tapo/actions/workflows/ci.yml/badge.svg)](https://github.com/William-De71/gladys-tapo/actions/workflows/ci.yml)
+[![Gladys](https://img.shields.io/badge/Gladys-%E2%89%A5%205.0-1f6feb)](https://gladysassistant.com)
+[![License](https://img.shields.io/github/license/William-De71/gladys-tapo)](LICENSE)
+
 External integration bringing **TP-Link Tapo** devices to [Gladys Assistant](https://gladysassistant.com): cameras and doorbells, plugs and power strips, bulbs and light strips, wall switches, and the sensors of the H100 hub. Everything runs **on your local network** — the TP-Link cloud is only asked for the list of your devices.
 
-📖 User documentation: [English](docs/en.md) — [Français](docs/fr.md)
+📖 User documentation: [English](docs/en.md) · [Français](docs/fr.md) · [Deutsch](docs/de.md) · [Español](docs/es.md)
+
+The integration speaks the four languages of Gladys: its Configuration screen, its actions and every message it shows are translated.
+
+**Contents** — [Supported devices](#supported-devices) · [How it works](#how-it-works) · [Getting started](#getting-started) · [Troubleshooting](#troubleshooting) · [Upgrading from 1.x](#upgrading-from-1x) · [Architecture](#architecture) · [Development](#development) · [Technical notes](#technical-notes)
 
 ## Supported devices
 
@@ -40,6 +49,19 @@ Requires **Gladys 5.0** or later.
 ![Order in which a device's address is resolved](docs/images/ip-resolution.svg)
 
 The scan cannot see devices on another subnet or VLAN, or behind a router that filters broadcast. For those, run **Set a device IP address**: pick the device in the list, type its address (shown in the Tapo app, device settings > Device info). Gladys checks the address answers and captures a test image. The address is stored against the device's cloud id, so renaming the device keeps it. Reserve that address in your router so it does not change.
+
+## Troubleshooting
+
+| Symptom                                    | What to check                                                                                                               |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| ✖ _not found on your network_              | another subnet or VLAN, or broadcast filtered: run **Set a device IP address**                                              |
+| ⚠ _does not answer_                        | device powered on, on the same network as Gladys, **Third-Party Compatibility** enabled in the Tapo app (_Me_ → _Tapo Lab_) |
+| Camera image but no live view              | live view needs RTSP: battery models and doorbells have none; for a wired camera, save its camera account                   |
+| Motion fires late                          | without a camera account the camera is polled: save one to get ONVIF push                                                   |
+| Battery camera stops updating              | battery protection paused it — it resumes at the recharge level (80% by default)                                            |
+| Plug, bulb or hub refuses the Tapo account | check the email and password as typed in the Tapo app; a recent firmware may need **Third-Party Compatibility**             |
+
+The user documentation has a longer troubleshooting section, in [English](docs/en.md), [French](docs/fr.md), [German](docs/de.md) and [Spanish](docs/es.md).
 
 ## Upgrading from 1.x
 
@@ -97,6 +119,8 @@ The probe is a well-formed TDP packet (16-byte header with payload size, flags a
 
 ### Cameras: capture modes
 
+![The capture mode follows the ports the camera answers on](docs/images/capture-modes.svg)
+
 The mode is decided by probing the camera, never by its model name: a camera without RTSP is not a camera without local access. Battery models and doorbells (C610, C425, D230…) close ports 554 and 2020 but serve their video over the proprietary protocol on port 8800 — verified end to end on a C610.
 
 Live video is only available for RTSP cameras: it goes through the `CAMERA_URL` param handed to the rtsp-camera service, and an encrypted 8800 session cannot be expressed as a URL. Bridging the 8800 stream through an HTTP server inside the integration does not work either: the `gladys-integrations` network is created with `com.docker.network.bridge.enable_icc=false`, so nothing can connect INTO an integration container — not even Gladys, which is where ffmpeg runs.
@@ -105,9 +129,13 @@ A frame larger than the host accepts is re-encoded locally from the first captur
 
 ### Cameras: battery protection
 
+![Battery levels and what each one allows](docs/images/battery.svg)
+
 Capturing is what drains a battery camera, so battery models are throttled: by default the periodic capture stops below 60%, nothing is captured below 40%, and capturing resumes at 80%. Battery cameras also get their own capture and poll intervals. All of it is configurable.
 
 ### Cameras: events
+
+![ONVIF pushes the events, the detection list is polled](docs/images/events.svg)
 
 | Path                     | How it works                                                          | Latency        |
 | ------------------------ | --------------------------------------------------------------------- | -------------- |

@@ -1,0 +1,253 @@
+# Integración Tapo para Gladys Assistant
+
+Esta integración añade sus dispositivos **TP-Link Tapo** a Gladys: cámaras y timbres (imagen en el panel, pulsaciones del timbre y movimiento como desencadenantes de escenas, nivel de batería), pero también enchufes, regletas, bombillas, interruptores y los sensores del hub H100 — consulte [Enchufes, bombillas, interruptores y sensores](#enchufes-bombillas-interruptores-y-sensores).
+
+## Cómo funciona
+
+Dos canales, cada uno con lo que mejor sabe hacer:
+
+- **La nube de TP-Link** sirve para obtener la lista de sus cámaras. Es la misma cuenta que en la aplicación Tapo. Sin embargo, **no** indica la dirección local de las cámaras.
+- **Un escaneo de su red** localiza después cada cámara, exactamente como hace la aplicación Tapo al arrancar. En la mayoría de las instalaciones, esto le evita tener que escribir ninguna dirección IP (consulte [La dirección IP de sus cámaras](#la-dirección-ip-de-sus-cámaras) cuando no sea así).
+- **Su red local** proporciona todo lo demás: imágenes, timbre, movimiento, batería. Nada de ello pasa por la nube: Gladys habla directamente con la cámara, en su casa.
+
+Para capturar una imagen, la integración elige automáticamente uno de dos modos, según lo que acepte la cámara:
+
+| Modo            | Cuándo se utiliza                                   | Qué requiere                                      |
+| --------------- | --------------------------------------------------- | ------------------------------------------------- |
+| **RTSP**        | La cámara ofrece un flujo RTSP (puerto 554)         | Una cuenta de cámara creada en la aplicación Tapo |
+| **Propietario** | La cámara no ofrece ningún flujo RTSP (puerto 8800) | Nada más que su cuenta Tapo                       |
+
+El segundo modo es el protocolo interno de TP-Link, el que utiliza la aplicación móvil. Permite obtener una imagen de los modelos — a menudo con batería — que no ofrecen ningún flujo estándar.
+
+## Configuración
+
+### 1. Introducir su cuenta Tapo
+
+En la pantalla **Configuración** de la integración, introduzca el correo electrónico y la contraseña de su cuenta TP-Link / Tapo y, después, elija la región de la nube más cercana (Europa por defecto).
+
+### 2. Crear una cuenta de cámara (recomendado)
+
+Si sus cámaras están cableadas (C100, C200, C210, C500…), el modo RTSP es el mejor: más ligero y más robusto. Requiere una cuenta de cámara creada en la aplicación Tapo:
+
+1. Abra la aplicación Tapo y seleccione su cámara.
+2. Vaya a **Ajustes de la cámara** → **Ajustes avanzados** → **Cuenta de la cámara**.
+3. Defina un nombre de usuario y una contraseña.
+4. Cópielos en la sección **Cuenta de cámara (RTSP y ONVIF)** de la configuración de Gladys.
+
+Atención: esta cuenta de cámara **no** es su cuenta Tapo, y se crea **para cada cámara**. Hay dos formas de introducirla:
+
+- si ha utilizado las **mismas credenciales** en todas las cámaras, basta con rellenar los campos **Usuario / contraseña de la cuenta por defecto**;
+- si no, una vez añadidas las cámaras (paso 3), utilice la acción **Guardar la cuenta de una cámara** al final de la pantalla Configuración: elija la cámara en la lista, escriba el nombre de usuario y la contraseña y ejecútela. Gladys intenta una captura de inmediato y le indica si la cuenta funciona. Repita la operación para cada cámara.
+
+Las cuentas por cámara tienen prioridad sobre la cuenta por defecto y permanecen asociadas a la cámara aunque le cambie el nombre. Si lo deja todo vacío, la integración utilizará el modo propietario para todas las cámaras.
+
+El campo **Cuentas por cámara (avanzado)** sigue aceptando una lista escrita (`nombre|usuario|contraseña`, separadas por comas), pero la acción es más sencilla y acepta cualquier contraseña, incluidas las que contienen comas.
+
+En algunos modelos también hay que activar la **Compatibilidad con terceros** (en la aplicación Tapo, en _Yo_ → _Tapo Lab_) para que el flujo RTSP sea accesible.
+
+### 3. Lanzar un escaneo
+
+Haga clic en **Probar la conexión**: Gladys se conecta a la nube, escanea su red y muestra **una línea por cámara** — su dirección, de dónde procede esa dirección y cómo se capturará la imagen:
+
+```
+Conectado a la nube Tapo: 3 dispositivo(s), 2 accesible(s) en su red.
+✔ Salón (C230): 192.168.1.20 (encontrada en la red), imágenes por RTSP
+✔ Garaje (C210): 192.168.1.21 (encontrada en la red), imágenes por RTSP
+✖ Jardín (C660): no se encuentra en su red → use «Definir la dirección IP de un dispositivo» más abajo.
+```
+
+Después, vaya a la pantalla **Descubrir** y lance un escaneo. Sus cámaras aparecen allí, listas para ser añadidas. Una vez creadas, añada el widget **Cámara** a su panel.
+
+Si una cámara aparece marcada con ✖, siga leyendo.
+
+## La dirección IP de sus cámaras
+
+Para obtener las imágenes, Gladys necesita la **dirección IP local** de cada cámara (por ejemplo `192.168.1.42`). La nube de TP-Link no la proporciona: la integración la encuentra escaneando su red y reconoce cada cámara por su dirección MAC.
+
+### Cuando el escaneo no encuentra una cámara
+
+Esto ocurre cuando la cámara está en **otra subred u otra VLAN** distinta de la de Gladys, o cuando su router **filtra el tráfico de difusión** (broadcast). La solución:
+
+1. En la aplicación Tapo, abra la cámara y, después, **Ajustes** (icono de engranaje) → **Información del dispositivo**: allí aparece la **dirección IP**.
+2. En Gladys, en la pantalla **Configuración** de la integración, desplácese hasta la acción **Definir la dirección IP de un dispositivo**.
+3. Elija la cámara en la lista, escriba su dirección y ejecute la acción.
+
+Gladys comprueba de inmediato que algo responde en esa dirección, captura una imagen y le indica si todo funciona. La dirección queda asociada a la propia cámara: sigue siendo válida si cambia el nombre de la cámara, en Gladys o en la aplicación Tapo.
+
+Para volver a la detección automática, ejecute de nuevo la acción con una dirección **vacía**.
+
+> **Consejo** — reserve la dirección de cada cámara en su router («reserva DHCP» o «concesión estática»). De lo contrario, el router podría asignarle otra después de un corte, y una dirección escrita a mano dejaría de ser correcta.
+
+### ¿Y por la nube, sin dirección IP?
+
+No es posible. TP-Link no ofrece a las aplicaciones de terceros **ningún medio** para obtener la imagen o el flujo de una cámara a través de Internet: la aplicación Tapo pasa por servidores de retransmisión reservados para su propio uso. Por eso todas las integraciones existentes — incluida la de Home Assistant — funcionan en la red local, que es también lo que garantiza que sus imágenes nunca salgan de su casa.
+
+### El campo «Direcciones manuales (avanzado)»
+
+Sigue disponible para escribir direcciones a mano: entradas separadas por comas, cada una con la forma `nombre|ip` (o `nombre=ip`), por ejemplo `Cámara jardín|192.168.1.42, Salón|192.168.1.43`. El nombre se compara sin tener en cuenta mayúsculas, acentos, espacios ni guiones bajos, y también puede ser la dirección MAC de la cámara. La acción anterior sigue siendo más segura: no hay que copiar ningún nombre y la dirección se comprueba.
+
+## Lo que hacen las cámaras con batería — y lo que no hacen
+
+Los modelos con batería y solares (C610, C425, D230…) no ofrecen ni RTSP ni ONVIF: solo hablan el protocolo propietario de TP-Link. Esto tiene dos consecuencias prácticas.
+
+### Sin vídeo en directo
+
+Estas cámaras muestran **imágenes actualizadas periódicamente**, no un flujo continuo. La vista en directo de Gladys se basa en una URL entregada a ffmpeg, y una sesión propietaria está cifrada y la gestiona la propia integración — no puede expresarse como una URL. Las cámaras RTSP cableadas sí tienen vídeo en directo.
+
+Se trata de un límite del protocolo más que de la integración: ninguna herramienta lo hace mejor con estos modelos, salvo pasando por un relé externo como go2rtc.
+
+### La batería se protege automáticamente
+
+Capturar una imagen es, con diferencia, lo más exigente que se le pide a una cámara. En un modelo solar, capturar con demasiada frecuencia vacía la batería más rápido de lo que el panel la recarga — y una celda de litio que baja demasiado puede dejar de aceptar carga por completo, algo que no se puede arreglar a distancia.
+
+Por eso la integración se modera por sí sola:
+
+| Batería                 | Actualización automática | Widget, escena, timbre |
+| ----------------------- | ------------------------ | ---------------------- |
+| por encima del 60 %     | sí                       | sí                     |
+| entre el 40 % y el 60 % | en pausa                 | sí                     |
+| por debajo del 40 %     | en pausa                 | no                     |
+
+Una cámara que ha bajado del primer umbral solo se reanuda al **80 %**, deliberadamente muy por encima del umbral de pausa: reanudar justo por encima volvería a vaciarla de inmediato, y los ciclos cortos repetidos desgastan la batería más que un ciclo completo. Evite fijar ese nivel en el 100 %: una cámara solar se carga a tirones y rara vez indica exactamente la carga completa, lo que la dejaría en pausa para siempre.
+
+El nivel de batería y los eventos se siguen leyendo en todos los casos: no cuestan casi nada, y son lo que indica cuándo se ha recargado la cámara.
+
+Una cámara con batería que **deja de responder** — sueño profundo, sesión rechazada, red caída — también pasa a funcionar solo bajo demanda: su último nivel conocido ya no es fiable, y es más probable que una cámara silenciosa esté descargada que en buen estado.
+
+### Un intervalo de captura propio
+
+Las cámaras con batería tienen su **propio intervalo de actualización**, independiente del de las cableadas. Espaciar las capturas de un modelo solar no afecta, por tanto, a la frescura de sus cámaras conectadas a la red eléctrica.
+
+| Ajuste                                                | Por defecto    | Se aplica a                   |
+| ----------------------------------------------------- | -------------- | ----------------------------- |
+| Intervalo de actualización de imágenes                | 60 s           | solo cámaras cableadas        |
+| Intervalo de actualización de las cámaras con batería | 900 s (15 min) | modelos con batería / solares |
+
+Es el ajuste más eficaz de todos: lo que consume batería es **despertar la cámara**, mucho más que la propia imagen. En invierno, o si su panel recibe poco sol, alargue ese intervalo y suba el umbral de pausa.
+
+## Funcionalidades creadas
+
+Cada cámara se convierte en un dispositivo en Gladys:
+
+- **Imagen** — la imagen que muestra el widget de cámara, actualizada bajo demanda.
+- **Timbre** — una pulsación del botón, utilizable como desencadenante de escena.
+- **Movimiento** — la detección de movimiento, también utilizable como desencadenante.
+- **Activada** — modo privado: consulte [Modo privado](#modo-privado).
+- **Captura** — un botón para pedir una imagen de inmediato (modelos con batería, actualizados con menos frecuencia).
+- **Mover** y **Posición predefinida** — en las cámaras motorizadas: consulte [PTZ](#orientar-una-cámara-motorizada-ptz).
+- **Batería** — el nivel restante, en porcentaje (modelos con batería).
+
+Cuando alguien llama al timbre, la integración captura de inmediato una imagen y la envía a Gladys: el widget ya muestra al visitante en el momento en que abre la notificación.
+
+### Cómo llegan los eventos a Gladys
+
+Dos vías posibles, elegidas automáticamente para cada cámara:
+
+| Vía        | Cómo funciona                                               | Retardo            |
+| ---------- | ----------------------------------------------------------- | ------------------ |
+| **ONVIF**  | La cámara avisa a Gladys en cuanto detecta algo             | casi instantáneo   |
+| **Sondeo** | Gladys pregunta periódicamente a la cámara qué ha detectado | hasta un intervalo |
+
+ONVIF es claramente preferible para desencadenar una escena: un movimiento llega en menos de un segundo, en lugar de esperar a la siguiente comprobación. Lo único que necesita es que la **cuenta de cámara** esté rellenada — son las credenciales que utiliza ONVIF, no su cuenta Tapo.
+
+También es la única vía que indica el **fin** de un movimiento: el sensor vuelve a su estado cuando la cámara lo indica, y no tras un retardo fijo.
+
+Las cámaras cableadas (C210, C200, C500…) suelen ofrecer ONVIF, lo que les da un sensor de movimiento que antes no tenían. Los modelos con batería no lo ofrecen y se quedan en el sondeo: no es un problema, sus detecciones siguen llegando, solo que con un ligero retraso.
+
+No hay nada que configurar: si la cuenta de cámara está rellenada y la cámara acepta ONVIF, la integración lo utiliza; si no, consulta la cámara como antes.
+
+## Modo privado
+
+Cada cámara recibe un control **Activada** — el modo privado estándar de Gladys para las cámaras (Gladys 5.0 o posterior). Desactívelo y Gladys deja de capturar, mostrar y almacenar la imagen de esa cámara, en todas partes: panel, chat, escenas. Se puede utilizar en una escena — «cuando volvamos a casa, desactivar la cámara del salón».
+
+En las cámaras Tapo que tienen un **modo privacidad** (el objetivo queda cubierto físicamente), el control también lo maneja: desactivar la cámara cubre el objetivo, volver a activarla lo descubre. Esto pasa por el mismo canal local que el nivel de batería: no se necesita cuenta de cámara, y los modelos con batería también lo tienen. Funciona **en ambos sentidos** — un modo privacidad activado desde la aplicación Tapo se refleja en Gladys en la siguiente comprobación, en menos de un minuto.
+
+En una cámara sin modo privacidad, el control solo actúa en el lado de Gladys: la cámara sigue funcionando, simplemente Gladys deja de utilizarla.
+
+Mientras una cámara está desactivada, una cámara con batería no se despierta en vano, y el widget indica que la cámara está desactivada en lugar de mostrar una imagen antigua.
+
+> **Si viene de la versión 1.2 o anterior** — el modo privacidad era antes un **interruptor** independiente. Sigue funcionando en sus cámaras existentes, así que sus escenas no se rompen. Cuando actualice una cámara desde la pantalla **Descubrir**, el interruptor se sustituye por el control **Activada**: vuelva a configurar las escenas que utilizaban el interruptor (atención, los valores están invertidos — el interruptor estaba «encendido» cuando el objetivo estaba cubierto, el control está «encendido» cuando la cámara está activa).
+
+## Orientar una cámara motorizada (PTZ)
+
+Las cámaras motorizadas (C200, C210, C225, C500…) se pueden orientar desde Gladys: las flechas aparecen directamente en el widget de cámara del panel, junto a la imagen.
+
+Al igual que los eventos, esto pasa por ONVIF y, por tanto, requiere que la **cuenta de cámara** esté rellenada. La integración pregunta a cada cámara qué sabe hacer: una cámara que gira sin zoom motorizado solo muestra las cuatro flechas, y una cámara fija no muestra nada. No tiene que declarar ninguna capacidad.
+
+**Las posiciones guardadas** que creó en la aplicación Tapo se recuperan tal cual, con sus nombres. Aparecen en una lista desplegable bajo las flechas y se pueden utilizar en una escena — con diferencia, el uso más habitual: «cuando me vaya, orientar la cámara hacia la puerta». Gladys no crea ni renombra posiciones: eso se sigue haciendo en la aplicación Tapo. Si añade una, aparecerá en el siguiente escaneo.
+
+Pulsar una flecha mueve la cámara **un paso**, no de forma continua. Es deliberado: una orden enviada desde una escena, o una pulsación cuya liberación se pierde, debe quedarse en un pequeño movimiento y no en varios segundos de rotación. Por eso cada paso termina por sí solo: aunque Gladys pierda el contacto con la cámara justo después, ningún movimiento queda en marcha.
+
+Una observación sobre la velocidad: los firmwares Tapo ignoran en gran medida la velocidad solicitada y deducen el ritmo a partir de la distancia que hay que recorrer. Un paso puede, por tanto, parecer lento — es el comportamiento de la cámara, no un ajuste que falte.
+
+## Enchufes, bombillas, interruptores y sensores
+
+Además de las cámaras, la integración admite los demás dispositivos Tapo de su cuenta. Aparecen en la pantalla **Descubrir** igual que las cámaras y utilizan **su cuenta Tapo**: no hay que crear ninguna cuenta adicional.
+
+| Dispositivo           | Ejemplos                           | En Gladys                                                   |
+| --------------------- | ---------------------------------- | ----------------------------------------------------------- |
+| Enchufe               | P100, P105, P115                   | Encendido/apagado                                           |
+| Enchufe con medición  | P110, P110M, P115                  | Encendido/apagado, potencia (W), energía (kWh)              |
+| Regleta               | P300, P304M, P306                  | Un dispositivo por toma, cada una controlada por separado   |
+| Bombilla, tira de luz | L510, L530, L630, L900, L920, L930 | Encendido/apagado, brillo, color y blanco (según el modelo) |
+| Interruptor de pared  | S500, S505 / S500D, S505D          | Encendido/apagado / regulador (brillo)                      |
+| Sensores del hub H100 | T310, T315                         | Temperatura, humedad                                        |
+|                       | T100                               | Movimiento                                                  |
+|                       | T110                               | Apertura (puerta, ventana)                                  |
+|                       | T300                               | Fuga de agua                                                |
+|                       | S200B, S200D                       | Botón: clic simple, doble clic                              |
+|                       | KE100                              | Temperatura y consigna de la válvula del radiador           |
+
+Cada sensor del hub se convierte en un dispositivo propio, con una alerta de batería baja (y el nivel de batería cuando el sensor lo indica). Las capacidades se **preguntan al dispositivo**, nunca se deducen del modelo: una bombilla solo recibe un control de color si es capaz de mostrar colores.
+
+### Cómo funciona
+
+Estos dispositivos no avisan a Gladys por sí mismos: la integración los lee periódicamente, según la opción **Intervalo de lectura de enchufes, luces y sensores** (5 segundos por defecto). Una pulsación de botón o la apertura de una puerta llega, por tanto, a Gladys en la siguiente lectura. Basta con una lectura por dispositivo físico: un hub con diez sensores cuesta una sola petición. Solo se envían a Gladys los **valores que cambian**.
+
+El intercambio es **local**, con el protocolo que utiliza la aplicación Tapo (KLAP en los firmwares recientes, el cifrado antiguo en los demás — elegido automáticamente). La dirección IP procede del escaneo de red, como para las cámaras; si no, utilice la acción **Definir la dirección IP de un dispositivo** (para un sensor, lo que cuenta es la dirección de su **hub**).
+
+### Energía de los enchufes con medición
+
+Los enchufes indican el consumo del día, que se pone a cero cada noche. La integración lo convierte en un **contador que solo aumenta** (kWh), que es lo que espera el seguimiento de energía de Gladys. Un límite: lo que se consume mientras la integración está detenida no se contabiliza.
+
+### Todavía no compatibles
+
+- el **hub H200** (habla el protocolo de las cámaras);
+- los dispositivos **Kasa** más antiguos (protocolo «IOT») y los **robots aspiradores**;
+- los interruptores inalámbricos **S210 / S220** emparejados con un hub.
+
+Se mencionan en **Probar la conexión** y en los registros, en lugar de ignorarse en silencio.
+
+## Opciones
+
+- **Calidad de imagen** — HD ofrece una imagen más nítida, SD es más ligera y más rápida de capturar.
+- **Direcciones manuales (avanzado)** — consulte [La dirección IP de sus cámaras](#la-dirección-ip-de-sus-cámaras); la acción **Definir la dirección IP de un dispositivo** es más sencilla.
+- **Intervalo de lectura de enchufes, luces y sensores** — con qué frecuencia se leen esos dispositivos (5 s por defecto); consulte [Cómo funciona](#cómo-funciona-1).
+- **Intervalo de comprobación de eventos** — con qué frecuencia la integración busca una llamada al timbre o un movimiento. Un intervalo más corto reacciona más rápido, pero consulta sus cámaras más a menudo. Este ajuste solo afecta a las cámaras sin ONVIF: las que lo utilizan avisan a Gladys por sí mismas, sin esperas.
+- **Tiempo límite de captura** — el tiempo que se concede a una cámara para entregar una imagen.
+
+La acción **Actualizar las imágenes** fuerza una nueva captura de todas las cámaras, práctica para comprobar su instalación.
+
+## Solución de problemas
+
+**«Conexión rechazada»** — compruebe el correo electrónico y la contraseña de su cuenta Tapo. La verificación en dos pasos de su cuenta TP-Link impide este inicio de sesión.
+
+**El widget sigue vacío y los registros muestran `TAPO_CAMERA_IP_UNKNOWN`** — Gladys no conoce la dirección de la cámara: el escaneo no la ha encontrado. Ejecute **Probar la conexión** para ver qué cámaras están afectadas y, después, siga [Cuando el escaneo no encuentra una cámara](#cuando-el-escaneo-no-encuentra-una-cámara).
+
+**Una cámara tiene dirección pero no responde** — **Probar la conexión** la marca con un ⚠ e indica de dónde procede la dirección. Compruebe que la cámara está encendida, en la misma red que Gladys, y que la **Compatibilidad con terceros** está activada en la aplicación Tapo. Si la dirección ha cambiado (sin reserva DHCP), corríjala con la acción **Definir la dirección IP de un dispositivo**.
+
+**El widget muestra un error aunque la cámara responde** — si la cámara utiliza RTSP, asegúrese de que su cuenta de cámara está rellenada. Es, con diferencia, la causa más frecuente: los registros muestran entonces `TAPO_RTSP_ACCOUNT_MISSING`. Recuerde que esta cuenta es propia de cada cámara.
+
+**Ninguna imagen de un timbre con batería** — estos modelos entran en sueño profundo para ahorrar batería y pueden tardar varios segundos en responder. Aumente el **tiempo de espera de captura** si es necesario.
+
+**El movimiento tarda en llegar** — lo más probable es que la cámara esté en la vía de sondeo. Compruebe que su **cuenta de cámara** está rellenada: es lo que permite que funcione ONVIF y, por tanto, lo que hace que el movimiento sea instantáneo. Los modelos con batería no ofrecen ONVIF en absoluto.
+
+**No se detecta ningún movimiento en una cámara ONVIF** — en la aplicación Tapo, compruebe que la detección de movimiento está activada y que el modo privacidad está desactivado: una cámara en modo privacidad no indica absolutamente nada.
+
+**Cámaras sin flujo RTSP** — los modelos con batería y los timbres (C610, C425, D230…) no ofrecen ni RTSP ni ONVIF. No es un obstáculo: la integración recurre automáticamente al protocolo propietario de TP-Link, el que utiliza la aplicación Tapo, y captura sus imágenes sin ninguna cuenta de cámara. La única diferencia: no hay vídeo en directo para esas cámaras, solo imágenes actualizadas periódicamente.
+
+A veces tardan en despertarse: si una captura falla con un mensaje de tiempo de espera agotado, aumente el **tiempo de espera de captura**.
+
+## Privacidad
+
+Gladys almacena sus credenciales Tapo, que solo se utilizan para acceder a la nube de TP-Link y a sus cámaras. Las imágenes se capturan en su red local y se envían directamente a su Gladys: nunca pasan por ningún servidor de terceros.

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" width="880" height="300" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>How doorbell presses and motion reach Gladys</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="880" height="300" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="30" y="36" font-size="15" font-weight="600" fill="#24292f">Camera events — one path per camera, never both</text>
+
+  <g font-size="12" fill="#24292f">
+    <!-- Lane 1: ONVIF -->
+    <rect x="30" y="60" width="160" height="90" rx="10" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>
+    <text x="110" y="92" text-anchor="middle" font-size="14" font-weight="600">Camera</text>
+    <text x="110" y="112" text-anchor="middle" fill="#57606a">with a camera</text>
+    <text x="110" y="128" text-anchor="middle" fill="#57606a">account</text>
+
+    <rect x="290" y="60" width="300" height="90" rx="10" fill="#eef6ff" stroke="#0969da" stroke-width="1.5"/>
+    <text x="440" y="86" text-anchor="middle" font-size="14" font-weight="600" fill="#0a3069">ONVIF pull point (TCP 2020)</text>
+    <text x="440" y="106" text-anchor="middle">request held open, answered on detection</text>
+    <text x="440" y="124" text-anchor="middle">start AND end of the motion</text>
+    <text x="440" y="140" text-anchor="middle" fill="#57606a" font-size="11">renewed before it lapses</text>
+
+    <!-- Lane 2: polling -->
+    <rect x="30" y="180" width="160" height="90" rx="10" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>
+    <text x="110" y="212" text-anchor="middle" font-size="14" font-weight="600">Camera</text>
+    <text x="110" y="232" text-anchor="middle" fill="#57606a">without ONVIF</text>
+    <text x="110" y="248" text-anchor="middle" fill="#57606a">(battery, doorbell)</text>
+
+    <rect x="290" y="180" width="300" height="90" rx="10" fill="#fff8e6" stroke="#bf8700" stroke-width="1.5"/>
+    <text x="440" y="206" text-anchor="middle" font-size="14" font-weight="600" fill="#6b4600">Local detection list (HTTPS 443)</text>
+    <text x="440" y="226" text-anchor="middle">read every event check interval</text>
+    <text x="440" y="244" text-anchor="middle">new entries become events</text>
+    <text x="440" y="260" text-anchor="middle" fill="#57606a" font-size="11">battery cameras have their own interval</text>
+
+    <!-- Gladys -->
+    <rect x="690" y="110" width="160" height="110" rx="10" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+    <text x="770" y="142" text-anchor="middle" font-size="14" font-weight="600" fill="#116329">Gladys</text>
+    <text x="770" y="164" text-anchor="middle">motion sensor,</text>
+    <text x="770" y="180" text-anchor="middle">doorbell button</text>
+    <text x="770" y="200" text-anchor="middle" fill="#57606a">→ scene triggers</text>
+  </g>
+
+  <g stroke="#57606a" stroke-width="1.5" fill="none" marker-end="url(#arrow)">
+    <line x1="190" y1="105" x2="288" y2="105"/>
+    <line x1="190" y1="225" x2="288" y2="225"/>
+    <path d="M590,105 C640,105 640,145 688,145"/>
+    <path d="M590,225 C640,225 640,185 688,185"/>
+  </g>
+  <text x="640" y="96" text-anchor="middle" font-size="11" fill="#0969da">~instant</text>
+  <text x="640" y="246" text-anchor="middle" font-size="11" fill="#9a6700">within one check</text>
+</svg>

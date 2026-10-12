@@ -126,8 +126,12 @@ jobs:
           git commit -m "chore(release): ${VERSION}"
           git tag -a "v${VERSION}" -m "Release ${VERSION}"
 
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-          git push origin "v${VERSION}"
+          # One atomic push for the branch AND the tag. Two separate pushes let
+          # the second one send only the tag object (git assumes the commit is
+          # already on the remote), which GitHub sometimes rejects with
+          # "missing necessary objects" — leaving a bumped branch without its
+          # tag, release or image.
+          git push --atomic origin "HEAD:${GITHUB_REF_NAME}" "refs/tags/v${VERSION}"
 
       # Publish the release page for the tag just pushed, with the changelog
       # entry as its body.

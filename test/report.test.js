@@ -1,10 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   buildConnectionReport,
   connectionStatusFor,
   isValidAddress,
   reportLine,
+  ADDRESS_ACTION_LABEL,
+  describeAddressSource,
+  problemLine,
 } from '../src/report.js';
 import { buildDevice } from '../src/devices.js';
 import { fakeGladys } from './helpers/fakeGladys.js';
@@ -72,4 +76,52 @@ test('only plausible addresses are accepted', () => {
   assert.equal(isValidAddress('192.168.1'), false);
   assert.equal(isValidAddress('Salon|192.168.1.42'), false);
   assert.equal(isValidAddress(''), false);
+});
+
+test('every message speaks the four languages of Gladys', () => {
+  const LANGUAGES = ['en', 'fr', 'de', 'es'];
+  const physical = { name: 'Jardin', model: 'C660', ip: '192.168.1.30', cloudDeviceId: 'ID9' };
+  const messages = [
+    ADDRESS_ACTION_LABEL,
+    ...['manual', 'scan', 'cloud', 'previous', null].map(describeAddressSource),
+    reportLine(camera({})),
+    reportLine(camera({ captureMode: 'stream' })),
+    reportLine(camera({ ip: '', ipSource: null, captureMode: null })),
+    reportLine(camera({ captureMode: null })),
+    ...['address', 'unsupported', 'credentials', 'unreachable'].map((reason) =>
+      problemLine({ physical, reason }),
+    ),
+    buildConnectionReport([camera({})], [{ physical, reason: 'unreachable' }]),
+    connectionStatusFor([]).message,
+    connectionStatusFor([camera({ ip: '' })]).message,
+    connectionStatusFor([camera({})], [{ physical, reason: 'unreachable' }]).message,
+  ];
+  for (const message of messages) {
+    for (const language of LANGUAGES) {
+      assert.equal(typeof message[language], 'string', `${language} missing in ${message.en}`);
+      if (message.en) {
+        assert.ok(message[language].length > 0, `${language} empty in ${message.en}`);
+      }
+    }
+  }
+});
+
+test('the report names the address action as the manifest labels it', () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL('../gladys-assistant-integration.json', import.meta.url)),
+  );
+  const action = manifest.actions.find((entry) => entry.key === 'set_device_address');
+  assert.deepEqual(ADDRESS_ACTION_LABEL, action.label);
+});
+
+test('every inline message of index.js carries de and es after fr', () => {
+  // The action results are written inline in index.js: a message added in
+  // English and French only would show in English in a German interface.
+  const source = readFileSync(new URL('../index.js', import.meta.url), 'utf8').split('\n');
+  source.forEach((line, index) => {
+    if (/^\s*fr: /.test(line)) {
+      assert.match(source[index + 1] || '', /^\s*de: /, `de missing after line ${index + 1}`);
+      assert.match(source[index + 2] || '', /^\s*es: /, `es missing after line ${index + 1}`);
+    }
+  });
 });

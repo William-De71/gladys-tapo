@@ -4,7 +4,9 @@
   "name": "Tapo",
   "description": {
     "en": "Your Tapo cameras, doorbells, plugs, bulbs and hub sensors in Gladys.",
-    "fr": "Vos caméras, sonnettes, prises, ampoules et capteurs Tapo dans Gladys."
+    "fr": "Vos caméras, sonnettes, prises, ampoules et capteurs Tapo dans Gladys.",
+    "de": "Ihre Tapo-Kameras, Türklingeln, Steckdosen, Lampen und Hub-Sensoren in Gladys.",
+    "es": "Sus cámaras, timbres, enchufes, bombillas y sensores de hub Tapo en Gladys."
   },
   "version": "1.2.5",
   "docker_image": "ghcr.io/william-de71/gladys-tapo:1.2.5",
@@ -24,18 +26,24 @@
       "type": "section",
       "label": {
         "en": "Getting started",
-        "fr": "Pour commencer"
+        "fr": "Pour commencer",
+        "de": "Erste Schritte",
+        "es": "Primeros pasos"
       },
       "description": {
         "en": "This integration finds your devices through your TP-Link cloud account, then talks to them on your local network. Enter your Tapo account below, then go to the Discover screen and run a scan: your devices appear there, ready to be added.\n\nGladys locates each device on your network by itself. If one is reported as not found (another subnet or VLAN, broadcast filtered by your router), use the \"Set a device IP address\" action at the bottom of this page: pick the device, type its address — it is shown in the Tapo app, under the device settings > Device info.",
-        "fr": "Cette intégration retrouve vos appareils via votre compte cloud TP-Link, puis dialogue avec eux sur votre réseau local. Renseignez votre compte Tapo ci-dessous, puis allez dans l'écran Découverte et lancez un scan : vos appareils y apparaissent, prêts à être ajoutés.\n\nGladys localise chaque appareil sur votre réseau toute seule. Si l'un d'eux est signalé introuvable (autre sous-réseau ou VLAN, broadcast filtré par votre routeur), utilisez l'action « Définir l'adresse IP d'un appareil » en bas de cette page : choisissez l'appareil, tapez son adresse — elle est affichée dans l'application Tapo, dans les paramètres de l'appareil > Infos sur l'appareil."
+        "fr": "Cette intégration retrouve vos appareils via votre compte cloud TP-Link, puis dialogue avec eux sur votre réseau local. Renseignez votre compte Tapo ci-dessous, puis allez dans l'écran Découverte et lancez un scan : vos appareils y apparaissent, prêts à être ajoutés.\n\nGladys localise chaque appareil sur votre réseau toute seule. Si l'un d'eux est signalé introuvable (autre sous-réseau ou VLAN, broadcast filtré par votre routeur), utilisez l'action « Définir l'adresse IP d'un appareil » en bas de cette page : choisissez l'appareil, tapez son adresse — elle est affichée dans l'application Tapo, dans les paramètres de l'appareil > Infos sur l'appareil.",
+        "de": "Diese Integration findet Ihre Geräte über Ihr TP-Link-Cloud-Konto und kommuniziert dann mit ihnen in Ihrem lokalen Netzwerk. Geben Sie unten Ihr Tapo-Konto ein, öffnen Sie dann den Bildschirm „Entdecken“ und starten Sie eine Suche: Ihre Geräte erscheinen dort und können hinzugefügt werden.\n\nGladys findet jedes Gerät in Ihrem Netzwerk selbst. Wird eines als nicht gefunden gemeldet (anderes Subnetz oder VLAN, Broadcast vom Router gefiltert), verwenden Sie die Aktion „IP-Adresse eines Geräts festlegen“ unten auf dieser Seite: Wählen Sie das Gerät und geben Sie seine Adresse ein — sie wird in der Tapo-App unter Geräteeinstellungen > Geräteinfo angezeigt.",
+        "es": "Esta integración encuentra sus dispositivos a través de su cuenta en la nube de TP-Link y después se comunica con ellos en su red local. Introduzca su cuenta Tapo a continuación, vaya a la pantalla «Descubrir» e inicie una búsqueda: sus dispositivos aparecerán allí, listos para añadirse.\n\nGladys localiza por sí solo cada dispositivo en su red. Si alguno aparece como no encontrado (otra subred o VLAN, broadcast filtrado por el router), use la acción «Definir la dirección IP de un dispositivo» al final de esta página: elija el dispositivo e introduzca su dirección — se muestra en la aplicación Tapo, en ajustes del dispositivo > Información del dispositivo."
       },
       "links": [
         {
           "url": "https://www.tapo.com/en/",
           "label": {
             "en": "Tapo website",
-            "fr": "Site Tapo"
+            "fr": "Site Tapo",
+            "de": "Tapo-Website",
+            "es": "Sitio web de Tapo"
           }
         }
       ]
@@ -45,15 +53,21 @@
       "type": "string",
       "label": {
         "en": "Tapo account email",
-        "fr": "E-mail du compte Tapo"
+        "fr": "E-mail du compte Tapo",
+        "de": "E-Mail des Tapo-Kontos",
+        "es": "Correo electrónico de la cuenta Tapo"
       },
       "description": {
         "en": "The email address of your TP-Link / Tapo account, the one you use in the Tapo app.",
-        "fr": "L'adresse e-mail de votre compte TP-Link / Tapo, celle que vous utilisez dans l'application Tapo."
+        "fr": "L'adresse e-mail de votre compte TP-Link / Tapo, celle que vous utilisez dans l'application Tapo.",
+        "de": "Die E-Mail-Adresse Ihres TP-Link-/Tapo-Kontos, die Sie in der Tapo-App verwenden.",
+        "es": "La dirección de correo electrónico de su cuenta TP-Link / Tapo, la que usa en la aplicación Tapo."
       },
       "placeholder": {
         "en": "you@example.com",
-        "fr": "vous@exemple.com"
+        "fr": "vous@exemple.com",
+        "de": "sie@beispiel.de",
+        "es": "usted@ejemplo.com"
       },
       "required": true
     },
@@ -62,11 +76,15 @@
       "type": "secret",
       "label": {
         "en": "Tapo account password",
-        "fr": "Mot de passe du compte Tapo"
+        "fr": "Mot de passe du compte Tapo",
+        "de": "Passwort des Tapo-Kontos",
+        "es": "Contraseña de la cuenta Tapo"
       },
       "description": {
         "en": "The password of your TP-Link / Tapo account. It is used to list your devices, to talk to your plugs, lights and hubs on your network, and, for cameras without RTSP, to open the local stream.",
-        "fr": "Le mot de passe de votre compte TP-Link / Tapo. Il sert à lister vos appareils, à dialoguer avec vos prises, lampes et hubs sur votre réseau, et, pour les caméras sans RTSP, à ouvrir le flux local."
+        "fr": "Le mot de passe de votre compte TP-Link / Tapo. Il sert à lister vos appareils, à dialoguer avec vos prises, lampes et hubs sur votre réseau, et, pour les caméras sans RTSP, à ouvrir le flux local.",
+        "de": "Das Passwort Ihres TP-Link-/Tapo-Kontos. Es dient dazu, Ihre Geräte aufzulisten, mit Ihren Steckdosen, Lampen und Hubs im Netzwerk zu kommunizieren und bei Kameras ohne RTSP den lokalen Stream zu öffnen.",
+        "es": "La contraseña de su cuenta TP-Link / Tapo. Sirve para listar sus dispositivos, comunicarse con sus enchufes, luces y hubs en su red y, en las cámaras sin RTSP, abrir el flujo local."
       },
       "required": true
     },
@@ -75,11 +93,15 @@
       "type": "select",
       "label": {
         "en": "Cloud region",
-        "fr": "Région du cloud"
+        "fr": "Région du cloud",
+        "de": "Cloud-Region",
+        "es": "Región de la nube"
       },
       "description": {
         "en": "The TP-Link cloud server closest to you. Change it only if the connection test fails.",
-        "fr": "Le serveur cloud TP-Link le plus proche de vous. À changer uniquement si le test de connexion échoue."
+        "fr": "Le serveur cloud TP-Link le plus proche de vous. À changer uniquement si le test de connexion échoue.",
+        "de": "Der TP-Link-Cloud-Server in Ihrer Nähe. Ändern Sie ihn nur, wenn der Verbindungstest fehlschlägt.",
+        "es": "El servidor en la nube de TP-Link más cercano a usted. Cámbielo solo si falla la prueba de conexión."
       },
       "required": false,
       "default": "europe",
@@ -88,28 +110,36 @@
           "value": "europe",
           "label": {
             "en": "Europe",
-            "fr": "Europe"
+            "fr": "Europe",
+            "de": "Europa",
+            "es": "Europa"
           }
         },
         {
           "value": "america",
           "label": {
             "en": "America",
-            "fr": "Amérique"
+            "fr": "Amérique",
+            "de": "Amerika",
+            "es": "América"
           }
         },
         {
           "value": "asia",
           "label": {
             "en": "Asia",
-            "fr": "Asie"
+            "fr": "Asie",
+            "de": "Asien",
+            "es": "Asia"
           }
         },
         {
           "value": "default",
           "label": {
             "en": "Worldwide",
-            "fr": "Mondial"
+            "fr": "Mondial",
+            "de": "Weltweit",
+            "es": "Mundial"
           }
         }
       ]
@@ -119,11 +149,15 @@
       "type": "section",
       "label": {
         "en": "Camera account (RTSP and ONVIF)",
-        "fr": "Compte caméra (RTSP et ONVIF)"
+        "fr": "Compte caméra (RTSP et ONVIF)",
+        "de": "Kamerakonto (RTSP und ONVIF)",
+        "es": "Cuenta de cámara (RTSP y ONVIF)"
       },
       "description": {
         "en": "Cameras that expose an RTSP stream need the camera account you created in the Tapo app (Camera settings > Advanced settings > Camera account). It is also what unlocks ONVIF, which lets a camera report a motion the instant it happens instead of being polled. This is NOT your Tapo account, and it is created PER CAMERA. The simplest way to enter it: use the \"Save a camera account\" action at the bottom of this page, once per camera. The two fields below only serve as a default, for users who reused the same credentials everywhere.",
-        "fr": "Les caméras exposant un flux RTSP nécessitent le compte caméra créé dans l'application Tapo (Paramètres de la caméra > Paramètres avancés > Compte de la caméra). C'est aussi lui qui débloque ONVIF, qui permet à une caméra de signaler un mouvement à l'instant où il se produit au lieu d'être interrogée. Ce n'est PAS votre compte Tapo, et il se crée PAR CAMÉRA. Le plus simple pour le renseigner : utilisez l'action « Enregistrer le compte d'une caméra » en bas de cette page, une fois par caméra. Les deux champs ci-dessous ne servent que de valeur par défaut, si vous avez réutilisé les mêmes identifiants partout."
+        "fr": "Les caméras exposant un flux RTSP nécessitent le compte caméra créé dans l'application Tapo (Paramètres de la caméra > Paramètres avancés > Compte de la caméra). C'est aussi lui qui débloque ONVIF, qui permet à une caméra de signaler un mouvement à l'instant où il se produit au lieu d'être interrogée. Ce n'est PAS votre compte Tapo, et il se crée PAR CAMÉRA. Le plus simple pour le renseigner : utilisez l'action « Enregistrer le compte d'une caméra » en bas de cette page, une fois par caméra. Les deux champs ci-dessous ne servent que de valeur par défaut, si vous avez réutilisé les mêmes identifiants partout.",
+        "de": "Kameras mit RTSP-Stream benötigen das Kamerakonto, das Sie in der Tapo-App angelegt haben (Kameraeinstellungen > Erweiterte Einstellungen > Kamerakonto). Es schaltet auch ONVIF frei, wodurch eine Kamera eine Bewegung sofort meldet, statt abgefragt zu werden. Dies ist NICHT Ihr Tapo-Konto, und es wird PRO KAMERA angelegt. Am einfachsten geben Sie es über die Aktion „Kamerakonto speichern“ unten auf dieser Seite ein, einmal pro Kamera. Die beiden Felder unten dienen nur als Standardwert, falls Sie überall dieselben Zugangsdaten verwenden.",
+        "es": "Las cámaras con flujo RTSP necesitan la cuenta de cámara creada en la aplicación Tapo (Ajustes de la cámara > Ajustes avanzados > Cuenta de la cámara). También es la que habilita ONVIF, que permite a una cámara avisar de un movimiento en el instante en que se produce en lugar de ser consultada. NO es su cuenta Tapo, y se crea POR CÁMARA. La forma más sencilla de introducirla: use la acción «Guardar la cuenta de una cámara» al final de esta página, una vez por cámara. Los dos campos siguientes solo sirven como valor por defecto, si ha usado las mismas credenciales en todas partes."
       }
     },
     {
@@ -131,11 +165,15 @@
       "type": "string",
       "label": {
         "en": "Default account username",
-        "fr": "Identifiant du compte par défaut"
+        "fr": "Identifiant du compte par défaut",
+        "de": "Benutzername des Standardkontos",
+        "es": "Usuario de la cuenta por defecto"
       },
       "description": {
         "en": "Used for every RTSP camera that has no specific account below.",
-        "fr": "Utilisé pour toutes les caméras RTSP n'ayant pas de compte spécifique ci-dessous."
+        "fr": "Utilisé pour toutes les caméras RTSP n'ayant pas de compte spécifique ci-dessous.",
+        "de": "Wird für jede RTSP-Kamera verwendet, die unten kein eigenes Konto hat.",
+        "es": "Se usa para todas las cámaras RTSP que no tienen una cuenta específica más abajo."
       },
       "required": false
     },
@@ -144,11 +182,15 @@
       "type": "secret",
       "label": {
         "en": "Default account password",
-        "fr": "Mot de passe du compte par défaut"
+        "fr": "Mot de passe du compte par défaut",
+        "de": "Passwort des Standardkontos",
+        "es": "Contraseña de la cuenta por defecto"
       },
       "description": {
         "en": "Used for every RTSP camera that has no specific account below.",
-        "fr": "Utilisé pour toutes les caméras RTSP n'ayant pas de compte spécifique ci-dessous."
+        "fr": "Utilisé pour toutes les caméras RTSP n'ayant pas de compte spécifique ci-dessous.",
+        "de": "Wird für jede RTSP-Kamera verwendet, die unten kein eigenes Konto hat.",
+        "es": "Se usa para todas las cámaras RTSP que no tienen una cuenta específica más abajo."
       },
       "required": false
     },
@@ -157,15 +199,21 @@
       "type": "secret",
       "label": {
         "en": "Accounts per camera (advanced)",
-        "fr": "Comptes par caméra (avancé)"
+        "fr": "Comptes par caméra (avancé)",
+        "de": "Konten pro Kamera (erweitert)",
+        "es": "Cuentas por cámara (avanzado)"
       },
       "description": {
         "en": "Prefer the \"Save a camera account\" action below: the accounts it saves are stored separately and do not appear here. Format, if you type here: cameras separated by a comma, each as `name|username|password` (a password containing a comma must go through the action).",
-        "fr": "Préférez l'action « Enregistrer le compte d'une caméra » ci-dessous : les comptes qu'elle enregistre sont stockés à part et n'apparaissent pas ici. Format, si vous saisissez ici : caméras séparées par une virgule, chacune sous la forme `nom|identifiant|motdepasse` (un mot de passe contenant une virgule doit passer par l'action)."
+        "fr": "Préférez l'action « Enregistrer le compte d'une caméra » ci-dessous : les comptes qu'elle enregistre sont stockés à part et n'apparaissent pas ici. Format, si vous saisissez ici : caméras séparées par une virgule, chacune sous la forme `nom|identifiant|motdepasse` (un mot de passe contenant une virgule doit passer par l'action).",
+        "de": "Verwenden Sie lieber die Aktion „Kamerakonto speichern“ unten: Die damit gespeicherten Konten werden getrennt abgelegt und erscheinen hier nicht. Format bei Eingabe hier: Kameras durch Komma getrennt, jeweils als `Name|Benutzername|Passwort` (ein Passwort mit Komma muss über die Aktion eingegeben werden).",
+        "es": "Es preferible la acción «Guardar la cuenta de una cámara» de abajo: las cuentas que guarda se almacenan aparte y no aparecen aquí. Formato, si escribe aquí: cámaras separadas por comas, cada una como `nombre|usuario|contraseña` (una contraseña que contenga una coma debe pasar por la acción)."
       },
       "placeholder": {
         "en": "Camera_jardin|gladys|MyPassword, Camera_salon|gladys|OtherPassword",
-        "fr": "Camera_jardin|gladys|MonMotDePasse, Camera_salon|gladys|AutreMotDePasse"
+        "fr": "Camera_jardin|gladys|MonMotDePasse, Camera_salon|gladys|AutreMotDePasse",
+        "de": "Kamera_Garten|gladys|MeinPasswort, Kamera_Wohnzimmer|gladys|AnderesPasswort",
+        "es": "Camara_jardin|gladys|MiContraseña, Camara_salon|gladys|OtraContraseña"
       },
       "required": false
     },
@@ -174,11 +222,15 @@
       "type": "select",
       "label": {
         "en": "Image quality",
-        "fr": "Qualité de l'image"
+        "fr": "Qualité de l'image",
+        "de": "Bildqualität",
+        "es": "Calidad de imagen"
       },
       "description": {
         "en": "HD gives a sharper image, SD is lighter and faster to capture.",
-        "fr": "HD donne une image plus nette, SD est plus légère et plus rapide à capturer."
+        "fr": "HD donne une image plus nette, SD est plus légère et plus rapide à capturer.",
+        "de": "HD liefert ein schärferes Bild, SD ist leichter und schneller aufzunehmen.",
+        "es": "HD ofrece una imagen más nítida, SD es más ligera y rápida de capturar."
       },
       "required": false,
       "default": "HD",
@@ -187,14 +239,18 @@
           "value": "HD",
           "label": {
             "en": "HD",
-            "fr": "HD"
+            "fr": "HD",
+            "de": "HD",
+            "es": "HD"
           }
         },
         {
           "value": "SD",
           "label": {
             "en": "SD",
-            "fr": "SD"
+            "fr": "SD",
+            "de": "SD",
+            "es": "SD"
           }
         }
       ]
@@ -204,11 +260,15 @@
       "type": "section",
       "label": {
         "en": "Advanced",
-        "fr": "Avancé"
+        "fr": "Avancé",
+        "de": "Erweitert",
+        "es": "Avanzado"
       },
       "description": {
         "en": "Only needed in particular cases: the integration finds your devices and their addresses by itself.",
-        "fr": "Utile seulement dans des cas particuliers : l'intégration trouve vos appareils et leurs adresses toute seule."
+        "fr": "Utile seulement dans des cas particuliers : l'intégration trouve vos appareils et leurs adresses toute seule.",
+        "de": "Nur in besonderen Fällen nötig: Die Integration findet Ihre Geräte und deren Adressen selbst.",
+        "es": "Solo es necesario en casos particulares: la integración encuentra sus dispositivos y sus direcciones por sí sola."
       }
     },
     {
@@ -216,15 +276,21 @@
       "type": "string",
       "label": {
         "en": "Manual addresses (advanced)",
-        "fr": "Adresses manuelles (avancé)"
+        "fr": "Adresses manuelles (avancé)",
+        "de": "Manuelle Adressen (erweitert)",
+        "es": "Direcciones manuales (avanzado)"
       },
       "description": {
         "en": "Prefer the \"Set a device IP address\" action at the bottom of the page: you pick the device in a list, and Gladys checks the address answers. If you type here instead: entries separated by commas, each as `name|ip` (or `name=ip`). The name is matched without regard to case, accents, spaces or underscores, and may also be the device's MAC address.",
-        "fr": "Préférez l'action « Définir l'adresse IP d'un appareil » en bas de la page : vous choisissez l'appareil dans une liste, et Gladys vérifie que l'adresse répond. Si vous saisissez ici : entrées séparées par des virgules, chacune sous la forme `nom|ip` (ou `nom=ip`). Le nom est comparé sans tenir compte des majuscules, accents, espaces ou tirets bas, et peut aussi être l'adresse MAC de l'appareil."
+        "fr": "Préférez l'action « Définir l'adresse IP d'un appareil » en bas de la page : vous choisissez l'appareil dans une liste, et Gladys vérifie que l'adresse répond. Si vous saisissez ici : entrées séparées par des virgules, chacune sous la forme `nom|ip` (ou `nom=ip`). Le nom est comparé sans tenir compte des majuscules, accents, espaces ou tirets bas, et peut aussi être l'adresse MAC de l'appareil.",
+        "de": "Verwenden Sie lieber die Aktion „IP-Adresse eines Geräts festlegen“ unten auf der Seite: Sie wählen das Gerät aus einer Liste und Gladys prüft, ob die Adresse antwortet. Bei Eingabe hier: Einträge durch Kommas getrennt, jeweils als `Name|IP` (oder `Name=IP`). Der Name wird ohne Rücksicht auf Groß-/Kleinschreibung, Akzente, Leerzeichen oder Unterstriche verglichen und kann auch die MAC-Adresse des Geräts sein.",
+        "es": "Es preferible la acción «Definir la dirección IP de un dispositivo» al final de la página: elige el dispositivo en una lista y Gladys comprueba que la dirección responde. Si escribe aquí: entradas separadas por comas, cada una como `nombre|ip` (o `nombre=ip`). El nombre se compara sin tener en cuenta mayúsculas, acentos, espacios ni guiones bajos, y también puede ser la dirección MAC del dispositivo."
       },
       "placeholder": {
         "en": "Garden camera|192.168.1.42, Living room|192.168.1.43",
-        "fr": "Caméra jardin|192.168.1.42, Salon|192.168.1.43"
+        "fr": "Caméra jardin|192.168.1.42, Salon|192.168.1.43",
+        "de": "Gartenkamera|192.168.1.42, Wohnzimmer|192.168.1.43",
+        "es": "Cámara jardín|192.168.1.42, Salón|192.168.1.43"
       },
       "required": false
     },
@@ -233,11 +299,15 @@
       "type": "number",
       "label": {
         "en": "Event check interval (s)",
-        "fr": "Intervalle de vérification des événements (s)"
+        "fr": "Intervalle de vérification des événements (s)",
+        "de": "Prüfintervall für Ereignisse (s)",
+        "es": "Intervalo de comprobación de eventos (s)"
       },
       "description": {
         "en": "How often the integration checks for a doorbell press or a motion detection. A shorter interval reacts faster but talks to your cameras more often. Only affects cameras without ONVIF: cameras that support it push their events instantly, with nothing to wait for.",
-        "fr": "Fréquence à laquelle l'intégration vérifie un appui sonnette ou une détection de mouvement. Un intervalle plus court réagit plus vite mais sollicite davantage vos caméras. Ne concerne que les caméras sans ONVIF : celles qui le proposent remontent leurs événements instantanément, sans attente."
+        "fr": "Fréquence à laquelle l'intégration vérifie un appui sonnette ou une détection de mouvement. Un intervalle plus court réagit plus vite mais sollicite davantage vos caméras. Ne concerne que les caméras sans ONVIF : celles qui le proposent remontent leurs événements instantanément, sans attente.",
+        "de": "Wie oft die Integration nach einem Klingeldruck oder einer Bewegungserkennung sucht. Ein kürzeres Intervall reagiert schneller, beansprucht Ihre Kameras aber stärker. Betrifft nur Kameras ohne ONVIF: Kameras, die es unterstützen, melden ihre Ereignisse sofort, ohne Wartezeit.",
+        "es": "Frecuencia con la que la integración comprueba si se ha pulsado el timbre o se ha detectado movimiento. Un intervalo más corto reacciona antes, pero solicita más a sus cámaras. Solo afecta a las cámaras sin ONVIF: las que lo admiten envían sus eventos al instante, sin espera."
       },
       "required": false,
       "default": 20,
@@ -249,11 +319,15 @@
       "type": "number",
       "label": {
         "en": "Plugs, lights and sensors check interval (seconds)",
-        "fr": "Intervalle de lecture des prises, lampes et capteurs (secondes)"
+        "fr": "Intervalle de lecture des prises, lampes et capteurs (secondes)",
+        "de": "Leseintervall für Steckdosen, Lampen und Sensoren (Sekunden)",
+        "es": "Intervalo de lectura de enchufes, luces y sensores (segundos)"
       },
       "description": {
         "en": "How often the plugs, lights and the sensors of a hub are read. These devices push nothing: a button press or a door opening reaches Gladys at the next read. Each read is one short request per device on your network.",
-        "fr": "La fréquence à laquelle les prises, lampes et capteurs d'un hub sont lus. Ces appareils ne préviennent pas d'eux-mêmes : un appui sur un bouton ou l'ouverture d'une porte remonte à la lecture suivante. Chaque lecture est une courte requête par appareil sur votre réseau."
+        "fr": "La fréquence à laquelle les prises, lampes et capteurs d'un hub sont lus. Ces appareils ne préviennent pas d'eux-mêmes : un appui sur un bouton ou l'ouverture d'une porte remonte à la lecture suivante. Chaque lecture est une courte requête par appareil sur votre réseau.",
+        "de": "Wie oft die Steckdosen, Lampen und Sensoren eines Hubs gelesen werden. Diese Geräte melden nichts von selbst: Ein Tastendruck oder das Öffnen einer Tür erreicht Gladys beim nächsten Lesen. Jedes Lesen ist eine kurze Anfrage pro Gerät in Ihrem Netzwerk.",
+        "es": "Frecuencia con la que se leen los enchufes, las luces y los sensores de un hub. Estos dispositivos no avisan por sí mismos: la pulsación de un botón o la apertura de una puerta llega a Gladys en la siguiente lectura. Cada lectura es una petición corta por dispositivo en su red."
       },
       "required": false,
       "default": 5,
@@ -265,11 +339,15 @@
       "type": "number",
       "label": {
         "en": "Capture timeout (s)",
-        "fr": "Délai de capture (s)"
+        "fr": "Délai de capture (s)",
+        "de": "Aufnahme-Zeitlimit (s)",
+        "es": "Tiempo límite de captura (s)"
       },
       "description": {
         "en": "How long a camera is given to deliver an image. Cameras using the proprietary protocol — battery models waking from deep sleep — need more time than an RTSP one. Above 14s the dashboard live view may time out first, but the scheduled refresh still succeeds.",
-        "fr": "Temps accordé à une caméra pour fournir une image. Les caméras utilisant le protocole propriétaire — modèles sur batterie sortant de veille — ont besoin de plus de temps qu'une caméra RTSP. Au-delà de 14 s, la vue live du tableau de bord peut expirer avant, mais le rafraîchissement automatique aboutit quand même."
+        "fr": "Temps accordé à une caméra pour fournir une image. Les caméras utilisant le protocole propriétaire — modèles sur batterie sortant de veille — ont besoin de plus de temps qu'une caméra RTSP. Au-delà de 14 s, la vue live du tableau de bord peut expirer avant, mais le rafraîchissement automatique aboutit quand même.",
+        "de": "Wie lange eine Kamera Zeit hat, ein Bild zu liefern. Kameras mit dem proprietären Protokoll — Akkumodelle, die aus dem Tiefschlaf erwachen — brauchen mehr Zeit als eine RTSP-Kamera. Über 14 s kann die Live-Ansicht des Dashboards vorher abbrechen, die geplante Aktualisierung gelingt aber trotzdem.",
+        "es": "Tiempo que se concede a una cámara para entregar una imagen. Las cámaras que usan el protocolo propietario — modelos con batería que salen del reposo profundo — necesitan más tiempo que una cámara RTSP. Por encima de 14 s, la vista en directo del panel puede agotar el tiempo antes, pero la actualización programada se completa igualmente."
       },
       "required": false,
       "default": 14,
@@ -281,11 +359,15 @@
       "type": "number",
       "label": {
         "en": "Image refresh interval (s)",
-        "fr": "Intervalle de rafraîchissement des images (s)"
+        "fr": "Intervalle de rafraîchissement des images (s)",
+        "de": "Bildaktualisierungsintervall (s)",
+        "es": "Intervalo de actualización de imágenes (s)"
       },
       "description": {
         "en": "How often a new image is captured for the dashboard, on MAINS-POWERED cameras only. Battery and solar cameras have their own setting below, so keeping your wired images fresh costs nothing to the others.",
-        "fr": "Fréquence à laquelle une nouvelle image est capturée pour le tableau de bord, pour les caméras SUR SECTEUR uniquement. Les caméras sur batterie ou solaires ont leur propre réglage ci-dessous : garder vos images filaires fraîches ne coûte donc rien aux autres."
+        "fr": "Fréquence à laquelle une nouvelle image est capturée pour le tableau de bord, pour les caméras SUR SECTEUR uniquement. Les caméras sur batterie ou solaires ont leur propre réglage ci-dessous : garder vos images filaires fraîches ne coûte donc rien aux autres.",
+        "de": "Wie oft ein neues Bild für das Dashboard aufgenommen wird, nur bei Kameras mit NETZBETRIEB. Akku- und Solarkameras haben unten eine eigene Einstellung: Aktuelle Bilder Ihrer kabelgebundenen Kameras kosten die anderen also nichts.",
+        "es": "Frecuencia con la que se captura una nueva imagen para el panel, solo en las cámaras CONECTADAS A LA RED ELÉCTRICA. Las cámaras con batería o solares tienen su propio ajuste más abajo, así que mantener frescas las imágenes de sus cámaras con cable no cuesta nada a las demás."
       },
       "required": false,
       "default": 60,
@@ -297,11 +379,15 @@
       "type": "section",
       "label": {
         "en": "Battery protection",
-        "fr": "Protection de la batterie"
+        "fr": "Protection de la batterie",
+        "de": "Akkuschutz",
+        "es": "Protección de la batería"
       },
       "description": {
         "en": "Capturing images is what drains a battery or solar camera. These settings apply ONLY to battery and solar models — wired cameras keep their own interval and are never throttled. Once a camera goes below the pause limit, capturing only resumes at the recharge level: a partial recharge would restart the drain, and repeated shallow cycles wear the battery faster.",
-        "fr": "La capture d'images est ce qui vide une caméra sur batterie ou solaire. Ces réglages s'appliquent UNIQUEMENT aux modèles sur batterie ou solaires — les caméras filaires gardent leur propre intervalle et ne sont jamais ralenties. Une fois passée sous la limite de pause, la capture ne reprend qu'au niveau de recharge : une recharge partielle relancerait la décharge, et les cycles courts répétés usent la batterie plus vite."
+        "fr": "La capture d'images est ce qui vide une caméra sur batterie ou solaire. Ces réglages s'appliquent UNIQUEMENT aux modèles sur batterie ou solaires — les caméras filaires gardent leur propre intervalle et ne sont jamais ralenties. Une fois passée sous la limite de pause, la capture ne reprend qu'au niveau de recharge : une recharge partielle relancerait la décharge, et les cycles courts répétés usent la batterie plus vite.",
+        "de": "Die Bildaufnahme ist es, was eine Akku- oder Solarkamera entleert. Diese Einstellungen gelten NUR für Akku- und Solarmodelle — kabelgebundene Kameras behalten ihr eigenes Intervall und werden nie gedrosselt. Fällt eine Kamera unter die Pausengrenze, wird die Aufnahme erst beim Wiederaufladeniveau fortgesetzt: Eine teilweise Aufladung würde die Entladung neu starten, und wiederholte kurze Zyklen nutzen den Akku schneller ab.",
+        "es": "Capturar imágenes es lo que agota una cámara con batería o solar. Estos ajustes se aplican SOLO a los modelos con batería o solares — las cámaras con cable conservan su propio intervalo y nunca se ralentizan. Cuando una cámara baja del límite de pausa, la captura solo se reanuda al nivel de recarga: una recarga parcial reiniciaría la descarga, y los ciclos cortos repetidos desgastan antes la batería."
       }
     },
     {
@@ -309,11 +395,15 @@
       "type": "number",
       "label": {
         "en": "Battery camera refresh interval (s)",
-        "fr": "Intervalle de rafraîchissement des caméras sur batterie (s)"
+        "fr": "Intervalle de rafraîchissement des caméras sur batterie (s)",
+        "de": "Aktualisierungsintervall für Akkukameras (s)",
+        "es": "Intervalo de actualización de las cámaras con batería (s)"
       },
       "description": {
         "en": "How often a battery or solar camera is captured, independently of your wired cameras. Waking a camera up is what costs the battery, so this is the single most effective setting: 900s (15 min) lets a solar panel refill between two captures. Lower it only if your cameras recharge faster than they discharge.",
-        "fr": "Fréquence à laquelle une caméra sur batterie ou solaire est capturée, indépendamment de vos caméras filaires. C'est le réveil de la caméra qui coûte de la batterie : ce réglage est donc le plus efficace de tous. 900 s (15 min) laisse à un panneau solaire le temps de recharger entre deux captures. Ne le baissez que si vos caméras se rechargent plus vite qu'elles ne se déchargent."
+        "fr": "Fréquence à laquelle une caméra sur batterie ou solaire est capturée, indépendamment de vos caméras filaires. C'est le réveil de la caméra qui coûte de la batterie : ce réglage est donc le plus efficace de tous. 900 s (15 min) laisse à un panneau solaire le temps de recharger entre deux captures. Ne le baissez que si vos caméras se rechargent plus vite qu'elles ne se déchargent.",
+        "de": "Wie oft eine Akku- oder Solarkamera aufgenommen wird, unabhängig von Ihren kabelgebundenen Kameras. Das Aufwecken der Kamera kostet Akku, daher ist dies die wirksamste Einstellung: 900 s (15 min) lassen einem Solarpanel Zeit, zwischen zwei Aufnahmen nachzuladen. Senken Sie den Wert nur, wenn Ihre Kameras schneller laden als entladen.",
+        "es": "Frecuencia con la que se captura una cámara con batería o solar, independientemente de sus cámaras con cable. Despertar la cámara es lo que consume batería, así que este es el ajuste más eficaz: 900 s (15 min) dan tiempo a un panel solar para recargar entre dos capturas. Redúzcalo solo si sus cámaras se recargan más rápido de lo que se descargan."
       },
       "required": false,
       "default": 900,
@@ -325,11 +415,15 @@
       "type": "number",
       "label": {
         "en": "Battery camera check interval (s)",
-        "fr": "Intervalle de vérification des caméras sur batterie (s)"
+        "fr": "Intervalle de vérification des caméras sur batterie (s)",
+        "de": "Prüfintervall für Akkukameras (s)",
+        "es": "Intervalo de comprobación de las cámaras con batería (s)"
       },
       "description": {
         "en": "How often a battery or solar camera is contacted to read its level and its detections, independently of your wired cameras. Waking the camera is what costs the battery, and this happens far more often than a capture: at the wired 20s a camera is woken 180 times an hour, which drains a solar model faster than the panel refills it. Raise it if your camera keeps losing charge overnight.",
-        "fr": "Fréquence à laquelle une caméra sur batterie ou solaire est contactée pour lire son niveau et ses détections, indépendamment de vos caméras filaires. C'est le réveil de la caméra qui coûte de la batterie, et il a lieu bien plus souvent qu'une capture : à 20 s, une caméra est réveillée 180 fois par heure, ce qui vide un modèle solaire plus vite que le panneau ne le recharge. Augmentez-le si votre caméra perd de la charge pendant la nuit."
+        "fr": "Fréquence à laquelle une caméra sur batterie ou solaire est contactée pour lire son niveau et ses détections, indépendamment de vos caméras filaires. C'est le réveil de la caméra qui coûte de la batterie, et il a lieu bien plus souvent qu'une capture : à 20 s, une caméra est réveillée 180 fois par heure, ce qui vide un modèle solaire plus vite que le panneau ne le recharge. Augmentez-le si votre caméra perd de la charge pendant la nuit.",
+        "de": "Wie oft eine Akku- oder Solarkamera kontaktiert wird, um ihren Ladestand und ihre Erkennungen zu lesen, unabhängig von Ihren kabelgebundenen Kameras. Das Aufwecken der Kamera kostet Akku, und es geschieht viel häufiger als eine Aufnahme: Bei den 20 s der kabelgebundenen Kameras wird eine Kamera 180-mal pro Stunde geweckt, was ein Solarmodell schneller entleert, als das Panel es nachlädt. Erhöhen Sie den Wert, wenn Ihre Kamera über Nacht an Ladung verliert.",
+        "es": "Frecuencia con la que se contacta una cámara con batería o solar para leer su nivel y sus detecciones, independientemente de sus cámaras con cable. Despertar la cámara es lo que consume batería, y ocurre mucho más a menudo que una captura: a los 20 s de las cámaras con cable, una cámara se despierta 180 veces por hora, lo que agota un modelo solar más rápido de lo que el panel lo recarga. Auméntelo si su cámara pierde carga durante la noche."
       },
       "required": false,
       "default": 300,
@@ -341,11 +435,15 @@
       "type": "number",
       "label": {
         "en": "Pause automatic capture below (%)",
-        "fr": "Suspendre la capture automatique sous (%)"
+        "fr": "Suspendre la capture automatique sous (%)",
+        "de": "Automatische Aufnahme pausieren unter (%)",
+        "es": "Pausar la captura automática por debajo de (%)"
       },
       "description": {
         "en": "Below this level the automatic refresh stops. Opening the camera widget or a doorbell press still captures an image. This level is also the ceiling of the one below: a \"stop every capture\" set higher is lowered to it, so that the on-demand band does not vanish.",
-        "fr": "Sous ce niveau, le rafraîchissement automatique s'arrête. Ouvrir le widget de la caméra ou un appui sonnette capture toujours une image. Ce niveau plafonne aussi le suivant : un « bloquer toute capture » réglé plus haut est ramené à cette valeur, pour que la plage à la demande ne disparaisse pas."
+        "fr": "Sous ce niveau, le rafraîchissement automatique s'arrête. Ouvrir le widget de la caméra ou un appui sonnette capture toujours une image. Ce niveau plafonne aussi le suivant : un « bloquer toute capture » réglé plus haut est ramené à cette valeur, pour que la plage à la demande ne disparaisse pas.",
+        "de": "Unter diesem Wert stoppt die automatische Aktualisierung. Das Öffnen des Kamera-Widgets oder ein Klingeldruck nimmt weiterhin ein Bild auf. Dieser Wert ist auch die Obergrenze des folgenden: Ein höher eingestelltes „Jede Aufnahme stoppen“ wird auf ihn gesenkt, damit der Bereich für Aufnahmen auf Anfrage nicht verschwindet.",
+        "es": "Por debajo de este nivel se detiene la actualización automática. Abrir el widget de la cámara o pulsar el timbre sigue capturando una imagen. Este nivel también es el máximo del siguiente: un «Detener toda captura» configurado más alto se reduce a este valor, para que no desaparezca la franja de captura bajo demanda."
       },
       "required": false,
       "default": 60,
@@ -357,11 +455,15 @@
       "type": "number",
       "label": {
         "en": "Stop every capture below (%)",
-        "fr": "Bloquer toute capture sous (%)"
+        "fr": "Bloquer toute capture sous (%)",
+        "de": "Jede Aufnahme stoppen unter (%)",
+        "es": "Detener toda captura por debajo de (%)"
       },
       "description": {
         "en": "Below this level no image is captured at all, not even on request. Motion detection stops here too, and so does the privacy mode: the camera is only woken every 15 minutes for its battery level, which is what tells when it has recharged. Capture resumes a few points above this level, so a camera sitting right on it does not flip back and forth.",
-        "fr": "Sous ce niveau, plus aucune image n'est capturée, même à la demande. La détection de mouvement s'arrête aussi, ainsi que le mode privé : la caméra n'est plus réveillée que toutes les 15 minutes pour lire son niveau, ce qui permet de savoir quand elle est rechargée. La reprise se fait quelques points au-dessus de ce niveau, pour qu'une caméra posée dessus ne bascule pas sans arrêt."
+        "fr": "Sous ce niveau, plus aucune image n'est capturée, même à la demande. La détection de mouvement s'arrête aussi, ainsi que le mode privé : la caméra n'est plus réveillée que toutes les 15 minutes pour lire son niveau, ce qui permet de savoir quand elle est rechargée. La reprise se fait quelques points au-dessus de ce niveau, pour qu'une caméra posée dessus ne bascule pas sans arrêt.",
+        "de": "Unter diesem Wert wird überhaupt kein Bild mehr aufgenommen, auch nicht auf Anfrage. Auch die Bewegungserkennung und der Privatmodus stoppen hier: Die Kamera wird nur noch alle 15 Minuten für ihren Ladestand geweckt, woran zu erkennen ist, wann sie wieder geladen ist. Die Aufnahme wird einige Punkte über diesem Wert fortgesetzt, damit eine Kamera genau auf der Grenze nicht ständig hin- und herwechselt.",
+        "es": "Por debajo de este nivel no se captura ninguna imagen, ni siquiera bajo demanda. La detección de movimiento también se detiene, al igual que el modo privado: la cámara solo se despierta cada 15 minutos para leer su nivel, lo que permite saber cuándo se ha recargado. La captura se reanuda unos puntos por encima de este nivel, para que una cámara justo en el límite no cambie de estado sin parar."
       },
       "required": false,
       "default": 40,
@@ -373,11 +475,15 @@
       "type": "number",
       "label": {
         "en": "Resume automatic capture at (%)",
-        "fr": "Reprendre la capture automatique à (%)"
+        "fr": "Reprendre la capture automatique à (%)",
+        "de": "Automatische Aufnahme fortsetzen ab (%)",
+        "es": "Reanudar la captura automática a partir de (%)"
       },
       "description": {
         "en": "Once a camera has been paused, it stays paused until it reaches this level — deliberately well above the pause limit, so it does not immediately fall back into the drain it was pulled out of. Avoid 100%: a solar camera charges in bursts and rarely reads exactly full, which would keep it paused for good.",
-        "fr": "Une fois une caméra mise en pause, elle le reste jusqu'à ce niveau — volontairement bien au-dessus de la limite de pause, pour qu'elle ne retombe pas aussitôt dans la décharge dont elle vient de sortir. Évitez 100 % : une caméra solaire se recharge par à-coups et atteint rarement le plein exact, ce qui la laisserait en pause indéfiniment."
+        "fr": "Une fois une caméra mise en pause, elle le reste jusqu'à ce niveau — volontairement bien au-dessus de la limite de pause, pour qu'elle ne retombe pas aussitôt dans la décharge dont elle vient de sortir. Évitez 100 % : une caméra solaire se recharge par à-coups et atteint rarement le plein exact, ce qui la laisserait en pause indéfiniment.",
+        "de": "Wurde eine Kamera pausiert, bleibt sie es, bis sie diesen Wert erreicht — absichtlich deutlich über der Pausengrenze, damit sie nicht sofort wieder in die Entladung fällt, aus der sie gerade kam. Vermeiden Sie 100 %: Eine Solarkamera lädt schubweise und zeigt selten genau voll an, wodurch sie dauerhaft pausiert bliebe.",
+        "es": "Una vez en pausa, la cámara sigue así hasta alcanzar este nivel — deliberadamente muy por encima del límite de pausa, para que no vuelva enseguida a la descarga de la que acaba de salir. Evite el 100 %: una cámara solar se recarga a tirones y rara vez marca exactamente lleno, lo que la dejaría en pausa indefinidamente."
       },
       "required": false,
       "default": 80,
@@ -390,23 +496,31 @@
       "key": "test_connection",
       "label": {
         "en": "Test the connection",
-        "fr": "Tester la connexion"
+        "fr": "Tester la connexion",
+        "de": "Verbindung testen",
+        "es": "Probar la conexión"
       },
       "timeout_seconds": 60,
       "description": {
         "en": "Connects to the Tapo cloud, scans your network, and lists every device with its address and where it came from — and what to do for those that are not found.",
-        "fr": "Se connecte au cloud Tapo, scanne votre réseau, et liste chaque appareil avec son adresse et sa provenance — et quoi faire pour ceux qui ne sont pas trouvés."
+        "fr": "Se connecte au cloud Tapo, scanne votre réseau, et liste chaque appareil avec son adresse et sa provenance — et quoi faire pour ceux qui ne sont pas trouvés.",
+        "de": "Verbindet sich mit der Tapo-Cloud, durchsucht Ihr Netzwerk und listet jedes Gerät mit seiner Adresse und deren Herkunft auf — und was bei nicht gefundenen Geräten zu tun ist.",
+        "es": "Se conecta a la nube Tapo, busca en su red y lista cada dispositivo con su dirección y su procedencia — y qué hacer con los que no se encuentran."
       }
     },
     {
       "key": "set_device_address",
       "label": {
         "en": "Set a device IP address",
-        "fr": "Définir l'adresse IP d'un appareil"
+        "fr": "Définir l'adresse IP d'un appareil",
+        "de": "IP-Adresse eines Geräts festlegen",
+        "es": "Definir la dirección IP de un dispositivo"
       },
       "description": {
         "en": "For a device the scan does not find. Its address is in the Tapo app: device settings > Device info. Reserving that address in your router (DHCP reservation) keeps it from changing. Leave the address empty to go back to automatic detection.",
-        "fr": "Pour un appareil que le scan ne trouve pas. Son adresse est dans l'application Tapo : paramètres de l'appareil > Infos sur l'appareil. La réserver dans votre box (réservation DHCP) l'empêche de changer. Laissez l'adresse vide pour revenir à la détection automatique."
+        "fr": "Pour un appareil que le scan ne trouve pas. Son adresse est dans l'application Tapo : paramètres de l'appareil > Infos sur l'appareil. La réserver dans votre box (réservation DHCP) l'empêche de changer. Laissez l'adresse vide pour revenir à la détection automatique.",
+        "de": "Für ein Gerät, das die Suche nicht findet. Seine Adresse steht in der Tapo-App: Geräteeinstellungen > Geräteinfo. Wenn Sie diese Adresse in Ihrem Router reservieren (DHCP-Reservierung), ändert sie sich nicht. Lassen Sie die Adresse leer, um zur automatischen Erkennung zurückzukehren.",
+        "es": "Para un dispositivo que la búsqueda no encuentra. Su dirección está en la aplicación Tapo: ajustes del dispositivo > Información del dispositivo. Reservarla en su router (reserva DHCP) evita que cambie. Deje la dirección vacía para volver a la detección automática."
       },
       "timeout_seconds": 60,
       "fields": [
@@ -416,11 +530,15 @@
           "source": "devices",
           "label": {
             "en": "Device",
-            "fr": "Appareil"
+            "fr": "Appareil",
+            "de": "Gerät",
+            "es": "Dispositivo"
           },
           "description": {
             "en": "Only devices already added from the Discover screen are listed.",
-            "fr": "Seuls les appareils déjà ajoutés depuis l'écran Découverte sont listés."
+            "fr": "Seuls les appareils déjà ajoutés depuis l'écran Découverte sont listés.",
+            "de": "Nur bereits über den Bildschirm „Entdecken“ hinzugefügte Geräte werden aufgelistet.",
+            "es": "Solo se listan los dispositivos ya añadidos desde la pantalla «Descubrir»."
           },
           "required": true
         },
@@ -429,11 +547,15 @@
           "type": "string",
           "label": {
             "en": "IP address",
-            "fr": "Adresse IP"
+            "fr": "Adresse IP",
+            "de": "IP-Adresse",
+            "es": "Dirección IP"
           },
           "placeholder": {
             "en": "192.168.1.42",
-            "fr": "192.168.1.42"
+            "fr": "192.168.1.42",
+            "de": "192.168.1.42",
+            "es": "192.168.1.42"
           },
           "required": false
         }
@@ -443,11 +565,15 @@
       "key": "set_camera_account",
       "label": {
         "en": "Save a camera account",
-        "fr": "Enregistrer le compte d'une caméra"
+        "fr": "Enregistrer le compte d'une caméra",
+        "de": "Kamerakonto speichern",
+        "es": "Guardar la cuenta de una cámara"
       },
       "description": {
         "en": "The camera account you created in the Tapo app (camera settings > Advanced settings > Camera account) — NOT your Tapo account. It unlocks RTSP, the live view, motion over ONVIF and pan/tilt. Repeat for each camera. Leave both fields empty to remove it.",
-        "fr": "Le compte caméra créé dans l'application Tapo (paramètres de la caméra > Paramètres avancés > Compte de la caméra) — PAS votre compte Tapo. Il débloque le RTSP, le direct, le mouvement via ONVIF et l'orientation. À répéter pour chaque caméra. Laissez les deux champs vides pour le supprimer."
+        "fr": "Le compte caméra créé dans l'application Tapo (paramètres de la caméra > Paramètres avancés > Compte de la caméra) — PAS votre compte Tapo. Il débloque le RTSP, le direct, le mouvement via ONVIF et l'orientation. À répéter pour chaque caméra. Laissez les deux champs vides pour le supprimer.",
+        "de": "Das Kamerakonto, das Sie in der Tapo-App angelegt haben (Kameraeinstellungen > Erweiterte Einstellungen > Kamerakonto) — NICHT Ihr Tapo-Konto. Es schaltet RTSP, die Live-Ansicht, Bewegung über ONVIF und Schwenken/Neigen frei. Für jede Kamera wiederholen. Lassen Sie beide Felder leer, um es zu entfernen.",
+        "es": "La cuenta de cámara creada en la aplicación Tapo (ajustes de la cámara > Ajustes avanzados > Cuenta de la cámara) — NO su cuenta Tapo. Habilita RTSP, la vista en directo, el movimiento por ONVIF y la orientación. Repítalo para cada cámara. Deje ambos campos vacíos para eliminarla."
       },
       "timeout_seconds": 60,
       "fields": [
@@ -457,11 +583,15 @@
           "source": "devices",
           "label": {
             "en": "Camera",
-            "fr": "Caméra"
+            "fr": "Caméra",
+            "de": "Kamera",
+            "es": "Cámara"
           },
           "description": {
             "en": "Only devices already added from the Discover screen are listed.",
-            "fr": "Seuls les appareils déjà ajoutés depuis l'écran Découverte sont listés."
+            "fr": "Seuls les appareils déjà ajoutés depuis l'écran Découverte sont listés.",
+            "de": "Nur bereits über den Bildschirm „Entdecken“ hinzugefügte Geräte werden aufgelistet.",
+            "es": "Solo se listan los dispositivos ya añadidos desde la pantalla «Descubrir»."
           },
           "required": true
         },
@@ -470,11 +600,15 @@
           "type": "string",
           "label": {
             "en": "Camera account username",
-            "fr": "Identifiant du compte caméra"
+            "fr": "Identifiant du compte caméra",
+            "de": "Benutzername des Kamerakontos",
+            "es": "Usuario de la cuenta de cámara"
           },
           "description": {
             "en": "The username you set in the Tapo app, under Camera settings > Advanced settings > Camera account.",
-            "fr": "L'identifiant défini dans l'application Tapo, sous Paramètres de la caméra > Paramètres avancés > Compte de la caméra."
+            "fr": "L'identifiant défini dans l'application Tapo, sous Paramètres de la caméra > Paramètres avancés > Compte de la caméra.",
+            "de": "Der Benutzername, den Sie in der Tapo-App unter Kameraeinstellungen > Erweiterte Einstellungen > Kamerakonto festgelegt haben.",
+            "es": "El usuario definido en la aplicación Tapo, en Ajustes de la cámara > Ajustes avanzados > Cuenta de la cámara."
           },
           "required": false
         },
@@ -483,11 +617,15 @@
           "type": "string",
           "label": {
             "en": "Camera account password",
-            "fr": "Mot de passe du compte caméra"
+            "fr": "Mot de passe du compte caméra",
+            "de": "Passwort des Kamerakontos",
+            "es": "Contraseña de la cuenta de cámara"
           },
           "description": {
             "en": "The matching password. It is stored encrypted with the other secrets; only this input box shows it as you type.",
-            "fr": "Le mot de passe correspondant. Il est stocké chiffré avec les autres secrets ; seule cette case le montre pendant la saisie."
+            "fr": "Le mot de passe correspondant. Il est stocké chiffré avec les autres secrets ; seule cette case le montre pendant la saisie.",
+            "de": "Das zugehörige Passwort. Es wird zusammen mit den anderen Geheimnissen verschlüsselt gespeichert; nur dieses Eingabefeld zeigt es während der Eingabe.",
+            "es": "La contraseña correspondiente. Se guarda cifrada junto con los demás secretos; solo esta casilla la muestra mientras se escribe."
           },
           "required": false
         }
@@ -497,7 +635,9 @@
       "key": "refresh_images",
       "label": {
         "en": "Refresh the images",
-        "fr": "Rafraîchir les images"
+        "fr": "Rafraîchir les images",
+        "de": "Bilder aktualisieren",
+        "es": "Actualizar las imágenes"
       },
       "timeout_seconds": 120
     }

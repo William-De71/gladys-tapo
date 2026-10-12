@@ -176,3 +176,28 @@ test('every action the manifest declares is handled by the code', async () => {
     );
   }
 });
+
+test('every text of the manifest speaks the four languages of Gladys', () => {
+  // Gladys picks the user's language and falls back to English: a text missing
+  // in German would show up in English in the middle of a German screen.
+  const texts = [];
+  const walk = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+    } else if (node && typeof node === 'object') {
+      if (typeof node.en === 'string') {
+        texts.push(node);
+        return;
+      }
+      Object.values(node).forEach(walk);
+    }
+  };
+  walk(manifest);
+  assert.ok(texts.length > 0);
+  for (const text of texts) {
+    for (const language of ['fr', 'de', 'es']) {
+      assert.equal(typeof text[language], 'string', `${language} missing for "${text.en}"`);
+      assert.ok(text[language].trim().length > 0, `${language} empty for "${text.en}"`);
+    }
+  }
+});

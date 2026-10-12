@@ -32,7 +32,7 @@ If your cameras are wired (C100, C200, C210, C500…), RTSP is the better mode: 
 1. Open the Tapo app and select your camera.
 2. Go to **Camera settings** → **Advanced settings** → **Camera account**.
 3. Set a username and a password.
-4. Copy them into the **Camera account (RTSP)** section of the Gladys configuration.
+4. Copy them into the **Camera account (RTSP and ONVIF)** section of the Gladys configuration.
 
 Beware: this camera account is **not** your Tapo account, and it is created **per camera**. Two ways to fill it in:
 

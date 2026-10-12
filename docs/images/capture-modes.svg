@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 360" width="880" height="360" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>How a camera's capture mode is chosen</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="880" height="360" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="30" y="36" font-size="15" font-weight="600" fill="#24292f">Capture mode — decided by probing the camera, never by its model name</text>
+
+  <g font-size="12" fill="#24292f">
+    <rect x="300" y="58" width="280" height="64" rx="10" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>
+    <text x="440" y="84" text-anchor="middle" font-size="14" font-weight="600">Camera at its local address</text>
+    <text x="440" y="104" text-anchor="middle" fill="#57606a">which ports does it answer on?</text>
+
+    <rect x="30" y="170" width="380" height="160" rx="10" fill="#eef6ff" stroke="#0969da" stroke-width="1.5"/>
+    <text x="50" y="198" font-size="15" font-weight="600" fill="#0a3069">RTSP mode</text>
+    <text x="50" y="218" fill="#57606a">554 and 2020 open — most wired cameras</text>
+    <text x="50" y="244">• image captured by ffmpeg from the RTSP stream</text>
+    <text x="50" y="264">• live view on the dashboard</text>
+    <text x="50" y="284">• motion pushed instantly over ONVIF</text>
+    <text x="50" y="304">• pan/tilt arrows and presets (ONVIF PTZ)</text>
+    <text x="50" y="322" fill="#57606a" font-size="11">needs the camera account created in the Tapo app</text>
+
+    <rect x="470" y="170" width="380" height="160" rx="10" fill="#fff8e6" stroke="#bf8700" stroke-width="1.5"/>
+    <text x="490" y="198" font-size="15" font-weight="600" fill="#6b4600">Tapo protocol mode</text>
+    <text x="490" y="218" fill="#57606a">only 8800 open — battery models, doorbells</text>
+    <text x="490" y="244">• image from an encrypted session (port 8800)</text>
+    <text x="490" y="264">• doorbell press and motion, polled</text>
+    <text x="490" y="284">• battery level, with capture throttling</text>
+    <text x="490" y="304">• no live view (not expressible as a URL)</text>
+    <text x="490" y="322" fill="#57606a" font-size="11">uses your Tapo account password</text>
+  </g>
+
+  <g stroke="#57606a" stroke-width="1.5" fill="none" marker-end="url(#arrow)">
+    <path d="M380,122 C380,145 220,140 220,168"/>
+    <path d="M500,122 C500,145 660,140 660,168"/>
+  </g>
+  <text x="236" y="150" text-anchor="end" font-size="11" fill="#0969da">RTSP answers</text>
+  <text x="644" y="150" text-anchor="start" font-size="11" fill="#9a6700">RTSP closed</text>
+</svg>

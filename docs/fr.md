@@ -32,7 +32,7 @@ Si vos caméras sont filaires (C100, C200, C210, C500…), le mode RTSP est pré
 1. Ouvrez l'application Tapo et sélectionnez votre caméra.
 2. Allez dans **Paramètres de la caméra** → **Paramètres avancés** → **Compte de la caméra**.
 3. Définissez un identifiant et un mot de passe.
-4. Reportez-les dans la section **Compte caméra (RTSP)** de la configuration Gladys.
+4. Reportez-les dans la section **Compte caméra (RTSP et ONVIF)** de la configuration Gladys.
 
 Attention : ce compte caméra est **différent** de votre compte Tapo, et il se crée **par caméra**. Deux façons de le renseigner :
 

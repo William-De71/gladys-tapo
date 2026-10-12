@@ -448,6 +448,8 @@ async function runPublish() {
       .setConnectionStatus(false, {
         en: 'Fill in your Tapo account (email and password) to find your cameras.',
         fr: 'Renseignez votre compte Tapo (e-mail et mot de passe) pour retrouver vos caméras.',
+        de: 'Geben Sie Ihr Tapo-Konto (E-Mail und Passwort) ein, um Ihre Kameras zu finden.',
+        es: 'Introduzca su cuenta Tapo (correo electrónico y contraseña) para encontrar sus cámaras.',
       })
       .catch(() => {});
     return [];
@@ -745,6 +747,8 @@ gladys.onAction('test_connection', async () => {
       return {
         en: 'Fill in your Tapo account first (email and password).',
         fr: "Renseignez d'abord votre compte Tapo (e-mail et mot de passe).",
+        de: 'Geben Sie zuerst Ihr Tapo-Konto ein (E-Mail und Passwort).',
+        es: 'Introduzca primero su cuenta Tapo (correo electrónico y contraseña).',
       };
     }
 
@@ -757,6 +761,8 @@ gladys.onAction('test_connection', async () => {
       return {
         en: 'Connection to the Tapo cloud OK, but no device is attached to this account.',
         fr: "Connexion au cloud Tapo OK, mais aucun appareil n'est rattaché à ce compte.",
+        de: 'Verbindung zur Tapo-Cloud OK, aber diesem Konto ist kein Gerät zugeordnet.',
+        es: 'Conexión con la nube Tapo correcta, pero no hay ningún dispositivo vinculado a esta cuenta.',
       };
     }
     // One line per device: where it is, where that address came from, and
@@ -768,11 +774,15 @@ gladys.onAction('test_connection', async () => {
       return {
         en: 'Connection refused: check your Tapo email and password.',
         fr: 'Connexion refusée : vérifiez votre e-mail et votre mot de passe Tapo.',
+        de: 'Verbindung abgelehnt: Prüfen Sie Ihre Tapo-E-Mail und Ihr Passwort.',
+        es: 'Conexión rechazada: compruebe su correo electrónico y su contraseña de Tapo.',
       };
     }
     return {
       en: `Connection failed: ${e.message}`,
       fr: `Échec de la connexion : ${e.message}`,
+      de: `Verbindung fehlgeschlagen: ${e.message}`,
+      es: `Error de conexión: ${e.message}`,
     };
   }
 });
@@ -829,10 +839,10 @@ function cloudIdOf(device) {
 /**
  * Try a test capture after a setting changed, and phrase the outcome.
  * @param {object} device - The Gladys device, re-read after the publish.
- * @param {{ en: string, fr: string }} saved - What was saved, for the message.
- * @returns {Promise<{ en: string, fr: string }>} The message.
+ * @param {{ en: string, fr: string, de: string, es: string }} saved - What was saved, for the message.
+ * @returns {Promise<{ en: string, fr: string, de: string, es: string }>} The message.
  * @example
- * await reportTestCapture(device, { en: 'Saved.', fr: 'Enregistré.' });
+ * await reportTestCapture(device, { en: 'Saved.', fr: 'Enregistré.', de: 'Gespeichert.', es: 'Guardado.' });
  */
 async function reportTestCapture(device, saved) {
   const isCamera = (device.features || []).some((feature) => feature.category === 'camera');
@@ -845,12 +855,16 @@ async function reportTestCapture(device, saved) {
     return {
       en: `${saved.en}\nAn image was captured: the camera works.`,
       fr: `${saved.fr}\nUne image a été capturée : la caméra fonctionne.`,
+      de: `${saved.de}\nEin Bild wurde aufgenommen: Die Kamera funktioniert.`,
+      es: `${saved.es}\nSe ha capturado una imagen: la cámara funciona.`,
     };
   } catch (e) {
     logger.warn(`The test capture of "${device.name}" failed: ${e.message}`);
     return {
       en: `${saved.en}\nBut the test capture failed: ${e.message}`,
       fr: `${saved.fr}\nMais la capture de test a échoué : ${e.message}`,
+      de: `${saved.de}\nAber die Testaufnahme ist fehlgeschlagen: ${e.message}`,
+      es: `${saved.es}\nPero la captura de prueba ha fallado: ${e.message}`,
     };
   }
 }
@@ -868,6 +882,8 @@ gladys.onAction('set_device_address', async (fields) => {
     return {
       en: 'Pick a device in the list. If it is empty, run a scan from the Discover tab first.',
       fr: "Choisissez un appareil dans la liste. Si elle est vide, lancez d'abord un scan depuis l'onglet Découverte.",
+      de: 'Wählen Sie ein Gerät aus der Liste. Ist sie leer, starten Sie zuerst eine Suche im Tab „Entdecken“.',
+      es: 'Elija un dispositivo de la lista. Si está vacía, inicie primero una búsqueda desde la pestaña «Descubrir».',
     };
   }
   const cloudDeviceId = cloudIdOf(device);
@@ -884,10 +900,14 @@ gladys.onAction('set_device_address', async (fields) => {
       ? {
           en: `Manual address removed for "${device.name}". The scan found it at ${found}.`,
           fr: `Adresse manuelle supprimée pour « ${device.name} ». Le scan l'a trouvé à ${found}.`,
+          de: `Manuelle Adresse für „${device.name}“ entfernt. Die Suche hat es unter ${found} gefunden.`,
+          es: `Dirección manual eliminada para «${device.name}». La búsqueda lo ha encontrado en ${found}.`,
         }
       : {
           en: `Manual address removed for "${device.name}", but the scan does not see it: it has no address now.`,
           fr: `Adresse manuelle supprimée pour « ${device.name} », mais le scan ne le voit pas : il n'a plus d'adresse.`,
+          de: `Manuelle Adresse für „${device.name}“ entfernt, aber die Suche findet es nicht: Es hat jetzt keine Adresse mehr.`,
+          es: `Dirección manual eliminada para «${device.name}», pero la búsqueda no lo ve: ya no tiene dirección.`,
         };
   }
 
@@ -895,6 +915,8 @@ gladys.onAction('set_device_address', async (fields) => {
     return {
       en: `"${ip}" is not an IP address. Expected something like 192.168.1.42.`,
       fr: `« ${ip} » n'est pas une adresse IP. Attendu : quelque chose comme 192.168.1.42.`,
+      de: `„${ip}“ ist keine IP-Adresse. Erwartet wird etwa 192.168.1.42.`,
+      es: `«${ip}» no es una dirección IP. Se espera algo como 192.168.1.42.`,
     };
   }
 
@@ -926,11 +948,15 @@ gladys.onAction('set_device_address', async (fields) => {
     return {
       en: `Address ${ip} saved for "${device.name}", but nothing answers there right now. Check the address in the Tapo app (device settings > Device info), and that the device is powered on and on the same network as Gladys.`,
       fr: `Adresse ${ip} enregistrée pour « ${device.name} », mais rien ne répond à cette adresse pour l'instant. Vérifiez-la dans l'application Tapo (paramètres de l'appareil > Infos sur l'appareil), et que l'appareil est allumé et sur le même réseau que Gladys.`,
+      de: `Adresse ${ip} für „${device.name}“ gespeichert, aber unter dieser Adresse antwortet derzeit nichts. Prüfen Sie sie in der Tapo-App (Geräteeinstellungen > Geräteinfo) und ob das Gerät eingeschaltet und im selben Netzwerk wie Gladys ist.`,
+      es: `Dirección ${ip} guardada para «${device.name}», pero de momento nada responde en esa dirección. Compruébela en la aplicación Tapo (ajustes del dispositivo > Información del dispositivo) y que el dispositivo esté encendido y en la misma red que Gladys.`,
     };
   }
   return reportTestCapture(updated, {
     en: `Address ${ip} saved for "${device.name}".`,
     fr: `Adresse ${ip} enregistrée pour « ${device.name} ».`,
+    de: `Adresse ${ip} für „${device.name}“ gespeichert.`,
+    es: `Dirección ${ip} guardada para «${device.name}».`,
   });
 });
 
@@ -957,12 +983,16 @@ gladys.onAction('set_camera_account', async (fields) => {
     return {
       en: 'Pick a camera in the list. If it is empty, run a scan from the Discover tab first.',
       fr: "Choisissez une caméra dans la liste. Si elle est vide, lancez d'abord un scan depuis l'onglet Découverte.",
+      de: 'Wählen Sie eine Kamera aus der Liste. Ist sie leer, starten Sie zuerst eine Suche im Tab „Entdecken“.',
+      es: 'Elija una cámara de la lista. Si está vacía, inicie primero una búsqueda desde la pestaña «Descubrir».',
     };
   }
   if (isSmartDevice(device)) {
     return {
       en: `"${device.name}" is not a camera: plugs, lights and sensors use your Tapo account, they need no camera account.`,
       fr: `« ${device.name} » n'est pas une caméra : prises, lampes et capteurs utilisent votre compte Tapo, ils n'ont pas besoin de compte caméra.`,
+      de: `„${device.name}“ ist keine Kamera: Steckdosen, Lampen und Sensoren verwenden Ihr Tapo-Konto, sie brauchen kein Kamerakonto.`,
+      es: `«${device.name}» no es una cámara: los enchufes, las luces y los sensores usan su cuenta Tapo, no necesitan cuenta de cámara.`,
     };
   }
   const cloudDeviceId = cloudIdOf(device);
@@ -974,6 +1004,8 @@ gladys.onAction('set_camera_account', async (fields) => {
     return {
       en: 'Fill in both the username and the password of the camera account (or leave both empty to remove it).',
       fr: "Renseignez l'identifiant et le mot de passe du compte caméra (ou laissez les deux vides pour le supprimer).",
+      de: 'Geben Sie Benutzername und Passwort des Kamerakontos ein (oder lassen Sie beide leer, um es zu entfernen).',
+      es: 'Introduzca el usuario y la contraseña de la cuenta de cámara (o deje ambos vacíos para eliminarla).',
     };
   } else {
     await writeStoreEntry('camera_account_store', cloudDeviceId, { username: user, password });
@@ -997,11 +1029,15 @@ gladys.onAction('set_camera_account', async (fields) => {
     return {
       en: `Camera account removed for "${device.name}": the default account (or the Tapo protocol) is used again.`,
       fr: `Compte caméra supprimé pour « ${device.name} » : le compte par défaut (ou le protocole Tapo) est de nouveau utilisé.`,
+      de: `Kamerakonto für „${device.name}“ entfernt: Das Standardkonto (oder das Tapo-Protokoll) wird wieder verwendet.`,
+      es: `Cuenta de cámara eliminada para «${device.name}»: se vuelve a usar la cuenta por defecto (o el protocolo Tapo).`,
     };
   }
   return reportTestCapture(updated, {
     en: `Account saved for "${device.name}".`,
     fr: `Compte enregistré pour « ${device.name} ».`,
+    de: `Konto für „${device.name}“ gespeichert.`,
+    es: `Cuenta guardada para «${device.name}».`,
   });
 });
 
@@ -1015,6 +1051,8 @@ gladys.onAction('refresh_images', async () => {
     return {
       en: 'No camera created yet. Run a scan from the Discover screen first.',
       fr: "Aucune caméra créée pour l'instant. Lancez d'abord un scan depuis l'écran Découverte.",
+      de: 'Noch keine Kamera angelegt. Starten Sie zuerst eine Suche im Bildschirm „Entdecken“.',
+      es: 'Todavía no se ha creado ninguna cámara. Inicie primero una búsqueda desde la pantalla «Descubrir».',
     };
   }
 
@@ -1027,11 +1065,15 @@ gladys.onAction('refresh_images', async () => {
     return {
       en: `${published} image(s) refreshed.`,
       fr: `${published} image(s) rafraîchie(s).`,
+      de: `${published} Bild(er) aktualisiert.`,
+      es: `${published} imagen(es) actualizada(s).`,
     };
   }
   return {
     en: `${published} image(s) refreshed. Failed: ${failures.join(', ')}.`,
     fr: `${published} image(s) rafraîchie(s). Échec : ${failures.join(', ')}.`,
+    de: `${published} Bild(er) aktualisiert. Fehlgeschlagen: ${failures.join(', ')}.`,
+    es: `${published} imagen(es) actualizada(s). Fallo: ${failures.join(', ')}.`,
   };
 });
 
@@ -1125,6 +1167,8 @@ gladys.on('connected', async () => {
       .setConnectionStatus(false, {
         en: 'Initialization failed, check the integration logs.',
         fr: "L'initialisation a échoué, consultez les logs de l'intégration.",
+        de: 'Die Initialisierung ist fehlgeschlagen, prüfen Sie die Protokolle der Integration.',
+        es: 'La inicialización ha fallado, consulte los registros de la integración.',
       })
       .catch(() => {});
   }
