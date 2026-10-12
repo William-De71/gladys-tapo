@@ -1,3 +1,30 @@
+## [2.0.0](https://github.com/William-De71/gladys-tapo/compare/v1.2.5...v2.0.0) (2026-10-12)
+
+### ⚠ BREAKING CHANGES
+
+* **tapo:** requires Gladys >= 5.0.0. Updating a camera from the
+  Discover screen replaces its privacy switch with the "Enabled" control, whose
+  values are reversed (1 = camera active); scenes using the switch must be
+  re-pointed.
+
+### Features
+
+* **tapo:** add a manual capture button to battery cameras ([ed99844](https://github.com/William-De71/gladys-tapo/commit/ed99844459b9d4cbaee4954c2a6d359563c8cd52))
+* **tapo:** adopt the camera/enabled private mode and SDK 0.14 ([6469477](https://github.com/William-De71/gladys-tapo/commit/6469477f20ab07df609e9d81df567b3d46349964))
+* **tapo:** locate devices reliably and make the IP address setup explicit ([9941b94](https://github.com/William-De71/gladys-tapo/commit/9941b94f05df0db50196148349dfbb9a2535fb19))
+* **tapo:** speak German and Spanish, push releases atomically ([5bec368](https://github.com/William-De71/gladys-tapo/commit/5bec36831e55fa24a3b9e69a8bdcaf5208b57f48))
+* **tapo:** support Tapo plugs, power strips, bulbs, switches and H100 hub sensors ([9426594](https://github.com/William-De71/gladys-tapo/commit/94265949060b705f6b485a7ab865e7dcd6dffd59))
+
+### Bug Fixes
+
+* **tapo:** discover the doorbells the cloud files as SMART.TAPODOORBELL ([d963038](https://github.com/William-De71/gladys-tapo/commit/d963038dbc9b4a76bd29ae575f2c88bfbfb86ef1))
+* **tapo:** harden the network paths against hangs, retry bursts and races ([c4b8aba](https://github.com/William-De71/gladys-tapo/commit/c4b8aba5cd3088f9ec727d6f6d8ba4b8322ef239))
+* **tapo:** renew ONVIF subscriptions and survive Gladys reconnections ([c49e1c8](https://github.com/William-De71/gladys-tapo/commit/c49e1c87dc542ba270c1736a384127cf237bea72))
+
+### Documentation
+
+* add the Apache-2.0 license and illustrate the README ([d0b7492](https://github.com/William-De71/gladys-tapo/commit/d0b749250b4eab63c67d7a6d615d0f9299b61cab))
+
 ## [1.2.5](https://github.com/William-De71/gladys-tapo/compare/v1.2.4...v1.2.5) (2026-09-02)
 
 ### Bug Fixes
