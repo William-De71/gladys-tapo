@@ -1,0 +1,147 @@
+{
+  "generated_from": "v2.0.0",
+  "type": "device",
+  "transports": ["local", "cloud"],
+  "network_discovery": [
+    {
+      "type": "udp-active-broadcast",
+      "ports": [20002]
+    }
+  ],
+  "config_schema": [
+    {
+      "key": "intro",
+      "type": "section",
+      "required": false
+    },
+    {
+      "key": "email",
+      "type": "string",
+      "required": true
+    },
+    {
+      "key": "password",
+      "type": "secret",
+      "required": true
+    },
+    {
+      "key": "region",
+      "type": "select",
+      "required": false,
+      "default": "europe"
+    },
+    {
+      "key": "rtsp_section",
+      "type": "section",
+      "required": false
+    },
+    {
+      "key": "rtsp_username",
+      "type": "string",
+      "required": false
+    },
+    {
+      "key": "rtsp_password",
+      "type": "secret",
+      "required": false
+    },
+    {
+      "key": "camera_accounts",
+      "type": "secret",
+      "required": false
+    },
+    {
+      "key": "stream_quality",
+      "type": "select",
+      "required": false,
+      "default": "HD"
+    },
+    {
+      "key": "advanced",
+      "type": "section",
+      "required": false
+    },
+    {
+      "key": "camera_ips",
+      "type": "string",
+      "required": false
+    },
+    {
+      "key": "event_poll_interval",
+      "type": "number",
+      "required": false,
+      "default": 20
+    },
+    {
+      "key": "device_poll_interval",
+      "type": "number",
+      "required": false,
+      "default": 5
+    },
+    {
+      "key": "capture_timeout",
+      "type": "number",
+      "required": false,
+      "default": 14
+    },
+    {
+      "key": "image_refresh_interval",
+      "type": "number",
+      "required": false,
+      "default": 60
+    },
+    {
+      "key": "battery_section",
+      "type": "section",
+      "required": false
+    },
+    {
+      "key": "battery_image_refresh_interval",
+      "type": "number",
+      "required": false,
+      "default": 900
+    },
+    {
+      "key": "battery_event_poll_interval",
+      "type": "number",
+      "required": false,
+      "default": 300
+    },
+    {
+      "key": "battery_pause_refresh",
+      "type": "number",
+      "required": false,
+      "default": 60
+    },
+    {
+      "key": "battery_stop_all",
+      "type": "number",
+      "required": false,
+      "default": 40
+    },
+    {
+      "key": "battery_resume",
+      "type": "number",
+      "required": false,
+      "default": 80
+    }
+  ],
+  "actions": [
+    {
+      "key": "test_connection",
+      "fields": []
+    },
+    {
+      "key": "set_device_address",
+      "fields": ["device", "ip"]
+    },
+    {
+      "key": "set_camera_account",
+      "fields": ["device", "username", "password"]
+    },
+    {
+      "key": "refresh_images",
+      "fields": []
+    }
+  ]
+}

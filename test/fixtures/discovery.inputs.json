@@ -1,0 +1,231 @@
+{
+  "cameras": [
+    {
+      "cloudDeviceId": "CAM1",
+      "name": "Jardin",
+      "model": "C210",
+      "ip": "192.168.1.20",
+      "captureMode": "rtsp",
+      "hasBattery": false,
+      "hasEvents": true,
+      "hasOnvif": true,
+      "hasPrivacyMode": true,
+      "ptzMovements": [1, 2, 3, 4],
+      "ptzPresets": [
+        {
+          "token": "1",
+          "name": "Portail"
+        },
+        {
+          "token": "2",
+          "name": "Allée"
+        }
+      ]
+    },
+    {
+      "cloudDeviceId": "CAM2",
+      "name": "Entrée",
+      "model": "C420",
+      "ip": "192.168.1.21",
+      "captureMode": "proprietary",
+      "hasBattery": true,
+      "hasEvents": true,
+      "hasOnvif": false,
+      "hasPrivacyMode": true
+    },
+    {
+      "cloudDeviceId": "BELL1",
+      "name": "Sonnette",
+      "model": "D230",
+      "ip": "192.168.1.22",
+      "captureMode": "rtsp",
+      "hasBattery": true,
+      "hasEvents": true,
+      "hasDoorbell": true,
+      "hasOnvif": true,
+      "hasPrivacyMode": false
+    },
+    {
+      "cloudDeviceId": "CAM3",
+      "name": "Garage",
+      "model": "C100",
+      "ip": "",
+      "captureMode": null,
+      "hasBattery": false,
+      "hasEvents": false
+    }
+  ],
+  "smart": [
+    {
+      "device": {
+        "ip": "192.168.1.30",
+        "ipSource": "scan",
+        "encryptType": "AES",
+        "loginVersion": 2,
+        "cloudDeviceId": "PLUG1",
+        "name": "Lave-linge",
+        "model": "P110",
+        "family": "plug"
+      },
+      "state": {
+        "info": {
+          "device_on": true
+        },
+        "metered": true
+      }
+    },
+    {
+      "device": {
+        "ip": "192.168.1.30",
+        "ipSource": "scan",
+        "encryptType": "AES",
+        "loginVersion": 2,
+        "cloudDeviceId": "STRIP1",
+        "name": "Multiprise",
+        "model": "P300",
+        "family": "plug"
+      },
+      "state": {
+        "info": {},
+        "children": [
+          {
+            "device_id": "S1",
+            "nickname": "VMOpbMOp",
+            "position": 1,
+            "device_on": true
+          },
+          {
+            "device_id": "S2",
+            "nickname": "",
+            "position": 2,
+            "device_on": false
+          }
+        ]
+      }
+    },
+    {
+      "device": {
+        "ip": "192.168.1.30",
+        "ipSource": "scan",
+        "encryptType": "AES",
+        "loginVersion": 2,
+        "cloudDeviceId": "BULB1",
+        "name": "Salon",
+        "model": "L530",
+        "family": "light"
+      },
+      "state": {
+        "info": {
+          "device_on": true,
+          "brightness": 80,
+          "hue": 0,
+          "saturation": 100,
+          "color_temp": 2700,
+          "color_temp_range": [2500, 6500]
+        }
+      }
+    },
+    {
+      "device": {
+        "ip": "192.168.1.30",
+        "ipSource": "scan",
+        "encryptType": "AES",
+        "loginVersion": 2,
+        "cloudDeviceId": "DIM1",
+        "name": "Couloir",
+        "model": "S500D",
+        "family": "switch"
+      },
+      "state": {
+        "info": {
+          "device_on": false,
+          "brightness": 46
+        }
+      }
+    },
+    {
+      "device": {
+        "ip": "192.168.1.30",
+        "ipSource": "scan",
+        "encryptType": "AES",
+        "loginVersion": 2,
+        "cloudDeviceId": "SW1",
+        "name": "Cuisine",
+        "model": "S500",
+        "family": "switch"
+      },
+      "state": {
+        "info": {
+          "device_on": false
+        }
+      }
+    },
+    {
+      "device": {
+        "ip": "192.168.1.30",
+        "ipSource": "scan",
+        "encryptType": "AES",
+        "loginVersion": 2,
+        "cloudDeviceId": "HUB1",
+        "name": "Hub",
+        "model": "H100",
+        "family": "hub"
+      },
+      "state": {
+        "children": [
+          {
+            "device_id": "T310",
+            "model": "T310",
+            "category": "subg.trigger.temp-hmdt-sensor",
+            "current_temp": 19.3,
+            "current_humidity": 54,
+            "temp_unit": "celsius",
+            "at_low_battery": false,
+            "nickname": "Q2hhbWJyZQ=="
+          },
+          {
+            "device_id": "T100",
+            "model": "T100",
+            "category": "subg.trigger.motion-sensor",
+            "detected": false,
+            "at_low_battery": false
+          },
+          {
+            "device_id": "T110",
+            "model": "T110",
+            "category": "subg.trigger.contact-sensor",
+            "open": false,
+            "at_low_battery": false
+          },
+          {
+            "device_id": "T300",
+            "model": "T300",
+            "category": "subg.trigger.water-leak-sensor",
+            "in_alarm": false,
+            "water_leak_status": "water_dry",
+            "battery_percentage": 100,
+            "at_low_battery": false
+          },
+          {
+            "device_id": "S200B",
+            "model": "S200B",
+            "category": "subg.trigger.button",
+            "at_low_battery": false
+          },
+          {
+            "device_id": "KE100",
+            "model": "KE100",
+            "category": "subg.trv",
+            "current_temp": 19.2,
+            "target_temp": 21,
+            "min_control_temp": 5,
+            "max_control_temp": 30,
+            "temp_unit": "celsius",
+            "battery_percentage": 100,
+            "at_low_battery": false
+          }
+        ]
+      }
+    }
+  ]
+}

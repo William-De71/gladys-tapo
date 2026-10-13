@@ -1,0 +1,1369 @@
+{
+  "generated_from": "v2.0.0",
+  "selector": "ext-dev-tapo",
+  "devices": [
+    {
+      "name": "Jardin",
+      "external_id": "ext:ext-dev-tapo:camera:CAM1",
+      "model": "C210",
+      "should_poll": true,
+      "poll_frequency": 60000,
+      "features": [
+        {
+          "name": "Jardin",
+          "external_id": "ext:ext-dev-tapo:camera:CAM1:image",
+          "category": "camera",
+          "type": "image",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": false,
+          "min": 0,
+          "max": 0
+        },
+        {
+          "name": "Jardin - Doorbell",
+          "external_id": "ext:ext-dev-tapo:camera:CAM1:button",
+          "category": "button",
+          "type": "push",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": false,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Jardin - Motion",
+          "external_id": "ext:ext-dev-tapo:camera:CAM1:motion",
+          "category": "motion-sensor",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": false,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Jardin - Enabled",
+          "external_id": "ext:ext-dev-tapo:camera:CAM1:enabled",
+          "category": "camera",
+          "type": "enabled",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Jardin - Move",
+          "external_id": "ext:ext-dev-tapo:camera:CAM1:move",
+          "category": "camera",
+          "type": "move",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": false,
+          "min": 0,
+          "max": 6,
+          "supported_options": [
+            {
+              "value": 1,
+              "label": "Pan left",
+              "sort_order": 0
+            },
+            {
+              "value": 2,
+              "label": "Pan right",
+              "sort_order": 1
+            },
+            {
+              "value": 3,
+              "label": "Tilt up",
+              "sort_order": 2
+            },
+            {
+              "value": 4,
+              "label": "Tilt down",
+              "sort_order": 3
+            }
+          ]
+        },
+        {
+          "name": "Jardin - Preset",
+          "external_id": "ext:ext-dev-tapo:camera:CAM1:preset",
+          "category": "camera",
+          "type": "preset",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": false,
+          "min": 0,
+          "max": 1,
+          "supported_options": [
+            {
+              "value": 0,
+              "label": "Portail",
+              "sort_order": 0
+            },
+            {
+              "value": 1,
+              "label": "Allée",
+              "sort_order": 1
+            }
+          ]
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "CAM1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.20"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_LENS_MASK",
+          "value": "1"
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "C210"
+        },
+        {
+          "name": "TAPO_CAPTURE_MODE",
+          "value": "rtsp"
+        },
+        {
+          "name": "CAMERA_URL",
+          "value": ""
+        },
+        {
+          "name": "CAMERA_ROTATION",
+          "value": "0"
+        },
+        {
+          "name": "TAPO_PRESET_TOKENS",
+          "value": "1,2"
+        }
+      ]
+    },
+    {
+      "name": "Entrée",
+      "external_id": "ext:ext-dev-tapo:camera:CAM2",
+      "model": "C420",
+      "should_poll": true,
+      "poll_frequency": 60000,
+      "features": [
+        {
+          "name": "Entrée",
+          "external_id": "ext:ext-dev-tapo:camera:CAM2:image",
+          "category": "camera",
+          "type": "image",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": false,
+          "min": 0,
+          "max": 0
+        },
+        {
+          "name": "Entrée - Doorbell",
+          "external_id": "ext:ext-dev-tapo:camera:CAM2:button",
+          "category": "button",
+          "type": "push",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": false,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Entrée - Capture",
+          "external_id": "ext:ext-dev-tapo:camera:CAM2:capture",
+          "category": "button",
+          "type": "push",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": false,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Entrée - Motion",
+          "external_id": "ext:ext-dev-tapo:camera:CAM2:motion",
+          "category": "motion-sensor",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": false,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Entrée - Enabled",
+          "external_id": "ext:ext-dev-tapo:camera:CAM2:enabled",
+          "category": "camera",
+          "type": "enabled",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Entrée - Battery",
+          "external_id": "ext:ext-dev-tapo:camera:CAM2:battery",
+          "category": "battery",
+          "type": "integer",
+          "unit": "percent",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": false,
+          "min": 0,
+          "max": 100
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "CAM2"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.21"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_LENS_MASK",
+          "value": "1"
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "C420"
+        },
+        {
+          "name": "TAPO_CAPTURE_MODE",
+          "value": "proprietary"
+        },
+        {
+          "name": "CAMERA_URL",
+          "value": ""
+        },
+        {
+          "name": "CAMERA_ROTATION",
+          "value": "0"
+        },
+        {
+          "name": "TAPO_PRESET_TOKENS",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Sonnette",
+      "external_id": "ext:ext-dev-tapo:camera:BELL1",
+      "model": "D230",
+      "should_poll": true,
+      "poll_frequency": 60000,
+      "features": [
+        {
+          "name": "Sonnette",
+          "external_id": "ext:ext-dev-tapo:camera:BELL1:image",
+          "category": "camera",
+          "type": "image",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": false,
+          "min": 0,
+          "max": 0
+        },
+        {
+          "name": "Sonnette - Doorbell",
+          "external_id": "ext:ext-dev-tapo:camera:BELL1:button",
+          "category": "button",
+          "type": "push",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": false,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Sonnette - Capture",
+          "external_id": "ext:ext-dev-tapo:camera:BELL1:capture",
+          "category": "button",
+          "type": "push",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": false,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Sonnette - Motion",
+          "external_id": "ext:ext-dev-tapo:camera:BELL1:motion",
+          "category": "motion-sensor",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": false,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Sonnette - Enabled",
+          "external_id": "ext:ext-dev-tapo:camera:BELL1:enabled",
+          "category": "camera",
+          "type": "enabled",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Sonnette - Battery",
+          "external_id": "ext:ext-dev-tapo:camera:BELL1:battery",
+          "category": "battery",
+          "type": "integer",
+          "unit": "percent",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": false,
+          "min": 0,
+          "max": 100
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "BELL1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.22"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_LENS_MASK",
+          "value": "1"
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "D230"
+        },
+        {
+          "name": "TAPO_CAPTURE_MODE",
+          "value": "rtsp"
+        },
+        {
+          "name": "CAMERA_URL",
+          "value": ""
+        },
+        {
+          "name": "CAMERA_ROTATION",
+          "value": "0"
+        },
+        {
+          "name": "TAPO_PRESET_TOKENS",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Garage",
+      "external_id": "ext:ext-dev-tapo:camera:CAM3",
+      "model": "C100",
+      "should_poll": true,
+      "poll_frequency": 60000,
+      "features": [
+        {
+          "name": "Garage",
+          "external_id": "ext:ext-dev-tapo:camera:CAM3:image",
+          "category": "camera",
+          "type": "image",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": false,
+          "min": 0,
+          "max": 0
+        },
+        {
+          "name": "Garage - Enabled",
+          "external_id": "ext:ext-dev-tapo:camera:CAM3:enabled",
+          "category": "camera",
+          "type": "enabled",
+          "read_only": false,
+          "keep_history": false,
+          "has_feedback": false,
+          "min": 0,
+          "max": 1
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "CAM3"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": ""
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_LENS_MASK",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "C100"
+        },
+        {
+          "name": "TAPO_CAPTURE_MODE",
+          "value": ""
+        },
+        {
+          "name": "CAMERA_URL",
+          "value": ""
+        },
+        {
+          "name": "CAMERA_ROTATION",
+          "value": "0"
+        },
+        {
+          "name": "TAPO_PRESET_TOKENS",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "model": "P110",
+      "should_poll": false,
+      "name": "Lave-linge",
+      "external_id": "ext:ext-dev-tapo:plug:PLUG1",
+      "features": [
+        {
+          "name": "Lave-linge - On",
+          "external_id": "ext:ext-dev-tapo:plug:PLUG1:on",
+          "category": "switch",
+          "type": "binary",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Lave-linge - Power",
+          "external_id": "ext:ext-dev-tapo:plug:PLUG1:power",
+          "category": "switch",
+          "type": "power",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 4000,
+          "unit": "watt"
+        },
+        {
+          "name": "Lave-linge - Energy",
+          "external_id": "ext:ext-dev-tapo:plug:PLUG1:energy",
+          "category": "switch",
+          "type": "energy",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1000000,
+          "unit": "kilowatt-hour"
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "PLUG1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "P110"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "plug"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "model": "P300",
+      "should_poll": false,
+      "name": "Télé",
+      "external_id": "ext:ext-dev-tapo:plug:S1",
+      "features": [
+        {
+          "name": "Télé - On",
+          "external_id": "ext:ext-dev-tapo:plug:S1:on",
+          "category": "switch",
+          "type": "binary",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "STRIP1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "P300"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "plug"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        },
+        {
+          "name": "TAPO_CHILD_ID",
+          "value": "S1"
+        }
+      ]
+    },
+    {
+      "model": "P300",
+      "should_poll": false,
+      "name": "Multiprise 2",
+      "external_id": "ext:ext-dev-tapo:plug:S2",
+      "features": [
+        {
+          "name": "Multiprise 2 - On",
+          "external_id": "ext:ext-dev-tapo:plug:S2:on",
+          "category": "switch",
+          "type": "binary",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "STRIP1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "P300"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "plug"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        },
+        {
+          "name": "TAPO_CHILD_ID",
+          "value": "S2"
+        }
+      ]
+    },
+    {
+      "model": "L530",
+      "should_poll": false,
+      "name": "Salon",
+      "external_id": "ext:ext-dev-tapo:light:BULB1",
+      "features": [
+        {
+          "name": "Salon - On",
+          "external_id": "ext:ext-dev-tapo:light:BULB1:on",
+          "category": "light",
+          "type": "binary",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Salon - Brightness",
+          "external_id": "ext:ext-dev-tapo:light:BULB1:brightness",
+          "category": "light",
+          "type": "brightness",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 1,
+          "max": 100,
+          "unit": "percent"
+        },
+        {
+          "name": "Salon - Color",
+          "external_id": "ext:ext-dev-tapo:light:BULB1:color",
+          "category": "light",
+          "type": "color",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 16777215
+        },
+        {
+          "name": "Salon - Color temperature",
+          "external_id": "ext:ext-dev-tapo:light:BULB1:color-temperature",
+          "category": "light",
+          "type": "temperature",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 2500,
+          "max": 6500,
+          "unit": "kelvin"
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "BULB1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "L530"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "light"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "model": "S500D",
+      "should_poll": false,
+      "name": "Couloir",
+      "external_id": "ext:ext-dev-tapo:light:DIM1",
+      "features": [
+        {
+          "name": "Couloir - On",
+          "external_id": "ext:ext-dev-tapo:light:DIM1:on",
+          "category": "light",
+          "type": "binary",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "Couloir - Brightness",
+          "external_id": "ext:ext-dev-tapo:light:DIM1:brightness",
+          "category": "light",
+          "type": "brightness",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 1,
+          "max": 100,
+          "unit": "percent"
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "DIM1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "S500D"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "switch"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "model": "S500",
+      "should_poll": false,
+      "name": "Cuisine",
+      "external_id": "ext:ext-dev-tapo:switch:SW1",
+      "features": [
+        {
+          "name": "Cuisine - On",
+          "external_id": "ext:ext-dev-tapo:switch:SW1:on",
+          "category": "switch",
+          "type": "binary",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "SW1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "S500"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "switch"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "model": "T310",
+      "should_poll": false,
+      "name": "Chambre",
+      "external_id": "ext:ext-dev-tapo:sensor:T310",
+      "features": [
+        {
+          "name": "Chambre - Temperature",
+          "external_id": "ext:ext-dev-tapo:sensor:T310:temperature",
+          "category": "temperature-sensor",
+          "type": "decimal",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": -40,
+          "max": 100,
+          "unit": "celsius"
+        },
+        {
+          "name": "Chambre - Humidity",
+          "external_id": "ext:ext-dev-tapo:sensor:T310:humidity",
+          "category": "humidity-sensor",
+          "type": "decimal",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 100,
+          "unit": "percent"
+        },
+        {
+          "name": "Chambre - Low battery",
+          "external_id": "ext:ext-dev-tapo:sensor:T310:battery-low",
+          "category": "battery-low",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "HUB1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "H100"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "hub"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        },
+        {
+          "name": "TAPO_CHILD_ID",
+          "value": "T310"
+        }
+      ]
+    },
+    {
+      "model": "T100",
+      "should_poll": false,
+      "name": "T100",
+      "external_id": "ext:ext-dev-tapo:sensor:T100",
+      "features": [
+        {
+          "name": "T100 - Motion",
+          "external_id": "ext:ext-dev-tapo:sensor:T100:motion",
+          "category": "motion-sensor",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "T100 - Low battery",
+          "external_id": "ext:ext-dev-tapo:sensor:T100:battery-low",
+          "category": "battery-low",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "HUB1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "H100"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "hub"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        },
+        {
+          "name": "TAPO_CHILD_ID",
+          "value": "T100"
+        }
+      ]
+    },
+    {
+      "model": "T110",
+      "should_poll": false,
+      "name": "T110",
+      "external_id": "ext:ext-dev-tapo:sensor:T110",
+      "features": [
+        {
+          "name": "T110 - Opening",
+          "external_id": "ext:ext-dev-tapo:sensor:T110:contact",
+          "category": "opening-sensor",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "T110 - Low battery",
+          "external_id": "ext:ext-dev-tapo:sensor:T110:battery-low",
+          "category": "battery-low",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "HUB1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "H100"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "hub"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        },
+        {
+          "name": "TAPO_CHILD_ID",
+          "value": "T110"
+        }
+      ]
+    },
+    {
+      "model": "T300",
+      "should_poll": false,
+      "name": "T300",
+      "external_id": "ext:ext-dev-tapo:sensor:T300",
+      "features": [
+        {
+          "name": "T300 - Leak",
+          "external_id": "ext:ext-dev-tapo:sensor:T300:leak",
+          "category": "leak-sensor",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "T300 - Battery",
+          "external_id": "ext:ext-dev-tapo:sensor:T300:battery",
+          "category": "battery",
+          "type": "integer",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 100,
+          "unit": "percent"
+        },
+        {
+          "name": "T300 - Low battery",
+          "external_id": "ext:ext-dev-tapo:sensor:T300:battery-low",
+          "category": "battery-low",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "HUB1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "H100"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "hub"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        },
+        {
+          "name": "TAPO_CHILD_ID",
+          "value": "T300"
+        }
+      ]
+    },
+    {
+      "model": "S200B",
+      "should_poll": false,
+      "name": "S200B",
+      "external_id": "ext:ext-dev-tapo:sensor:S200B",
+      "features": [
+        {
+          "name": "S200B - Button",
+          "external_id": "ext:ext-dev-tapo:sensor:S200B:button",
+          "category": "button",
+          "type": "click",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": false,
+          "min": 0,
+          "max": 6
+        },
+        {
+          "name": "S200B - Low battery",
+          "external_id": "ext:ext-dev-tapo:sensor:S200B:battery-low",
+          "category": "battery-low",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "HUB1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "H100"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "hub"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        },
+        {
+          "name": "TAPO_CHILD_ID",
+          "value": "S200B"
+        }
+      ]
+    },
+    {
+      "model": "KE100",
+      "should_poll": false,
+      "name": "KE100",
+      "external_id": "ext:ext-dev-tapo:sensor:KE100",
+      "features": [
+        {
+          "name": "KE100 - Temperature",
+          "external_id": "ext:ext-dev-tapo:sensor:KE100:temperature",
+          "category": "temperature-sensor",
+          "type": "decimal",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": -40,
+          "max": 100,
+          "unit": "celsius"
+        },
+        {
+          "name": "KE100 - Target temperature",
+          "external_id": "ext:ext-dev-tapo:sensor:KE100:target-temperature",
+          "category": "thermostat",
+          "type": "target-temperature",
+          "read_only": false,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 5,
+          "max": 30,
+          "unit": "celsius"
+        },
+        {
+          "name": "KE100 - Battery",
+          "external_id": "ext:ext-dev-tapo:sensor:KE100:battery",
+          "category": "battery",
+          "type": "integer",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 100,
+          "unit": "percent"
+        },
+        {
+          "name": "KE100 - Low battery",
+          "external_id": "ext:ext-dev-tapo:sensor:KE100:battery-low",
+          "category": "battery-low",
+          "type": "binary",
+          "read_only": true,
+          "keep_history": true,
+          "has_feedback": true,
+          "min": 0,
+          "max": 1
+        }
+      ],
+      "params": [
+        {
+          "name": "TAPO_CLOUD_DEVICE_ID",
+          "value": "HUB1"
+        },
+        {
+          "name": "TAPO_IP",
+          "value": "192.168.1.30"
+        },
+        {
+          "name": "TAPO_IP_SOURCE",
+          "value": "scan"
+        },
+        {
+          "name": "TAPO_MAC",
+          "value": ""
+        },
+        {
+          "name": "TAPO_MODEL",
+          "value": "H100"
+        },
+        {
+          "name": "TAPO_FAMILY",
+          "value": "hub"
+        },
+        {
+          "name": "TAPO_ENCRYPT_TYPE",
+          "value": "AES"
+        },
+        {
+          "name": "TAPO_LOGIN_VERSION",
+          "value": "2"
+        },
+        {
+          "name": "TAPO_HTTP_PORT",
+          "value": ""
+        },
+        {
+          "name": "TAPO_CHILD_ID",
+          "value": "KE100"
+        }
+      ]
+    }
+  ]
+}
