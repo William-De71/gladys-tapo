@@ -2,6 +2,8 @@
 
 Esta integración añade sus dispositivos **TP-Link Tapo** a Gladys: cámaras y timbres (imagen en el panel, pulsaciones del timbre y movimiento como desencadenantes de escenas, nivel de batería), pero también enchufes, regletas, bombillas, interruptores y los sensores del hub H100 — consulte [Enchufes, bombillas, interruptores y sensores](#enchufes-bombillas-interruptores-y-sensores).
 
+![Dispositivos Tapo compatibles y lo que Gladys obtiene de cada uno](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/devices.svg)
+
 ## Cómo funciona
 
 Dos canales, cada uno con lo que mejor sabe hacer:
@@ -9,6 +11,8 @@ Dos canales, cada uno con lo que mejor sabe hacer:
 - **La nube de TP-Link** sirve para obtener la lista de sus cámaras. Es la misma cuenta que en la aplicación Tapo. Sin embargo, **no** indica la dirección local de las cámaras.
 - **Un escaneo de su red** localiza después cada cámara, exactamente como hace la aplicación Tapo al arrancar. En la mayoría de las instalaciones, esto le evita tener que escribir ninguna dirección IP (consulte [La dirección IP de sus cámaras](#la-dirección-ip-de-sus-cámaras) cuando no sea así).
 - **Su red local** proporciona todo lo demás: imágenes, timbre, movimiento, batería. Nada de ello pasa por la nube: Gladys habla directamente con la cámara, en su casa.
+
+![La nube de TP-Link lista los dispositivos, un escaneo de la red los localiza, imágenes, eventos y comandos se quedan en su red local](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/overview.svg)
 
 Para capturar una imagen, la integración elige automáticamente uno de dos modos, según lo que acepte la cámara:
 
@@ -19,7 +23,11 @@ Para capturar una imagen, la integración elige automáticamente uno de dos modo
 
 El segundo modo es el protocolo interno de TP-Link, el que utiliza la aplicación móvil. Permite obtener una imagen de los modelos — a menudo con batería — que no ofrecen ningún flujo estándar.
 
+![El modo de captura sigue los puertos en los que responde la cámara: RTSP con una cuenta de cámara, si no el protocolo Tapo](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/capture-modes.svg)
+
 ## Configuración
+
+La integración requiere **Gladys 5.1.0** o posterior, por su activador de escena. Un Gladys más antiguo no recibe sus actualizaciones y se queda en la versión 2.0.0 hasta que se actualice el propio Gladys.
 
 ### 1. Introducir su cuenta Tapo
 
@@ -76,6 +84,8 @@ Gladys comprueba de inmediato que algo responde en esa dirección, captura una i
 
 Para volver a la detección automática, ejecute de nuevo la acción con una dirección **vacía**.
 
+![De dónde viene la dirección de un dispositivo, gana la primera encontrada: la dirección que usted escribió, el escaneo de la red, la nube Tapo, la última dirección conocida](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/ip-resolution.svg)
+
 > **Consejo** — reserve la dirección de cada cámara en su router («reserva DHCP» o «concesión estática»). De lo contrario, el router podría asignarle otra después de un corte, y una dirección escrita a mano dejaría de ser correcta.
 
 ### ¿Y por la nube, sin dirección IP?
@@ -112,6 +122,8 @@ Una cámara que ha bajado del primer umbral solo se reanuda al **80 %**, deliber
 
 El nivel de batería y los eventos se siguen leyendo en todos los casos: no cuestan casi nada, y son lo que indica cuándo se ha recargado la cámara.
 
+![Niveles de batería y lo que permite cada uno: todo por encima del 60 %, solo bajo demanda entre el 40 % y el 60 %, nada por debajo del 40 %, vuelta a la normalidad al 80 %](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/battery.svg)
+
 Una cámara con batería que **deja de responder** — sueño profundo, sesión rechazada, red caída — también pasa a funcionar solo bajo demanda: su último nivel conocido ya no es fiable, y es más probable que una cámara silenciosa esté descargada que en buen estado.
 
 ### Un intervalo de captura propio
@@ -129,13 +141,15 @@ Es el ajuste más eficaz de todos: lo que consume batería es **despertar la cá
 
 Cada cámara se convierte en un dispositivo en Gladys:
 
-- **Imagen** — la imagen que muestra el widget de cámara, actualizada bajo demanda.
-- **Timbre** — una pulsación del botón, utilizable como desencadenante de escena.
-- **Movimiento** — la detección de movimiento, también utilizable como desencadenante.
-- **Activada** — modo privado: consulte [Modo privado](#modo-privado).
-- **Captura** — un botón para pedir una imagen de inmediato (modelos con batería, actualizados con menos frecuencia).
-- **Mover** y **Posición predefinida** — en las cámaras motorizadas: consulte [PTZ](#orientar-una-cámara-motorizada-ptz).
-- **Batería** — el nivel restante, en porcentaje (modelos con batería).
+- **Imagen** — la imagen que muestra el widget de cámara, actualizada bajo demanda. Esta funcionalidad lleva el nombre de la cámara.
+- **Timbre** (`Doorbell`) — una pulsación del botón, utilizable como desencadenante de escena.
+- **Movimiento** (`Motion`) — la detección de movimiento, también utilizable como desencadenante.
+- **Activada** (`Enabled`) — modo privado: consulte [Modo privado](#modo-privado).
+- **Captura** (`Capture`) — un botón para pedir una imagen de inmediato (modelos con batería, actualizados con menos frecuencia).
+- **Mover** (`Move`) y **Posición predefinida** (`Preset`) — en las cámaras motorizadas: consulte [PTZ](#orientar-una-cámara-motorizada-ptz).
+- **Batería** (`Battery`) — el nivel restante, en porcentaje (modelos con batería).
+
+La integración nombra estas funcionalidades en inglés (por ejemplo `Garage - Motion`), sea cual sea el idioma de Gladys; puede renombrar cada una. Para lanzar una escena según lo que ve una cámara — una persona, un vehículo, una mascota — utilice el activador descrito en [Escenas](#escenas).
 
 Cuando alguien llama al timbre, la integración captura de inmediato una imagen y la envía a Gladys: el widget ya muestra al visitante en el momento en que abre la notificación.
 
@@ -148,6 +162,8 @@ Dos vías posibles, elegidas automáticamente para cada cámara:
 | **ONVIF**  | La cámara avisa a Gladys en cuanto detecta algo             | casi instantáneo   |
 | **Sondeo** | Gladys pregunta periódicamente a la cámara qué ha detectado | hasta un intervalo |
 
+![Eventos de las cámaras: ONVIF los envía al instante cuando la cuenta de cámara está rellenada, si no la integración lee la lista de detecciones en cada comprobación](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/events.svg)
+
 ONVIF es claramente preferible para desencadenar una escena: un movimiento llega en menos de un segundo, en lugar de esperar a la siguiente comprobación. Lo único que necesita es que la **cuenta de cámara** esté rellenada — son las credenciales que utiliza ONVIF, no su cuenta Tapo.
 
 También es la única vía que indica el **fin** de un movimiento: el sensor vuelve a su estado cuando la cámara lo indica, y no tras un retardo fijo.
@@ -158,7 +174,7 @@ No hay nada que configurar: si la cuenta de cámara está rellenada y la cámara
 
 ## Modo privado
 
-Cada cámara recibe un control **Activada** — el modo privado estándar de Gladys para las cámaras (Gladys 5.0 o posterior). Desactívelo y Gladys deja de capturar, mostrar y almacenar la imagen de esa cámara, en todas partes: panel, chat, escenas. Se puede utilizar en una escena — «cuando volvamos a casa, desactivar la cámara del salón».
+Cada cámara recibe un control **Activada** — el modo privado estándar de Gladys para las cámaras. Desactívelo y Gladys deja de capturar, mostrar y almacenar la imagen de esa cámara, en todas partes: panel, chat, escenas. Se puede utilizar en una escena — «cuando volvamos a casa, desactivar la cámara del salón».
 
 En las cámaras Tapo que tienen un **modo privacidad** (el objetivo queda cubierto físicamente), el control también lo maneja: desactivar la cámara cubre el objetivo, volver a activarla lo descubre. Esto pasa por el mismo canal local que el nivel de batería: no se necesita cuenta de cámara, y los modelos con batería también lo tienen. Funciona **en ambos sentidos** — un modo privacidad activado desde la aplicación Tapo se refleja en Gladys en la siguiente comprobación, en menos de un minuto.
 
@@ -179,6 +195,35 @@ Al igual que los eventos, esto pasa por ONVIF y, por tanto, requiere que la **cu
 Pulsar una flecha mueve la cámara **un paso**, no de forma continua. Es deliberado: una orden enviada desde una escena, o una pulsación cuya liberación se pierde, debe quedarse en un pequeño movimiento y no en varios segundos de rotación. Por eso cada paso termina por sí solo: aunque Gladys pierda el contacto con la cámara justo después, ningún movimiento queda en marcha.
 
 Una observación sobre la velocidad: los firmwares Tapo ignoran en gran medida la velocidad solicitada y deducen el ritmo a partir de la distancia que hay que recorrer. Un paso puede, por tanto, parecer lento — es el comportamiento de la cámara, no un ajuste que falte.
+
+## Escenas
+
+Una cámara o un timbre puede lanzar una escena con el activador **Detección de una cámara Tapo**. Indica _qué_ ha visto la cámara, y una sola escena puede vigilar varias cámaras. Las funcionalidades **Motion** y **Doorbell** de cada cámara siguen siendo utilizables con el activador estándar **Cambio de estado del dispositivo**.
+
+### El activador Detección de una cámara Tapo
+
+| Campo         | Qué elegir                                                                                                           |
+| ------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Cámara**    | la cámara o el timbre que vigilar; déjelo vacío para todas las cámaras                                               |
+| **Detectado** | **Persona**, **Vehículo**, **Mascota**, **Movimiento** o **Pulsación del timbre**; déjelo vacío para todos los tipos |
+
+La escena recibe tres variables, que puede insertar en un mensaje: **Identificador de la cámara**, **Nombre de la cámara** y **Detectado** (`person`, `vehicle`, `pet`, `motion` o `doorbell`).
+
+- **Persona**, **Vehículo** y **Mascota** requieren una cámara con detección inteligente, activada en la aplicación Tapo. La cámara dice entonces lo que ha visto; sin ella, toda detección llega como **Movimiento**. La integración nunca adivina a partir de la imagen.
+- Cada cámara y cada tipo lanzan la escena **como máximo una vez por minuto**: alguien que pasea tres minutos por el jardín la lanza como máximo una vez por minuto, no en cada notificación de la cámara.
+- Cuando se reconoce una persona, un vehículo o una mascota, el simple movimiento que la acompaña no lanza nada más: una escena en **Movimiento** solo se ejecuta para lo que la cámara no ha identificado. Deje **Detectado** vacío para reaccionar una vez a todo.
+- Una cámara con ONVIF (cuenta de cámara rellenada) avisa en menos de un segundo. Si no, la detección llega en el siguiente **Intervalo de comprobación de eventos** y, para una cámara con batería, en el siguiente **Intervalo de comprobación de las cámaras con batería** (5 minutos por defecto). Los timbres se comprueban siempre al intervalo de eventos.
+- Solo las cámaras añadidas a Gladys lanzan el activador.
+
+### Ejemplos
+
+**Iluminar el jardín cuando alguien pasa de noche.** Activador **Detección de una cámara Tapo**: cámara «Jardín», detectado **Persona**. Condición **Condición de hora**: después de las 22:00 y antes de las 06:00. Acciones **Encender las luces** (las luces del jardín), **Esperar** 5 minutos y luego **Apagar las luces**. El gato del vecino que cruza el césped no enciende nada.
+
+**Recibir la foto del timbre en su teléfono.** Activador **Detección de una cámara Tapo**: detectado **Pulsación del timbre**, cámara vacía. Acción **Enviar una imagen de cámara** con el timbre. La integración captura una imagen en cuanto se pulsa el botón: la foto muestra quién ha llamado. Con varios timbres, añada **Enviar mensaje** «Han llamado a Nombre de la cámara», insertando la variable **Nombre de la cámara**.
+
+**Ignorar las mascotas.** Construya la escena en **Persona** (y otra en **Vehículo** si hace falta) en lugar de dejar **Detectado** vacío: un perro o un gato que pase delante de la cámara no lanza entonces nada.
+
+**Un coche en la entrada.** Activador **Detección de una cámara Tapo**: cámara «Entrada», detectado **Vehículo**. Acción **Enviar mensaje** «Acaba de llegar un vehículo».
 
 ## Enchufes, bombillas, interruptores y sensores
 
@@ -243,6 +288,10 @@ La acción **Actualizar las imágenes** fuerza una nueva captura de todas las c�
 **El movimiento tarda en llegar** — lo más probable es que la cámara esté en la vía de sondeo. Compruebe que su **cuenta de cámara** está rellenada: es lo que permite que funcione ONVIF y, por tanto, lo que hace que el movimiento sea instantáneo. Los modelos con batería no ofrecen ONVIF en absoluto.
 
 **No se detecta ningún movimiento en una cámara ONVIF** — en la aplicación Tapo, compruebe que la detección de movimiento está activada y que el modo privacidad está desactivado: una cámara en modo privacidad no indica absolutamente nada.
+
+**La escena de detección nunca se lanza para una persona** — la cámara solo indica **Movimiento**: active la detección inteligente (persona, vehículo, mascota) en la aplicación Tapo, si el modelo la tiene. Compruebe también que la cámara está añadida a Gladys y que el campo **Cámara** del activador la designa.
+
+**La escena no se lanza con cada movimiento** — es intencionado: cada cámara la lanza como máximo una vez por minuto y por tipo, y el simple movimiento que acompaña a una persona, un vehículo o una mascota reconocidos no lanza nada más.
 
 **Cámaras sin flujo RTSP** — los modelos con batería y los timbres (C610, C425, D230…) no ofrecen ni RTSP ni ONVIF. No es un obstáculo: la integración recurre automáticamente al protocolo propietario de TP-Link, el que utiliza la aplicación Tapo, y captura sus imágenes sin ninguna cuenta de cámara. La única diferencia: no hay vídeo en directo para esas cámaras, solo imágenes actualizadas periódicamente.
 

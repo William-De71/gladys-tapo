@@ -2,6 +2,8 @@
 
 Diese Integration fügt Ihre **TP-Link Tapo**-Geräte zu Gladys hinzu: Kameras und Türklingeln (Bild im Dashboard, Klingeln und Bewegungen als Auslöser für Szenen, Akkustand), aber auch Steckdosen, Steckdosenleisten, Lampen, Schalter und die Sensoren des H100-Hubs – siehe [Steckdosen, Lampen, Schalter und Sensoren](#steckdosen-lampen-schalter-und-sensoren).
 
+![Unterstützte Tapo-Geräte und was Gladys von jedem erhält](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/devices.svg)
+
 ## Funktionsweise
 
 Zwei Kanäle, jeder für das, was er am besten kann:
@@ -9,6 +11,8 @@ Zwei Kanäle, jeder für das, was er am besten kann:
 - **Die TP-Link-Cloud** liefert die Liste Ihrer Kameras. Es ist dasselbe Konto wie in der Tapo-App. Die lokale Adresse der Kameras teilt sie jedoch **nicht** mit.
 - **Ein Scan Ihres Netzwerks** findet anschließend jede Kamera, genau wie die Tapo-App beim Start. In den meisten Installationen müssen Sie dadurch keine IP-Adresse eingeben (siehe [Die IP-Adresse Ihrer Kameras](#die-ip-adresse-ihrer-kameras), wenn es doch nötig ist).
 - **Ihr lokales Netzwerk** liefert alles Weitere: Bilder, Klingel, Bewegung, Akku. Nichts davon läuft über die Cloud: Gladys spricht direkt mit der Kamera, bei Ihnen zu Hause.
+
+![Die TP-Link-Cloud listet die Geräte, ein Netzwerkscan findet sie, Bilder, Ereignisse und Befehle bleiben in Ihrem lokalen Netzwerk](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/overview.svg)
 
 Für die Bildaufnahme wählt die Integration automatisch einen von zwei Modi, je nachdem, was die Kamera unterstützt:
 
@@ -19,7 +23,11 @@ Für die Bildaufnahme wählt die Integration automatisch einen von zwei Modi, je
 
 Der zweite Modus ist das interne Protokoll von TP-Link, das auch die mobile App verwendet. Damit lässt sich ein Bild von den Modellen abrufen – oft akkubetriebenen –, die keinen Standard-Stream anbieten.
 
+![Der Aufnahmemodus folgt den Ports, auf denen die Kamera antwortet: RTSP mit einem Kamerakonto, sonst das Tapo-Protokoll](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/capture-modes.svg)
+
 ## Einrichtung
+
+Die Integration setzt **Gladys 5.1.0** oder neuer voraus, wegen ihres Szenen-Auslösers. Ein älteres Gladys erhält ihre Updates nicht und bleibt auf Version 2.0.0, bis Gladys selbst aktualisiert wird.
 
 ### 1. Ihr Tapo-Konto eingeben
 
@@ -76,6 +84,8 @@ Gladys prüft sofort, ob unter dieser Adresse etwas antwortet, nimmt ein Bild au
 
 Um zur automatischen Erkennung zurückzukehren, führen Sie die Aktion erneut mit einer **leeren** Adresse aus.
 
+![Woher die Adresse eines Geräts stammt, der erste Treffer gewinnt: die von Ihnen eingegebene Adresse, der Netzwerkscan, die Tapo-Cloud, die letzte bekannte Adresse](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/ip-resolution.svg)
+
 > **Tipp** – reservieren Sie die Adresse jeder Kamera in Ihrem Router („DHCP-Reservierung“ oder „statische Zuweisung“). Andernfalls kann der Router ihr nach einem Ausfall eine andere zuweisen, und eine eingegebene Adresse wäre dann falsch.
 
 ### Und die Cloud, ohne IP-Adresse?
@@ -112,6 +122,8 @@ Eine Kamera, die unter die erste Schwelle gefallen ist, nimmt den Betrieb erst b
 
 Der Akkustand und die Ereignisse werden in jedem Fall weiter gelesen: Sie kosten fast nichts, und an ihnen erkennt man, wann die Kamera wieder aufgeladen ist.
 
+![Akkustände und was jeder erlaubt: alles über 60 %, nur auf Abruf zwischen 40 % und 60 %, nichts unter 40 %, zurück zum Normalbetrieb bei 80 %](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/battery.svg)
+
 Eine Akkukamera, die **nicht mehr antwortet** – Tiefschlaf, abgelehnte Sitzung, Netzwerk ausgefallen –, wird ebenfalls auf Abruf zurückgestuft: Ihrem zuletzt bekannten Stand kann man nicht mehr trauen, und eine stumme Kamera ist eher leer als in Ordnung.
 
 ### Ein eigenes Aufnahmeintervall
@@ -129,13 +141,15 @@ Das ist die mit Abstand wirksamste Einstellung: Was den Akku belastet, ist **das
 
 Jede Kamera wird zu einem Gerät in Gladys:
 
-- **Bild** – das vom Kamera-Widget angezeigte Bild, bei Bedarf aktualisiert.
-- **Klingel** – ein Druck auf die Taste, als Auslöser für Szenen nutzbar.
-- **Bewegung** – Bewegungserkennung, ebenfalls als Auslöser nutzbar.
-- **Aktiviert** – Privatmodus: siehe [Privatmodus](#privatmodus).
-- **Aufnahme** – eine Taste, um sofort ein Bild anzufordern (Akkumodelle, die seltener aktualisiert werden).
-- **Bewegen** und **Position** – bei motorisierten Kameras: siehe [PTZ](#eine-motorisierte-kamera-ausrichten-ptz).
-- **Akku** – der verbleibende Stand in Prozent (Akkumodelle).
+- **Bild** – das vom Kamera-Widget angezeigte Bild, bei Bedarf aktualisiert. Diese Funktion trägt den Namen der Kamera.
+- **Klingel** (`Doorbell`) – ein Druck auf die Taste, als Auslöser für Szenen nutzbar.
+- **Bewegung** (`Motion`) – Bewegungserkennung, ebenfalls als Auslöser nutzbar.
+- **Aktiviert** (`Enabled`) – Privatmodus: siehe [Privatmodus](#privatmodus).
+- **Aufnahme** (`Capture`) – eine Taste, um sofort ein Bild anzufordern (Akkumodelle, die seltener aktualisiert werden).
+- **Bewegen** (`Move`) und **Position** (`Preset`) – bei motorisierten Kameras: siehe [PTZ](#eine-motorisierte-kamera-ausrichten-ptz).
+- **Akku** (`Battery`) – der verbleibende Stand in Prozent (Akkumodelle).
+
+Die Integration benennt diese Funktionen auf Englisch (zum Beispiel `Garage - Motion`), unabhängig von der Sprache von Gladys; Sie können jede umbenennen. Um eine Szene danach zu starten, was eine Kamera sieht – eine Person, ein Fahrzeug, ein Haustier –, verwenden Sie den unter [Szenen](#szenen) beschriebenen Auslöser.
 
 Wenn jemand klingelt, nimmt die Integration sofort ein Bild auf und sendet es an Gladys: Das Widget zeigt den Besucher bereits, wenn Sie die Benachrichtigung öffnen.
 
@@ -148,6 +162,8 @@ Zwei mögliche Wege, die für jede Kamera automatisch gewählt werden:
 | **ONVIF**   | Die Kamera meldet Gladys sofort, wenn sie etwas erkennt | nahezu sofort          |
 | **Abfrage** | Gladys fragt die Kamera regelmäßig, was sie erkannt hat | bis zu einem Intervall |
 
+![Kamera-Ereignisse: ONVIF pusht sie sofort, wenn das Kamerakonto eingetragen ist, sonst liest die Integration die Erkennungsliste bei jeder Prüfung](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/events.svg)
+
 ONVIF ist zum Auslösen einer Szene klar vorzuziehen: Eine Bewegung kommt innerhalb einer Sekunde an, statt auf die nächste Prüfung zu warten. Dafür muss nur das **Kamerakonto** eingetragen sein – ONVIF verwendet diese Zugangsdaten, nicht Ihr Tapo-Konto.
 
 Es ist außerdem der einzige Weg, der das **Ende** einer Bewegung meldet: Der Sensor fällt zurück, wenn die Kamera es sagt, statt nach einer festen Verzögerung.
@@ -158,7 +174,7 @@ Es gibt nichts zu konfigurieren: Wenn das Kamerakonto eingetragen ist und die Ka
 
 ## Privatmodus
 
-Jede Kamera erhält ein Steuerelement **Aktiviert** – den Standard-Privatmodus von Gladys für Kameras (Gladys 5.0 oder neuer). Schalten Sie es aus, und Gladys hört überall auf, das Bild dieser Kamera aufzunehmen, anzuzeigen und zu speichern: Dashboard, Chat, Szenen. Es ist in einer Szene nutzbar – „wenn wir nach Hause kommen, die Wohnzimmerkamera ausschalten“.
+Jede Kamera erhält ein Steuerelement **Aktiviert** – den Standard-Privatmodus von Gladys für Kameras. Schalten Sie es aus, und Gladys hört überall auf, das Bild dieser Kamera aufzunehmen, anzuzeigen und zu speichern: Dashboard, Chat, Szenen. Es ist in einer Szene nutzbar – „wenn wir nach Hause kommen, die Wohnzimmerkamera ausschalten“.
 
 Bei Tapo-Kameras mit einem **Privatsphäre-Modus** (das Objektiv wird physisch abgedeckt) steuert das Element auch diesen: Das Ausschalten der Kamera deckt das Objektiv ab, das Wiedereinschalten gibt es frei. Das läuft über denselben lokalen Kanal wie der Akkustand: kein Kamerakonto nötig, und Akkumodelle erhalten es ebenfalls. Es funktioniert **in beide Richtungen** – ein in der Tapo-App umgeschalteter Privatsphäre-Modus erscheint in Gladys bei der nächsten Prüfung, innerhalb einer Minute.
 
@@ -179,6 +195,35 @@ Wie die Ereignisse läuft das über ONVIF und setzt daher voraus, dass das **Kam
 Ein Druck auf einen Pfeil bewegt die Kamera **um einen Schritt**, nicht fortlaufend. Das ist beabsichtigt: Ein aus einer Szene gesendeter Befehl oder ein Druck, dessen Loslassen verloren geht, soll eine kleine Bewegung bleiben und nicht mehrere Sekunden Drehung. Jeder Schritt endet daher von selbst: Selbst wenn Gladys gleich danach den Kontakt zur Kamera verliert, läuft keine Bewegung weiter.
 
 Ein Hinweis zur Geschwindigkeit: Tapo-Firmwares ignorieren die angeforderte Geschwindigkeit weitgehend und leiten das Tempo aus der zurückzulegenden Strecke ab. Ein Schritt kann sich daher langsam anfühlen – das ist das Verhalten der Kamera, keine fehlende Einstellung.
+
+## Szenen
+
+Eine Kamera oder Türklingel kann mit dem Auslöser **Erkennung einer Tapo-Kamera** eine Szene starten. Er sagt, _was_ die Kamera gesehen hat, und eine einzige Szene kann mehrere Kameras überwachen. Die Funktionen **Motion** und **Doorbell** jeder Kamera bleiben mit dem Standard-Auslöser **Änderung von Gerätestatus** nutzbar.
+
+### Der Auslöser Erkennung einer Tapo-Kamera
+
+| Feld        | Was wählen                                                                                         |
+| ----------- | -------------------------------------------------------------------------------------------------- |
+| **Kamera**  | die zu überwachende Kamera oder Türklingel; leer lassen für alle Kameras                           |
+| **Erkannt** | **Person**, **Fahrzeug**, **Haustier**, **Bewegung** oder **Klingeln**; leer lassen für alle Arten |
+
+Die Szene erhält drei Variablen, die Sie in eine Nachricht einfügen können: **Kennung der Kamera**, **Name der Kamera** und **Erkannt** (`person`, `vehicle`, `pet`, `motion` oder `doorbell`).
+
+- **Person**, **Fahrzeug** und **Haustier** erfordern eine Kamera mit intelligenter Erkennung, aktiviert in der Tapo-App. Die Kamera sagt dann, was sie gesehen hat; ohne sie kommt jede Erkennung als **Bewegung** an. Die Integration rät nie anhand des Bildes.
+- Jede Kamera und jede Art startet die Szene **höchstens einmal pro Minute**: Jemand, der drei Minuten durch den Garten läuft, startet sie höchstens einmal pro Minute, nicht bei jeder Meldung der Kamera.
+- Wird eine Person, ein Fahrzeug oder ein Haustier erkannt, startet die begleitende einfache Bewegung nichts weiter: Eine Szene auf **Bewegung** läuft nur für das, was die Kamera nicht identifiziert hat. Lassen Sie **Erkannt** leer, um einmal auf alles zu reagieren.
+- Eine Kamera mit ONVIF (Kamerakonto eingetragen) meldet innerhalb einer Sekunde. Andernfalls kommt die Erkennung beim nächsten **Prüfintervall für Ereignisse** an und, bei einer Akkukamera, beim nächsten **Prüfintervall für Akkukameras** (standardmäßig 5 Minuten). Türklingeln werden immer im Ereignisintervall geprüft.
+- Nur die zu Gladys hinzugefügten Kameras lösen aus.
+
+### Beispiele
+
+**Den Garten beleuchten, wenn nachts jemand da ist.** Auslöser **Erkennung einer Tapo-Kamera**: Kamera „Garten“, Erkannt **Person**. Bedingung **Zeitbedingung**: nach 22:00 und vor 06:00. Aktionen **Licht einschalten** (die Gartenlampen), **Warten** 5 Minuten, dann **Licht ausschalten**. Die Katze des Nachbarn, die über den Rasen läuft, schaltet nichts ein.
+
+**Das Bild der Türklingel auf dem Handy erhalten.** Auslöser **Erkennung einer Tapo-Kamera**: Erkannt **Klingeln**, Kamera leer gelassen. Aktion **Kameraaufnahme senden** mit der Türklingel. Die Integration nimmt ein Bild auf, sobald die Taste gedrückt wird: Das Bild zeigt, wer geklingelt hat. Bei mehreren Türklingeln fügen Sie **Nachricht senden** „Es hat an Name der Kamera geklingelt“ hinzu und setzen die Variable **Name der Kamera** ein.
+
+**Haustiere ignorieren.** Bauen Sie die Szene auf **Person** (und bei Bedarf eine weitere auf **Fahrzeug**), statt **Erkannt** leer zu lassen: Ein Hund oder eine Katze vor der Kamera startet dann nichts.
+
+**Ein Auto in der Einfahrt.** Auslöser **Erkennung einer Tapo-Kamera**: Kamera „Einfahrt“, Erkannt **Fahrzeug**. Aktion **Nachricht senden** „Ein Fahrzeug ist gerade angekommen“.
 
 ## Steckdosen, Lampen, Schalter und Sensoren
 
@@ -243,6 +288,10 @@ Die Aktion **Bilder aktualisieren** erzwingt eine neue Aufnahme aller Kameras, p
 **Bewegungen kommen verzögert an** – die Kamera nutzt höchstwahrscheinlich den Abfrageweg. Prüfen Sie, ob ihr **Kamerakonto** eingetragen ist: Es ermöglicht ONVIF und damit sofortige Bewegungsmeldungen. Akkumodelle bieten überhaupt kein ONVIF an.
 
 **Keine Bewegung bei einer ONVIF-Kamera erkannt** – prüfen Sie in der Tapo-App, ob die Bewegungserkennung aktiviert und der Privatsphäre-Modus ausgeschaltet ist: Eine Kamera im Privatsphäre-Modus meldet gar nichts.
+
+**Die Erkennungsszene startet nie für eine Person** – die Kamera meldet nur **Bewegung**: Aktivieren Sie die intelligente Erkennung (Person, Fahrzeug, Haustier) in der Tapo-App, sofern das Modell sie hat. Prüfen Sie auch, ob die Kamera zu Gladys hinzugefügt ist und das Feld **Kamera** des Auslösers auf sie zeigt.
+
+**Die Szene startet nicht bei jeder Bewegung** – das ist gewollt: Jede Kamera startet sie höchstens einmal pro Minute und Art, und die einfache Bewegung, die eine erkannte Person, ein Fahrzeug oder ein Haustier begleitet, startet nichts weiter.
 
 **Kameras ohne RTSP-Stream** – Akkumodelle und Türklingeln (C610, C425, D230…) bieten weder RTSP noch ONVIF an. Das ist kein Hindernis: Die Integration weicht automatisch auf das proprietäre Protokoll von TP-Link aus, das die Tapo-App verwendet, und nimmt ihre Bilder ohne Kamerakonto auf. Der einzige Unterschied: kein Live-Video für diese Kameras, nur regelmäßig aktualisierte Bilder.
 

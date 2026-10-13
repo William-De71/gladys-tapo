@@ -28,7 +28,7 @@
 # (and the `if` below skips it if it ever did).
 #
 # Protected main branch: moving main to the release commit is refused unless
-# GitHub Actions may bypass the rule (see the README, "Release process").
+# GitHub Actions may bypass the rule (see the README, "Release").
 # -----------------------------------------------------------------------------
 name: Release
 

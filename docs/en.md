@@ -2,6 +2,8 @@
 
 This integration adds your **TP-Link Tapo** devices to Gladys: cameras and doorbells (image on the dashboard, doorbell presses and motion as scene triggers, battery level), but also plugs, power strips, bulbs, switches and the sensors of the H100 hub — see [Plugs, bulbs, switches and sensors](#plugs-bulbs-switches-and-sensors).
 
+![Supported Tapo devices and what Gladys gets from each](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/devices.svg)
+
 ## How it works
 
 Two channels, each doing what it is good at:
@@ -9,6 +11,8 @@ Two channels, each doing what it is good at:
 - **The TP-Link cloud** is used to find the list of your cameras. It is the same account as in the Tapo app. It does **not**, however, report the local address of the cameras.
 - **A scan of your network** then locates each camera, exactly like the Tapo app does on startup. In most setups this saves you from typing any IP address (see [Your cameras' IP address](#your-cameras-ip-address) when it does not).
 - **Your local network** delivers everything else: images, doorbell, motion, battery. None of it travels through the cloud: Gladys talks to the camera directly, at your home.
+
+![The TP-Link cloud lists the devices, a network scan locates them, images, events and commands stay on your local network](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/overview.svg)
 
 To capture an image, the integration automatically picks one of two modes, depending on what the camera accepts:
 
@@ -19,7 +23,11 @@ To capture an image, the integration automatically picks one of two modes, depen
 
 The second mode is TP-Link's internal protocol, the one the mobile app uses. It makes it possible to get an image out of the models — often battery-powered — that offer no standard stream.
 
+![The capture mode follows the ports the camera answers on: RTSP with a camera account, the Tapo protocol otherwise](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/capture-modes.svg)
+
 ## Setup
+
+The integration requires **Gladys 5.1.0** or later, because of its scene trigger. An older Gladys does not receive its updates and stays on version 2.0.0 until Gladys itself is updated.
 
 ### 1. Enter your Tapo account
 
@@ -76,6 +84,8 @@ Gladys checks right away that something answers at that address, captures an ima
 
 To go back to automatic detection, run the action again with an **empty** address.
 
+![Where a device address comes from, first match wins: the address you entered, the network scan, the Tapo cloud, the last known address](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/ip-resolution.svg)
+
 > **Tip** — reserve each camera's address in your router ("DHCP reservation" or "static lease"). Otherwise the router may hand it another one after an outage, and a typed address would become wrong.
 
 ### What about the cloud, without an IP address?
@@ -112,6 +122,8 @@ A camera that went below the first threshold only resumes at **80%**, deliberate
 
 The battery level and the events keep being read in every case: they cost almost nothing, and they are what tells when the camera has recharged.
 
+![Battery levels and what each one allows: everything above 60 %, on demand only between 40 % and 60 %, nothing below 40 %, back to normal at 80 %](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/battery.svg)
+
 A battery camera that **stops answering** — deep sleep, refused session, network down — is also brought back to on-demand: its last known level can no longer be trusted, and a silent camera is more likely to be empty than fine.
 
 ### A capture interval of their own
@@ -129,13 +141,15 @@ This is the single most effective setting: what costs the battery is **waking th
 
 Each camera becomes one device in Gladys:
 
-- **Image** — the picture shown by the camera widget, refreshed on demand.
+- **Image** — the picture shown by the camera widget, refreshed on demand. This feature carries the name of the camera.
 - **Doorbell** — a press on the button, usable as a scene trigger.
 - **Motion** — motion detection, also usable as a trigger.
 - **Enabled** — private mode: see [Private mode](#private-mode).
 - **Capture** — a button to ask for an image right away (battery models, refreshed less often).
 - **Move** and **Preset** — on motorized cameras: see [PTZ](#pointing-a-motorized-camera-ptz).
 - **Battery** — the remaining level, as a percentage (battery models).
+
+The integration names these features in English (for example `Garage - Motion`), whatever the language of Gladys; you can rename each one. To start a scene on what a camera sees — a person, a vehicle, a pet — use the trigger described in [Scenes](#scenes).
 
 When someone rings, the integration immediately captures an image and pushes it to Gladys: the widget already shows the visitor by the time you open the notification.
 
@@ -148,6 +162,8 @@ Two possible paths, chosen automatically per camera:
 | **ONVIF**   | The camera tells Gladys the moment it detects something | near instant       |
 | **Polling** | Gladys regularly asks the camera what it detected       | up to one interval |
 
+![Camera events: ONVIF pushes them at once when the camera account is filled in, otherwise the integration reads the detection list at each check](https://raw.githubusercontent.com/William-De71/gladys-tapo/main/docs/assets/events.svg)
+
 ONVIF is clearly preferable for triggering a scene: a motion arrives within a second instead of waiting for the next check. All it needs is the **camera account** to be filled in — those are the credentials ONVIF uses, not your Tapo account.
 
 It is also the only path that reports the **end** of a motion: the sensor goes back down when the camera says so, rather than after a fixed delay.
@@ -158,7 +174,7 @@ There is nothing to configure: if the camera account is filled in and the camera
 
 ## Private mode
 
-Every camera gets an **Enabled** control — Gladys' standard private mode for cameras (Gladys 5.0 or later). Turn it off and Gladys stops capturing, displaying and storing that camera's image, everywhere: dashboard, chat, scenes. It is usable in a scene — "when we get home, turn the living room camera off".
+Every camera gets an **Enabled** control — Gladys' standard private mode for cameras. Turn it off and Gladys stops capturing, displaying and storing that camera's image, everywhere: dashboard, chat, scenes. It is usable in a scene — "when we get home, turn the living room camera off".
 
 On Tapo cameras that have a **privacy mode** (the lens is physically covered), the control drives it as well: turning the camera off covers the lens, turning it back on uncovers it. That goes through the same local channel as the battery level: no camera account needed, and battery models get it too. It works **both ways** — a privacy mode toggled from the Tapo app shows up in Gladys at the next check, within the minute.
 
@@ -179,6 +195,35 @@ Like the events, this goes through ONVIF and therefore needs the **camera accoun
 Pressing an arrow moves the camera **one step**, not continuously. This is deliberate: a command sent from a scene, or a press whose release is lost, must stay a small movement rather than several seconds of rotation. Each step therefore ends on its own: even if Gladys loses contact with the camera right after, no movement is left running.
 
 One note on speed: Tapo firmwares largely ignore the requested speed and derive the pace from the distance to travel. A step may therefore feel slow — that is the camera's behaviour, not a missing setting.
+
+## Scenes
+
+A camera or a doorbell can start a scene with the **Tapo camera detection** trigger. It tells _what_ the camera saw, and one scene can watch several cameras. The **Motion** and **Doorbell** features of each camera remain usable with the standard **Device state change** trigger.
+
+### The Tapo camera detection trigger
+
+| Field        | What to choose                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------- |
+| **Camera**   | the camera or doorbell to watch; leave it empty for every camera                                  |
+| **Detected** | **Person**, **Vehicle**, **Pet**, **Motion** or **Doorbell press**; leave it empty for every kind |
+
+The scene receives three variables, which you can insert in a message: **Camera identifier**, **Camera name** and **Detected** (`person`, `vehicle`, `pet`, `motion` or `doorbell`).
+
+- **Person**, **Vehicle** and **Pet** need a camera with smart detection, enabled in the Tapo app. The camera then says what it saw; without it, every detection arrives as **Motion**. The integration never guesses from the image.
+- Each camera and each kind starts the scene **at most once a minute**: someone walking around the garden for three minutes starts it once a minute at most, not at every notification of the camera.
+- When a person, a vehicle or a pet is recognized, the plain motion that comes with it starts nothing more: a scene on **Motion** only runs for what the camera did not identify. Leave **Detected** empty to react once to anything.
+- A camera using ONVIF (camera account filled in) reports within a second. Otherwise the detection arrives at the next **Event check interval** and, for a battery camera, at the next **Battery camera check interval** (5 minutes by default). Doorbells are always checked at the event interval.
+- Only the cameras added to Gladys start the trigger.
+
+### Examples
+
+**Light the garden when someone is there at night.** Trigger **Tapo camera detection**: camera "Garden", detected **Person**. Condition **Time condition**: after 22:00 and before 06:00. Actions **Turn On the Lights** (the garden lights), **Wait** 5 minutes, then **Turn Off the Lights**. The neighbour's cat crossing the lawn turns nothing on.
+
+**Get the doorbell picture on your phone.** Trigger **Tapo camera detection**: detected **Doorbell press**, camera left empty. Action **Send a camera image** with the doorbell. The integration captures an image the moment the button is pressed, so the picture shows who rang. With several doorbells, add **Send Message** "Someone rang at Camera name", inserting the variable **Camera name**.
+
+**Ignore the pets.** Build the scene on **Person** (and another one on **Vehicle** if needed) rather than leaving **Detected** empty: a dog or a cat wandering in front of the camera then starts nothing.
+
+**A car in the driveway.** Trigger **Tapo camera detection**: camera "Driveway", detected **Vehicle**. Action **Send Message** "A vehicle has just arrived".
 
 ## Plugs, bulbs, switches and sensors
 
@@ -243,6 +288,10 @@ The **Refresh the images** action forces a new capture of every camera, handy to
 **Motion takes a while to come through** — the camera is most likely on the polling path. Check that its **camera account** is filled in: that is what lets ONVIF work, and therefore what makes motion instant. Battery models do not offer ONVIF at all.
 
 **No motion detected on an ONVIF camera** — in the Tapo app, check that motion detection is enabled and privacy mode is off: a camera in privacy mode reports nothing at all.
+
+**The detection scene never starts for a person** — the camera reports **Motion** only: enable smart detection (person, vehicle, pet) in the Tapo app, if the model has it. Check also that the camera is added to Gladys and that the **Camera** field of the trigger points to it.
+
+**The scene does not start at every movement** — that is deliberate: each camera starts it at most once a minute per kind, and the plain motion that comes with a recognized person, vehicle or pet starts nothing more.
 
 **Cameras without an RTSP stream** — battery models and doorbells (C610, C425, D230…) expose neither RTSP nor ONVIF. That is not a blocker: the integration automatically falls back to the TP-Link proprietary protocol, the one the Tapo app uses, and captures their images without any camera account. The only difference: no live video for those cameras, just regularly refreshed images.
 
