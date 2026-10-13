@@ -1,0 +1,66 @@
+# -----------------------------------------------------------------------------
+# Publish the GitHub Release of every `vX.Y.Z` tag that has none yet, with the
+# version's section of CHANGELOG.md as notes. The Gladys Supervision page links
+# the installed version to the repository's releases.
+#
+# Triggers: called by the Release workflow once the image exists; a tag pushed
+# by hand; a manual run (back-fill). Idempotent, oldest first.
+# -----------------------------------------------------------------------------
+name: GitHub releases
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  releases:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the Releases
+    concurrency:
+      group: github-releases
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # every tag, to read its CHANGELOG.md
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Create the missing Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          existing="$(gh release list --limit 1000 --json tagName --jq '.[].tagName')"
+          tags="$(git tag --list --sort=v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+          latest="$(tail -n1 <<<"$tags")"
+          for tag in $tags; do
+            if grep -qxF "$tag" <<<"$existing"; then
+              continue
+            fi
+            notes="${RUNNER_TEMP}/notes-${tag}.md"
+            : >"$notes"
+            if git cat-file -e "${tag}:CHANGELOG.md" 2>/dev/null; then
+              git show "${tag}:CHANGELOG.md" | node .github/scripts/release.mjs notes "${tag#v}" >"$notes"
+            fi
+            is_latest=false
+            if [ "$tag" = "$latest" ]; then is_latest=true; fi
+            if [ -s "$notes" ]; then
+              gh release create "$tag" --verify-tag --title "$tag" --notes-file "$notes" --latest="$is_latest"
+            else
+              gh release create "$tag" --verify-tag --title "$tag" --generate-notes --latest="$is_latest"
+            fi
+            echo "Created the release $tag"
+          done

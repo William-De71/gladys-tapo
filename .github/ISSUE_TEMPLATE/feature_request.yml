@@ -1,0 +1,16 @@
+name: Feature request
+description: Something the integration could do for you.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you would like to do
+      description: The use case first (a scene, a dashboard, a sensor…), then the idea. Name the device model concerned if there is one.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Gladys and integration versions, device model
+      placeholder: 'Gladys 5.1.4, integration 2.0.0, C210'

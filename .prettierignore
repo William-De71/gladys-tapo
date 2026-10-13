@@ -1,7 +1,4 @@
 node_modules/
 package-lock.json
-data/
+/data/
 *.log
-
-# Généré par conventional-changelog (voir changelog.config.mjs)
-CHANGELOG.md

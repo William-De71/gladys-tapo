@@ -1,0 +1,50 @@
+name: Bug report
+description: Something does not work as described in the documentation.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Never paste your TP-Link password nor your camera account: the logs of the integration do not contain them, but check before posting.
+  - type: input
+    id: gladys-version
+    attributes:
+      label: Gladys version
+      description: Settings → System.
+      placeholder: '5.1.4'
+    validations:
+      required: true
+  - type: input
+    id: integration-version
+    attributes:
+      label: Integration version
+      description: The Supervision tab of the integration in Gladys.
+      placeholder: '2.0.0'
+    validations:
+      required: true
+  - type: input
+    id: light-model
+    attributes:
+      label: Device model and firmware
+      description: The model and firmware version shown in the Tapo app (Device info).
+      placeholder: 'C210 2.0, firmware 1.3.11'
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected
+      description: A device missing from the discovery, no image, no live video, a doorbell or a motion that does not reach Gladys, a command with no effect…
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Logs of the integration (its Supervision tab in Gladys), ideally with the SDK debug logs: add the environment variable `DEBUG=gladys-integration-sdk` to the container, reproduce, then copy the lines.
+      render: text

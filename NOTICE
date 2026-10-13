@@ -1,0 +1,13 @@
+gladys-tapo
+Copyright 2026 William-De71 and the gladys-tapo contributors
+
+This product includes software developed by William-De71 and contributors
+(https://github.com/William-De71/gladys-tapo), licensed under the Apache
+License, Version 2.0.
+
+The Docker image ships FFmpeg (https://ffmpeg.org) from the Alpine Linux
+packages, under its own licenses (LGPL/GPL), to capture camera images and
+streams.
+
+TP-Link and Tapo are trademarks of TP-Link Systems Inc. This project is not
+affiliated with, endorsed by or sponsored by TP-Link.

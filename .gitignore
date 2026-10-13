@@ -2,9 +2,11 @@ node_modules/
 npm-debug.log*
 .env
 .env.*
-data/
+# Anchored: `data/` alone would also ignore src/data/.
+/data/
+coverage/
 *.log
 .DS_Store
 
-# Fichier temporaire produit par le workflow Release
-release-notes.md
+# Forum post drafts: pasted by hand on the forum, never committed.
+.github/forum-update*.md
