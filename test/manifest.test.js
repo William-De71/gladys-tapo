@@ -167,7 +167,7 @@ test('the config defaults agree with the ones the code falls back to', async () 
 
 test('every action the manifest declares is handled by the code', async () => {
   // A button that does nothing is worse than no button.
-  const source = readFileSync(new URL('../index.js', import.meta.url), 'utf-8');
+  const source = readFileSync(new URL('../src/app.js', import.meta.url), 'utf-8');
   for (const action of manifest.actions) {
     assert.match(
       source,

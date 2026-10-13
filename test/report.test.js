@@ -114,10 +114,10 @@ test('the report names the address action as the manifest labels it', () => {
   assert.deepEqual(ADDRESS_ACTION_LABEL, action.label);
 });
 
-test('every inline message of index.js carries de and es after fr', () => {
-  // The action results are written inline in index.js: a message added in
+test('every inline message of src/app.js carries de and es after fr', () => {
+  // The action results are written inline in src/app.js: a message added in
   // English and French only would show in English in a German interface.
-  const source = readFileSync(new URL('../index.js', import.meta.url), 'utf8').split('\n');
+  const source = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8').split('\n');
   source.forEach((line, index) => {
     if (/^\s*fr: /.test(line)) {
       assert.match(source[index + 1] || '', /^\s*de: /, `de missing after line ${index + 1}`);
