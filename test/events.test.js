@@ -1192,3 +1192,32 @@ test('a hub motion sensor or button is never taken for a camera', async () => {
     privacy: null,
   });
 });
+
+test('detections reach the scene trigger with what the camera saw', async () => {
+  const { watcher, device } = buildWatcher({});
+  const seen = [];
+  watcher.onDetection = (target, kind) => seen.push([target.external_id, kind]);
+  await watcher.handleOnvifEvent(device, 'ID1', {
+    kind: 'motion',
+    detection: 'person',
+    active: true,
+    at: Date.now(),
+  });
+  await watcher.handleOnvifEvent(device, 'ID1', { kind: 'motion', active: false, at: Date.now() });
+  await watcher.handleOnvifEvent(device, 'ID1', { kind: 'doorbell', active: true, at: Date.now() });
+  assert.deepEqual(seen, [
+    [device.external_id, 'person'],
+    [device.external_id, 'doorbell'],
+  ]);
+  watcher.stop();
+});
+
+test('a doorbell press reaches the scene once its image is published', async () => {
+  const order = [];
+  const { watcher, device } = buildWatcher({});
+  watcher.onDoorbell = async () => order.push('image');
+  watcher.onDetection = (target, kind) => order.push(kind);
+  await watcher.handleOnvifEvent(device, 'ID1', { kind: 'doorbell', active: true, at: Date.now() });
+  assert.deepEqual(order, ['image', 'doorbell']);
+  watcher.stop();
+});

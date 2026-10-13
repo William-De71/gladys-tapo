@@ -398,6 +398,32 @@ export function classifyTopic(topic) {
 }
 
 /**
+ * What a detection topic saw, for the `detection` scene trigger.
+ *
+ * Smart-detection firmwares hang each rule under its own topic
+ * (`PeopleDetect`, `VehicleDetect`, `PetDetect`…); the plain cell motion and
+ * the tamper alarm are a `motion`. Only the motion family is classified here:
+ * the doorbell has its own kind.
+ * @param {string} topic - The `Topic` element content.
+ * @returns {'person'|'vehicle'|'pet'|'motion'} What was detected.
+ * @example
+ * detectionKind('tns1:RuleEngine/PeopleDetector/People'); // 'person'
+ */
+export function detectionKind(topic) {
+  const normalized = String(topic || '').toLowerCase();
+  if (normalized.includes('people') || normalized.includes('person')) {
+    return 'person';
+  }
+  if (normalized.includes('vehicle')) {
+    return 'vehicle';
+  }
+  if (normalized.includes('pet')) {
+    return 'pet';
+  }
+  return 'motion';
+}
+
+/**
  * Tell whether a `GetEventProperties` response declares a doorbell topic.
  *
  * This is how a camera says it HAS a button: the topic set lists everything the
@@ -451,7 +477,8 @@ export function parsePullMessages(xml) {
   const chunks = String(xml || '').split(/<(?:[\w.-]+:)?NotificationMessage\b/i);
 
   chunks.slice(1).forEach((chunk) => {
-    const kind = classifyTopic(readTag(chunk, 'Topic'));
+    const topic = readTag(chunk, 'Topic');
+    const kind = classifyTopic(topic);
     if (!kind) {
       return;
     }
@@ -480,7 +507,12 @@ export function parsePullMessages(xml) {
     const timeMatch = /\bUtcTime="([^"]+)"/i.exec(chunk);
     const parsed = timeMatch ? Date.parse(timeMatch[1]) : NaN;
 
-    events.push({ kind, active, at: Number.isFinite(parsed) ? parsed : Date.now() });
+    events.push({
+      kind,
+      active,
+      at: Number.isFinite(parsed) ? parsed : Date.now(),
+      ...(kind === 'motion' ? { detection: detectionKind(topic) } : {}),
+    });
   });
 
   return events;

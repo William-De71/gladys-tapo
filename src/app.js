@@ -46,12 +46,14 @@ import { buildConnectionReport, connectionStatusFor, isValidAddress } from './re
 import { forgetLastScan } from './tapo/discovery.js';
 import { SmartManager, isSmartDevice } from './smart/manager.js';
 import { FAMILIES } from './smart/model.js';
+import { createSceneEvents } from './sceneEvents.js';
 
 /**
  * Register every handler on the SDK instance. Call it BEFORE `connect()`.
  * @param {object} gladys - The Gladys SDK instance (real or fake).
  * @param {object} [options] - Dependencies the tests replace.
  * @param {object} [options.cloud] - The TP-Link cloud client (a TapoCloud by default).
+ * @param {object} [options.sceneEvents] - Options of createSceneEvents (cooldown, clock).
  * @returns {object} `{ cloud, watcher, smartManager, publishDevices, shutdown }`.
  * @example
  * const app = createApp(new GladysIntegration());
@@ -392,10 +394,14 @@ export function createApp(gladys, options = {}) {
   // --- Event watching: doorbell, motion, battery -------------------------------
   // A doorbell press also pushes a fresh image, so the dashboard widget shows who
   // rang without waiting for the user to open it.
+  const sceneEvents = createSceneEvents(gladys, options.sceneEvents);
   const watcher = new EventWatcher({
     gladys,
     cloud,
     batteryGuard,
+    onDetection: (device, kind) => {
+      sceneEvents.detection(device, kind);
+    },
     onDoorbell: async (device) => {
       const image = await captureDeviceImage(device);
       await gladys.publishCameraImage(device.external_id, image);

@@ -48,6 +48,32 @@ const EVENT_TYPES = {
 };
 
 /**
+ * What a polled detection saw, for the `detection` scene trigger: the
+ * firmwares that label their events say it, the others (`alarm_type` 2) only
+ * say "motion".
+ * @param {object[]} events - The new events of the motion family.
+ * @returns {'person'|'vehicle'|'pet'|'motion'} The most specific kind.
+ * @example
+ * detectionOf([{ eventType: 'person' }]); // 'person'
+ */
+export function detectionOf(events) {
+  const raw = events
+    .map((event) => `${event.eventType || ''} ${event.type || ''} ${event.name || ''}`)
+    .join(' ')
+    .toLowerCase();
+  if (raw.includes('person') || raw.includes('people')) {
+    return 'person';
+  }
+  if (raw.includes('vehicle')) {
+    return 'vehicle';
+  }
+  if (raw.includes('pet')) {
+    return 'pet';
+  }
+  return 'motion';
+}
+
+/**
  * Classify a raw cloud event.
  * @param {object} event - The raw event.
  * @returns {'doorbell'|'motion'|null} The kind of event, or null when unknown.
@@ -137,10 +163,12 @@ export class EventWatcher {
    * @param {(device: object) => Promise<void>} [options.onDoorbell] - Called when
    * a doorbell press is detected, to push a fresh image.
    */
-  constructor({ gladys, cloud, onDoorbell, batteryGuard }) {
+  constructor({ gladys, cloud, onDoorbell, onDetection, batteryGuard }) {
     this.gladys = gladys;
     this.cloud = cloud;
     this.onDoorbell = onDoorbell;
+    /** `(device, kind) => void`: a new detection, for the scene trigger. */
+    this.onDetection = onDetection;
     /** Shared with the capture side, so a low battery pauses it. */
     this.batteryGuard = batteryGuard;
     /** @type {NodeJS.Timeout|null} */
@@ -438,6 +466,8 @@ export class EventWatcher {
           logger.debug(`Doorbell image capture failed: ${e.message}`),
         );
       }
+      // After the capture: a scene sending the camera image shows the visitor.
+      this.detected(device, 'doorbell');
       return;
     }
 
@@ -450,6 +480,7 @@ export class EventWatcher {
     // each notification sent hundreds of identical values and blew through the
     // 300 states/minute the host API allows.
     if (event.active) {
+      this.detected(device, event.detection || 'motion');
       // A pending fall is cancelled: the motion is still going on.
       const falling = this.motionFalls.get(cloudDeviceId);
       if (falling) {
@@ -778,12 +809,35 @@ export class EventWatcher {
           logger.debug(`Doorbell image capture failed: ${e.message}`),
         );
       }
+      this.detected(device, 'doorbell');
     }
 
     if (kinds.has('motion')) {
       logger.debug(`Motion detected on "${device.name}"`);
+      this.detected(
+        device,
+        detectionOf(fresh.filter((event) => classifyEvent(event) === 'motion')),
+      );
       await this.publishMotion(cloudDeviceId, true, (message) => logger.debug(message));
       this.scheduleMotionReset(cloudDeviceId);
+    }
+  }
+
+  /**
+   * Report a detection to the scene trigger, never throwing: the states and
+   * the doorbell image come first.
+   * @param {object} device - The Gladys device.
+   * @param {string} kind - person, vehicle, pet, motion or doorbell.
+   * @returns {void}
+   */
+  detected(device, kind) {
+    if (!this.onDetection) {
+      return;
+    }
+    try {
+      this.onDetection(device, kind);
+    } catch (e) {
+      logger.debug(`Detection event of "${device.name}" failed: ${e.message}`);
     }
   }
 
