@@ -510,6 +510,28 @@ export function createApp(gladys, options = {}) {
     await publishDevices();
   });
 
+  // --- Device created by the user --------------------------------------------
+  // Its states, its privacy mode and its first image right away, instead of at
+  // the next round of each loop: Gladys drops the states of a feature that did
+  // not exist yet. A battery camera is declared to the guard first, so this
+  // capture obeys the same thresholds as any other.
+  gladys.onDeviceCreated(async (device) => {
+    logger.info(`onDeviceCreated -> ${device.external_id}`);
+    if (isSmartDevice(device)) {
+      await smartManager.tick().catch((e) => logger.debug(`First poll failed: ${e.message}`));
+      return;
+    }
+    if (isBatteryDevice(device)) {
+      batteryGuard.trackBatteryCamera(device.external_id);
+    }
+    await watcher
+      .checkDevice(device)
+      .catch((e) => logger.debug(`First check of "${device.name}" failed: ${e.message}`));
+    await refreshImages([device]).catch((e) =>
+      logger.debug(`First image of "${device.name}" failed: ${e.message}`),
+    );
+  });
+
   // --- Image: Gladys needs a fresh frame ---------------------------------------
   gladys.onGetImage(async (device) => {
     logger.debug(`onGetImage <- ${device.external_id}`);

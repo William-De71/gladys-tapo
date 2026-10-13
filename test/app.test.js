@@ -72,3 +72,23 @@ test('every configuration action of the manifest is wired', async (t) => {
     assert.doesNotMatch(String(ack.error), /not implemented/, key);
   }
 });
+
+test('a device created by the user is read right away, not at the next round', async (t) => {
+  const { gladys, app } = await start(t);
+  const calls = [];
+  app.smartManager.tick = async () => calls.push('smart tick');
+  app.watcher.checkDevice = async (device) => calls.push(`check ${device.name}`);
+  await gladys.fake.deviceCreated({
+    name: 'Prise',
+    external_id: 'ext:ext-tapo:plug:PLUG1',
+    features: [],
+    params: [],
+  });
+  await gladys.fake.deviceCreated({
+    name: 'Jardin',
+    external_id: 'ext:ext-tapo:camera:CAM1',
+    features: [],
+    params: [],
+  });
+  assert.deepEqual(calls, ['smart tick', 'check Jardin']);
+});
