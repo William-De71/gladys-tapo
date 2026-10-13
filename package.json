@@ -18,17 +18,17 @@
     "test": "node --test"
   },
   "engines": {
-    "node": ">=22.20"
+    "node": ">=22"
   },
   "dependencies": {
-    "@gladysassistant/integration-sdk": "^0.14.0"
+    "@gladysassistant/integration-sdk": "^0.15.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.7.0",
+    "eslint": "^10.12.0",
     "eslint-config-prettier": "^10.1.8",
-    "globals": "^17.7.0",
-    "prettier": "^3.9.5"
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10"
   },
   "license": "Apache-2.0"
 }
