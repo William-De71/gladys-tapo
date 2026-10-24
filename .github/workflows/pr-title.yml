@@ -15,6 +15,8 @@ permissions: {}
 
 jobs:
   title:
+    # Dependabot writes its own titles (build(deps): ...), never read by users.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -28,6 +30,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
+          # Never the runner's cached Node: it can predate a security release.
+          check-latest: true
 
       - name: Check the title
         env:

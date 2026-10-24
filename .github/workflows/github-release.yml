@@ -36,6 +36,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
+          # Never the runner's cached Node: it can predate a security release.
+          check-latest: true
 
       - name: Create the missing Releases
         env:
