@@ -14,6 +14,11 @@
 
 FROM node:24-alpine
 
+# Node.js 24.22.1 is the October 2026 security release (Brotli decoder RCE,
+# TLS certificate and DNS checks): never build on an older node:24 image.
+RUN node -e "const [a, b, c] = process.versions.node.split('.').map(Number); \
+  if (a * 1e6 + b * 1e3 + c < 24022001) throw new Error(process.version + ' predates Node.js 24.22.1');"
+
 # The version label and the manifest label are added by build.yml.
 LABEL org.opencontainers.image.title="gladys-tapo" \
       org.opencontainers.image.description="TP-Link Tapo cameras, doorbells, plugs, bulbs and hub sensors in Gladys Assistant" \
