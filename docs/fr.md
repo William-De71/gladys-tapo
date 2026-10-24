@@ -249,7 +249,7 @@ Chaque capteur de hub devient un appareil à part, avec l'alerte de pile faible 
 
 Ces appareils ne préviennent pas Gladys d'eux-mêmes : l'intégration les lit régulièrement, selon l'option **Intervalle de lecture des prises, lampes et capteurs** (5 secondes par défaut). Un appui sur un bouton ou l'ouverture d'une porte remonte donc à la lecture suivante. Une lecture par appareil physique suffit : un hub avec dix capteurs ne coûte qu'une requête. Seules les **valeurs qui changent** sont envoyées à Gladys.
 
-Le dialogue se fait **en local**, avec le protocole qu'utilise l'application Tapo (KLAP pour les firmwares récents, l'ancien chiffrement pour les autres — choisi automatiquement). L'adresse IP est trouvée par le scan réseau, comme pour les caméras ; sinon, utilisez l'action **Définir l'adresse IP d'un appareil** (pour un capteur, c'est l'adresse de son **hub** qui compte).
+Le dialogue se fait **en local**, avec le protocole qu'utilise l'application Tapo (KLAP pour les firmwares récents, l'ancien chiffrement pour les autres — choisi automatiquement). L'adresse IP est trouvée par le scan réseau, comme pour les caméras ; sinon, utilisez l'action **Définir l'adresse IP d'un appareil** (pour un capteur, c'est l'adresse de son **hub** qui compte). Une prise, une ampoule ou un hub que le scan n'a jamais atteint n'apparaît pas dans Découverte, donc pas non plus dans la liste de cette action : saisissez alors son adresse dans le champ **Adresses manuelles (avancé)**, sous la forme `nom dans l'application Tapo|ip`, enregistrez et relancez un scan. Le statut de connexion donne la ligne exacte à recopier.
 
 ### L'énergie des prises avec mesure
 

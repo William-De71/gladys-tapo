@@ -18,6 +18,43 @@ export const ADDRESS_ACTION_LABEL = {
   es: 'Definir la dirección IP de un dispositivo',
 };
 
+/** The free-text address field (`camera_ips`), as the UI labels it. */
+export const MANUAL_ADDRESSES_LABEL = {
+  en: 'Manual addresses (advanced)',
+  fr: 'Adresses manuelles (avancé)',
+  de: 'Manuelle Adressen (erweitert)',
+  es: 'Direcciones manuales (avanzado)',
+};
+
+/**
+ * The entry to type in the manual field for a device the address action
+ * cannot list (a plug, bulb or hub never reached, so never added to Gladys).
+ *
+ * Keyed by the cloud name, which the field matches; by the MAC when the name
+ * holds a character the field splits on.
+ * @param {object} physical - The located cloud device.
+ * @returns {string} E.g. `Salon|IP`.
+ * @example
+ * manualEntryFor({ name: 'Salon' }); // 'Salon|IP'
+ */
+export function manualEntryFor(physical) {
+  const name = String(physical.name || '').trim();
+  const key = name && !/[,;|=\n]/.test(name) ? name : physical.mac || name;
+  return `${key}|IP`;
+}
+
+/**
+ * A problem the address action cannot fix: a device without an address that
+ * Gladys does not hold yet, so it is missing from the action's list.
+ * @param {object} problem - `{ physical, reason, listed }` from the manager.
+ * @returns {boolean} True when only the manual field can help.
+ * @example
+ * needsManualField({ reason: 'address', listed: false }); // true
+ */
+function needsManualField(problem) {
+  return problem.reason === 'address' && problem.listed === false;
+}
+
 /**
  * Where an address came from, in words.
  * @param {string|null} source - The `TAPO_IP_SOURCE` param.
@@ -132,8 +169,19 @@ export function reportLine(device) {
  * @example
  * problemLine({ physical, reason: 'unreachable' });
  */
-export function problemLine({ physical, reason }) {
+export function problemLine(problem) {
+  const { physical, reason } = problem;
   const label = physical.model ? `${physical.name} (${physical.model})` : physical.name;
+  if (needsManualField(problem)) {
+    const entry = manualEntryFor(physical);
+    return {
+      ok: false,
+      en: `✖ ${label}: not found on your network → add "${entry}" to "${MANUAL_ADDRESSES_LABEL.en}" above, IP being its address in the Tapo app (device settings > Device info), save, then scan again.`,
+      fr: `✖ ${label} : introuvable sur votre réseau → ajoutez « ${entry} » dans « ${MANUAL_ADDRESSES_LABEL.fr} » ci-dessus, IP étant son adresse dans l'application Tapo (paramètres de l'appareil > Infos sur l'appareil), enregistrez, puis relancez un scan.`,
+      de: `✖ ${label}: nicht in Ihrem Netzwerk gefunden → tragen Sie „${entry}“ oben in „${MANUAL_ADDRESSES_LABEL.de}“ ein, wobei IP seine Adresse aus der Tapo-App ist (Geräteeinstellungen > Geräteinfo), speichern Sie und starten Sie die Suche erneut.`,
+      es: `✖ ${label}: no se encuentra en su red → añada «${entry}» en «${MANUAL_ADDRESSES_LABEL.es}» más arriba, siendo IP su dirección en la aplicación Tapo (ajustes del dispositivo > Información del dispositivo), guarde y vuelva a buscar.`,
+    };
+  }
   if (reason === 'address') {
     return {
       ok: false,
@@ -231,14 +279,56 @@ export function connectionStatusFor(devices, problems = []) {
   const missing = [
     ...devices.filter((device) => !getParam(device, DEVICE_PARAMS.IP)).map((device) => device.name),
     ...problems
-      .filter((problem) => problem.reason === 'address')
+      .filter((problem) => problem.reason === 'address' && !needsManualField(problem))
       .map((problem) => problem.physical.name),
   ];
+  // Not in the action's list: the exact entry to type, or the user is sent to
+  // an action whose list stays empty (issue #6).
+  const unlisted = problems
+    .filter(needsManualField)
+    .map((problem) => manualEntryFor(problem.physical));
   const silent = problems
     .filter((problem) => problem.reason !== 'address')
     .map((problem) => problem.physical.name);
-  if (missing.length === 0 && silent.length === 0) {
+  if (missing.length === 0 && unlisted.length === 0 && silent.length === 0) {
     return { connected: true };
+  }
+  if (unlisted.length > 0) {
+    const entries = unlisted.join(', ');
+    const others = missing.length > 0 ? missing.join(', ') : null;
+    return {
+      connected: true,
+      message: {
+        en: [
+          `Not found on your network: add ${entries} to "${MANUAL_ADDRESSES_LABEL.en}", IP being the address in the Tapo app (device settings > Device info), save, then scan again.`,
+          others &&
+            `Also without an address: ${others}. Run "${ADDRESS_ACTION_LABEL.en}" for each of them.`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        fr: [
+          `Introuvable(s) sur votre réseau : ajoutez ${entries} dans « ${MANUAL_ADDRESSES_LABEL.fr} », IP étant l'adresse dans l'application Tapo (paramètres de l'appareil > Infos sur l'appareil), enregistrez, puis relancez un scan.`,
+          others &&
+            `Également sans adresse : ${others}. Utilisez « ${ADDRESS_ACTION_LABEL.fr} » pour chacun.`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        de: [
+          `Nicht in Ihrem Netzwerk gefunden: Tragen Sie ${entries} in „${MANUAL_ADDRESSES_LABEL.de}“ ein, wobei IP die Adresse aus der Tapo-App ist (Geräteeinstellungen > Geräteinfo), speichern Sie und starten Sie die Suche erneut.`,
+          others &&
+            `Ebenfalls ohne Adresse: ${others}. Verwenden Sie „${ADDRESS_ACTION_LABEL.de}“ für jedes davon.`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        es: [
+          `No se encuentran en su red: añada ${entries} en «${MANUAL_ADDRESSES_LABEL.es}», siendo IP la dirección en la aplicación Tapo (ajustes del dispositivo > Información del dispositivo), guarde y vuelva a buscar.`,
+          others &&
+            `También sin dirección: ${others}. Use «${ADDRESS_ACTION_LABEL.es}» para cada uno.`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      },
+    };
   }
   if (missing.length === 0) {
     return {

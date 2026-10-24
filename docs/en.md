@@ -249,7 +249,7 @@ Each hub sensor becomes a device of its own, with a low-battery alert (and the b
 
 These devices do not notify Gladys on their own: the integration reads them regularly, at the **Plugs, lights and sensors check interval** option (5 seconds by default). A button press or a door opening therefore reaches Gladys at the next read. One read per physical device is enough: a hub with ten sensors costs a single request. Only **values that change** are sent to Gladys.
 
-The exchange is **local**, with the protocol the Tapo app uses (KLAP on recent firmwares, the older encryption on the others — picked automatically). The IP address comes from the network scan, as for the cameras; otherwise use the **Set a device IP address** action (for a sensor, it is its **hub's** address that matters).
+The exchange is **local**, with the protocol the Tapo app uses (KLAP on recent firmwares, the older encryption on the others — picked automatically). The IP address comes from the network scan, as for the cameras; otherwise use the **Set a device IP address** action (for a sensor, it is its **hub's** address that matters). A plug, bulb or hub the scan has never reached does not appear in Discover, so it is missing from that action's list too: type its address in the **Manual addresses (advanced)** field instead, as `name in the Tapo app|ip`, save and scan again. The connection status gives the exact line to copy.
 
 ### Energy of metering plugs
 

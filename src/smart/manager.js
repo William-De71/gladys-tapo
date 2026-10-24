@@ -169,9 +169,13 @@ export class SmartManager {
           return { devices: [], problem: { physical, reason: 'unsupported' } };
         }
         if (!physical.ip) {
+          // `listed`: the address action picks among the devices Gladys
+          // holds, so one never described can only get its address from the
+          // manual field — the report has to say which.
+          const previous = this.previousDevicesOf(physical, knownDevices);
           return {
-            devices: this.previousDevicesOf(physical, knownDevices),
-            problem: { physical, reason: 'address' },
+            devices: previous,
+            problem: { physical, reason: 'address', listed: previous.length > 0 },
           };
         }
         try {

@@ -249,7 +249,7 @@ Jeder Hub-Sensor wird zu einem eigenen Gerät, mit einer Warnung bei schwachem A
 
 Diese Geräte benachrichtigen Gladys nicht von selbst: Die Integration liest sie regelmäßig aus, im Takt der Option **Leseintervall für Steckdosen, Lampen und Sensoren** (standardmäßig 5 Sekunden). Ein Tastendruck oder eine sich öffnende Tür erreicht Gladys daher beim nächsten Auslesen. Ein Auslesen pro physischem Gerät genügt: Ein Hub mit zehn Sensoren kostet eine einzige Anfrage. Nur **Werte, die sich ändern**, werden an Gladys gesendet.
 
-Der Austausch ist **lokal**, mit dem Protokoll, das die Tapo-App verwendet (KLAP bei neueren Firmwares, die ältere Verschlüsselung bei den anderen – automatisch gewählt). Die IP-Adresse stammt wie bei den Kameras aus dem Netzwerkscan; andernfalls verwenden Sie die Aktion **IP-Adresse eines Geräts festlegen** (bei einem Sensor zählt die Adresse seines **Hubs**).
+Der Austausch ist **lokal**, mit dem Protokoll, das die Tapo-App verwendet (KLAP bei neueren Firmwares, die ältere Verschlüsselung bei den anderen – automatisch gewählt). Die IP-Adresse stammt wie bei den Kameras aus dem Netzwerkscan; andernfalls verwenden Sie die Aktion **IP-Adresse eines Geräts festlegen** (bei einem Sensor zählt die Adresse seines **Hubs**). Eine Steckdose, Lampe oder ein Hub, den die Suche nie erreicht hat, erscheint nicht unter „Entdecken“ und damit auch nicht in der Liste dieser Aktion: Tragen Sie seine Adresse dann im Feld **Manuelle Adressen (erweitert)** als `Name in der Tapo-App|IP` ein, speichern Sie und starten Sie die Suche erneut. Der Verbindungsstatus nennt die genaue Zeile zum Kopieren.
 
 ### Energie der Steckdosen mit Messung
 

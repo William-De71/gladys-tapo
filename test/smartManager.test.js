@@ -268,3 +268,33 @@ test('an H200 hub is reported as unsupported, not as a device that is off', asyn
   assert.deepEqual(devices, []);
   assert.equal(problems[0].reason, 'unsupported');
 });
+
+test('a device without an address says whether the address action can list it', async () => {
+  const manager = new SmartManager({ gladys: fakeGladys() });
+  const bulb = {
+    cloudDeviceId: 'BULB1',
+    name: 'Salon',
+    model: 'L530',
+    ip: '',
+    family: FAMILIES.LIGHT,
+  };
+  const previous = {
+    name: 'Salon',
+    external_id: 'ext:ext-dev-tapo:light:BULB1',
+    features: [],
+    params: [{ name: 'TAPO_CLOUD_DEVICE_ID', value: 'BULB1' }],
+  };
+
+  // Never reached: nothing to publish, so it is missing from the action's list.
+  const fresh = await manager.describe([bulb], [], config);
+  assert.deepEqual(fresh.devices, []);
+  assert.deepEqual(
+    { reason: fresh.problems[0].reason, listed: fresh.problems[0].listed },
+    { reason: 'address', listed: false },
+  );
+
+  // Already in Gladys: the action can pick it.
+  const known = await manager.describe([bulb], [previous], config);
+  assert.deepEqual(known.devices, [previous]);
+  assert.equal(known.problems[0].listed, true);
+});

@@ -249,7 +249,7 @@ Cada sensor del hub se convierte en un dispositivo propio, con una alerta de bat
 
 Estos dispositivos no avisan a Gladys por sí mismos: la integración los lee periódicamente, según la opción **Intervalo de lectura de enchufes, luces y sensores** (5 segundos por defecto). Una pulsación de botón o la apertura de una puerta llega, por tanto, a Gladys en la siguiente lectura. Basta con una lectura por dispositivo físico: un hub con diez sensores cuesta una sola petición. Solo se envían a Gladys los **valores que cambian**.
 
-El intercambio es **local**, con el protocolo que utiliza la aplicación Tapo (KLAP en los firmwares recientes, el cifrado antiguo en los demás — elegido automáticamente). La dirección IP procede del escaneo de red, como para las cámaras; si no, utilice la acción **Definir la dirección IP de un dispositivo** (para un sensor, lo que cuenta es la dirección de su **hub**).
+El intercambio es **local**, con el protocolo que utiliza la aplicación Tapo (KLAP en los firmwares recientes, el cifrado antiguo en los demás — elegido automáticamente). La dirección IP procede del escaneo de red, como para las cámaras; si no, utilice la acción **Definir la dirección IP de un dispositivo** (para un sensor, lo que cuenta es la dirección de su **hub**). Un enchufe, una bombilla o un hub que la búsqueda nunca ha alcanzado no aparece en «Descubrir», ni por tanto en la lista de esa acción: introduzca entonces su dirección en el campo **Direcciones manuales (avanzado)**, como `nombre en la aplicación Tapo|ip`, guarde y vuelva a buscar. El estado de conexión indica la línea exacta que copiar.
 
 ### Energía de los enchufes con medición
 

@@ -9,6 +9,8 @@ import {
   ADDRESS_ACTION_LABEL,
   describeAddressSource,
   problemLine,
+  manualEntryFor,
+  MANUAL_ADDRESSES_LABEL,
 } from '../src/report.js';
 import { buildDevice } from '../src/devices.js';
 import { fakeGladys } from './helpers/fakeGladys.js';
@@ -88,9 +90,14 @@ test('every message speaks the four languages of Gladys', () => {
     reportLine(camera({ captureMode: 'stream' })),
     reportLine(camera({ ip: '', ipSource: null, captureMode: null })),
     reportLine(camera({ captureMode: null })),
+    MANUAL_ADDRESSES_LABEL,
     ...['address', 'unsupported', 'credentials', 'unreachable'].map((reason) =>
       problemLine({ physical, reason }),
     ),
+    problemLine({ physical, reason: 'address', listed: false }),
+    connectionStatusFor([], [{ physical, reason: 'address', listed: false }]).message,
+    connectionStatusFor([camera({ ip: '' })], [{ physical, reason: 'address', listed: false }])
+      .message,
     buildConnectionReport([camera({})], [{ physical, reason: 'unreachable' }]),
     connectionStatusFor([]).message,
     connectionStatusFor([camera({ ip: '' })]).message,
@@ -112,6 +119,38 @@ test('the report names the address action as the manifest labels it', () => {
   );
   const action = manifest.actions.find((entry) => entry.key === 'set_device_address');
   assert.deepEqual(ADDRESS_ACTION_LABEL, action.label);
+  const field = manifest.config_schema.find((entry) => entry.key === 'camera_ips');
+  assert.deepEqual(MANUAL_ADDRESSES_LABEL, field.label);
+});
+
+test('a device the address action cannot list is sent to the manual field', () => {
+  // Issue #6: an L530 the scan missed was never published, so the action's
+  // list stayed empty while every message pointed to that action.
+  const physical = { name: 'Ampoule salon', model: 'L530', mac: 'AA-BB-CC-DD-EE-FF' };
+  const problem = { physical, reason: 'address', listed: false };
+
+  const line = problemLine(problem);
+  assert.equal(line.ok, false);
+  assert.match(line.fr, /« Ampoule salon\|IP » dans « Adresses manuelles \(avancé\) »/);
+  assert.doesNotMatch(line.fr, new RegExp(ADDRESS_ACTION_LABEL.fr));
+
+  const status = connectionStatusFor([], [problem]);
+  assert.equal(status.connected, true);
+  assert.match(status.message.fr, /ajoutez Ampoule salon\|IP dans/);
+
+  // With a camera also without an address, both fixes are given.
+  const both = connectionStatusFor([camera({ name: 'Jardin', ip: '' })], [problem]);
+  assert.match(both.message.fr, /Ampoule salon\|IP/);
+  assert.match(both.message.fr, /Également sans adresse : Jardin/);
+
+  // Already in Gladys: the action stays the advice.
+  assert.match(problemLine({ ...problem, listed: true }).fr, new RegExp(ADDRESS_ACTION_LABEL.fr));
+});
+
+test('the manual entry falls back to the MAC when the name cannot be typed', () => {
+  assert.equal(manualEntryFor({ name: 'Salon' }), 'Salon|IP');
+  assert.equal(manualEntryFor({ name: 'Salon, bas', mac: 'AA-BB' }), 'AA-BB|IP');
+  assert.equal(manualEntryFor({ name: 'A=B' }), 'A=B|IP');
 });
 
 test('every inline message of src/app.js carries de and es after fr', () => {
