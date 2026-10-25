@@ -27,7 +27,7 @@ El segundo modo es el protocolo interno de TP-Link, el que utiliza la aplicació
 
 ## Configuración
 
-La integración requiere **Gladys 5.1.0** o posterior, por su activador de escena. Un Gladys más antiguo no recibe sus actualizaciones y se queda en la versión 2.0.0 hasta que se actualice el propio Gladys.
+La integración requiere **Gladys 5.3.0** o posterior, por su activador de escena y las palabras clave del catálogo. Un Gladys más antiguo no recibe sus actualizaciones y se queda en la última versión que aceptaba (2.0.0 en 5.0, 2.1.2 en 5.1 y 5.2) hasta que se actualice el propio Gladys.
 
 ### 1. Introducir su cuenta Tapo
 

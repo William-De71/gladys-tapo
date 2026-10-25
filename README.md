@@ -5,7 +5,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/William-De71/gladys-tapo?sort=semver)](https://github.com/William-De71/gladys-tapo/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/William-De71/gladys-tapo/release.yml?branch=main&label=CI)](https://github.com/William-De71/gladys-tapo/actions/workflows/release.yml)
-[![Gladys](https://img.shields.io/badge/Gladys-%E2%89%A5%205.1.0-2f6fb5)](https://gladysassistant.com)
+[![Gladys](https://img.shields.io/badge/Gladys-%E2%89%A5%205.3.0-2f6fb5)](https://gladysassistant.com)
 
 ![Tapo for Gladys Assistant](cover.jpg)
 
@@ -209,12 +209,12 @@ Capturing is what drains a battery camera, so battery models are throttled: by d
 
 ## Installation
 
-1. In Gladys (**5.1.0 or newer**): **Integrations → Store**, search for **Tapo**, install.
+1. In Gladys (**5.3.0 or newer**): **Integrations → Store**, search for **Tapo**, install.
 2. On its **Configuration** screen, enter your Tapo account (email, password) and region, then click **Test the connection**.
 3. **Discover → Scan**, then add your devices.
 4. For the wired cameras (RTSP), run **Save a camera account** with the camera account created in the Tapo app (camera settings → Advanced settings → Camera account): it unlocks RTSP, the live view, motion over ONVIF and pan/tilt.
 
-Since the scene trigger, the integration requires Gladys 5.1.0: an older Gladys no longer receives its updates and stays on version 2.0.0 until Gladys itself is updated. Coming from 1.x: the camera **privacy switch** is replaced by the **Enabled** control (`camera/enabled`) once the camera is updated from the Discover screen — re-point the scenes that used it, its values are reversed (1 now means "camera active"). The scan cannot see a device on another subnet or VLAN: run **Set a device IP address** with the address shown in the Tapo app (device settings → Device info), and reserve that address in your router. The [user documentation](docs/en.md) details the setup, the addresses, the battery cameras, the private mode, pan/tilt and the scenes.
+The integration requires Gladys 5.3.0 (scene trigger since 5.1.0, catalog keywords of Gladys 5.3): an older Gladys no longer receives its updates and stays on the last version it accepted (2.0.0 on 5.0, 2.1.2 on 5.1 and 5.2) until Gladys itself is updated. Coming from 1.x: the camera **privacy switch** is replaced by the **Enabled** control (`camera/enabled`) once the camera is updated from the Discover screen — re-point the scenes that used it, its values are reversed (1 now means "camera active"). The scan cannot see a device on another subnet or VLAN: run **Set a device IP address** with the address shown in the Tapo app (device settings → Device info), and reserve that address in your router. The [user documentation](docs/en.md) details the setup, the addresses, the battery cameras, the private mode, pan/tilt and the scenes.
 
 ## Development
 

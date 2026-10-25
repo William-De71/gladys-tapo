@@ -5,7 +5,7 @@
 [![Licence : Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 [![Dernière version](https://img.shields.io/github/v/release/William-De71/gladys-tapo?sort=semver)](https://github.com/William-De71/gladys-tapo/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/William-De71/gladys-tapo/release.yml?branch=main&label=CI)](https://github.com/William-De71/gladys-tapo/actions/workflows/release.yml)
-[![Gladys](https://img.shields.io/badge/Gladys-%E2%89%A5%205.1.0-2f6fb5)](https://gladysassistant.com)
+[![Gladys](https://img.shields.io/badge/Gladys-%E2%89%A5%205.3.0-2f6fb5)](https://gladysassistant.com)
 
 ![Tapo pour Gladys Assistant](cover.jpg)
 
@@ -209,12 +209,12 @@ C'est la capture qui vide une caméra sur batterie : les modèles sur batterie s
 
 ## Installation
 
-1. Dans Gladys (**5.1.0 ou plus récent**) : **Intégrations**, cherchez **Tapo** dans le store, installez-la.
+1. Dans Gladys (**5.3.0 ou plus récent**) : **Intégrations**, cherchez **Tapo** dans le store, installez-la.
 2. Dans son écran **Configuration**, saisissez votre compte Tapo (e-mail, mot de passe) et la région, puis cliquez sur **Tester la connexion**.
 3. **Découverte → Scanner**, puis ajoutez vos appareils.
 4. Pour les caméras filaires (RTSP), lancez **Enregistrer le compte d'une caméra** avec le compte caméra créé dans l'application Tapo (paramètres de la caméra → Paramètres avancés → Compte de la caméra) : il débloque RTSP, la vue en direct, le mouvement par ONVIF et l'orientation.
 
-Depuis le déclencheur de scène, l'intégration exige Gladys 5.1.0 : un Gladys plus ancien ne reçoit plus ses mises à jour et reste en version 2.0.0 jusqu'à ce que Gladys lui-même soit mis à jour. En venant de la 1.x : l'**interrupteur de confidentialité** des caméras est remplacé par la commande **Activée** (`camera/enabled`) une fois la caméra mise à jour depuis l'écran Découverte — repointez les scènes qui l'utilisaient, ses valeurs sont inversées (1 veut maintenant dire « caméra active »). Le scan ne voit pas un appareil sur un autre sous-réseau ou VLAN : lancez **Définir l'adresse IP d'un appareil** avec l'adresse affichée dans l'application Tapo (paramètres de l'appareil → Infos sur l'appareil), et réservez cette adresse dans votre box. La [documentation utilisateur](docs/fr.md) détaille l'installation, les adresses, les caméras sur batterie, le mode privé, l'orientation et les scènes.
+L'intégration exige Gladys 5.3.0 (déclencheur de scène depuis la 5.1.0, mots-clés du catalogue de Gladys 5.3) : un Gladys plus ancien ne reçoit plus ses mises à jour et reste sur la dernière version qu'il acceptait (2.0.0 en 5.0, 2.1.2 en 5.1 et 5.2) jusqu'à ce que Gladys lui-même soit mis à jour. En venant de la 1.x : l'**interrupteur de confidentialité** des caméras est remplacé par la commande **Activée** (`camera/enabled`) une fois la caméra mise à jour depuis l'écran Découverte — repointez les scènes qui l'utilisaient, ses valeurs sont inversées (1 veut maintenant dire « caméra active »). Le scan ne voit pas un appareil sur un autre sous-réseau ou VLAN : lancez **Définir l'adresse IP d'un appareil** avec l'adresse affichée dans l'application Tapo (paramètres de l'appareil → Infos sur l'appareil), et réservez cette adresse dans votre box. La [documentation utilisateur](docs/fr.md) détaille l'installation, les adresses, les caméras sur batterie, le mode privé, l'orientation et les scènes.
 
 ## Développement
 

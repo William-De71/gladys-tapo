@@ -27,7 +27,7 @@ The second mode is TP-Link's internal protocol, the one the mobile app uses. It 
 
 ## Setup
 
-The integration requires **Gladys 5.1.0** or later, because of its scene trigger. An older Gladys does not receive its updates and stays on version 2.0.0 until Gladys itself is updated.
+The integration requires **Gladys 5.3.0** or later, because of its scene trigger and its store catalog keywords. An older Gladys does not receive its updates and stays on the last version it accepted (2.0.0 on 5.0, 2.1.2 on 5.1 and 5.2) until Gladys itself is updated.
 
 ### 1. Enter your Tapo account
 
