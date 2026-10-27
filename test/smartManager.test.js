@@ -236,6 +236,22 @@ test('a device that cannot be read keeps the devices Gladys already has', async 
   assert.equal(problems[0].reason, 'unreachable');
 });
 
+test('a device refusing third-party apps is reported as such, not as unreachable', async () => {
+  const gladys = fakeGladys();
+  const manager = new SmartManager({ gladys });
+  const device = await startKlapDevice({ ...ACCOUNT, state: deviceState(), thirdPartyOff: true });
+  try {
+    const { problems } = await manager.describe(
+      [located(device, { family: FAMILIES.LIGHT, model: 'L530E' })],
+      [],
+      config,
+    );
+    assert.equal(problems[0].reason, 'third-party');
+  } finally {
+    await device.close();
+  }
+});
+
 test('an unreachable device is flagged once, not on every round', async () => {
   const gladys = fakeGladys();
   const manager = new SmartManager({ gladys });

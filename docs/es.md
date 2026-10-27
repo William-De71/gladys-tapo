@@ -51,7 +51,7 @@ Las cuentas por cámara tienen prioridad sobre la cuenta por defecto y permanece
 
 El campo **Cuentas por cámara (avanzado)** sigue aceptando una lista escrita (`nombre|usuario|contraseña`, separadas por comas), pero la acción es más sencilla y acepta cualquier contraseña, incluidas las que contienen comas.
 
-En algunos modelos también hay que activar la **Compatibilidad con terceros** (en la aplicación Tapo, en _Yo_ → _Tapo Lab_) para que el flujo RTSP sea accesible.
+En algunos modelos también hay que activar la **Compatibilidad con terceros** (en la aplicación Tapo, en _Yo_ → _Servicios de terceros_, o _Yo_ → _Tapo Lab_ en versiones antiguas de la aplicación) para que el flujo RTSP sea accesible.
 
 ### 3. Lanzar un escaneo
 
@@ -278,6 +278,8 @@ La acción **Actualizar las imágenes** fuerza una nueva captura de todas las c�
 **«Conexión rechazada»** — compruebe el correo electrónico y la contraseña de su cuenta Tapo. La verificación en dos pasos de su cuenta TP-Link impide este inicio de sesión.
 
 **El widget sigue vacío y los registros muestran `TAPO_CAMERA_IP_UNKNOWN`** — Gladys no conoce la dirección de la cámara: el escaneo no la ha encontrado. Ejecute **Probar la conexión** para ver qué cámaras están afectadas y, después, siga [Cuando el escaneo no encuentra una cámara](#cuando-el-escaneo-no-encuentra-una-cámara).
+
+**Un enchufe, una bombilla o un hub «rechaza las aplicaciones de terceros»** — un firmware reciente rechaza el protocolo local de cualquier aplicación que no sea la de Tapo mientras la **Compatibilidad con terceros** no esté activada en la aplicación Tapo (_Yo_ → _Servicios de terceros_). Si ya lo está, desactívela, espere un minuto y vuelva a activarla: el ajuste no siempre llega a un dispositivo actualizado después. Vuelva a buscar a continuación.
 
 **Una cámara tiene dirección pero no responde** — **Probar la conexión** la marca con un ⚠ e indica de dónde procede la dirección. Compruebe que la cámara está encendida, en la misma red que Gladys, y que la **Compatibilidad con terceros** está activada en la aplicación Tapo. Si la dirección ha cambiado (sin reserva DHCP), corríjala con la acción **Definir la dirección IP de un dispositivo**.
 

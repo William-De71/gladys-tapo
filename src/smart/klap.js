@@ -233,9 +233,12 @@ export class KlapTransport {
     });
     if (first.status !== 200) {
       // 404 is how a device that does not speak KLAP answers: the caller tries
-      // the older protocol on that signal.
+      // the older protocol on that signal. 403 is a recent firmware turning
+      // KLAP down before any credential is checked: with "Third-Party
+      // Compatibility" off, it only accepts the Tapo app's newer protocol.
       throw Object.assign(new Error(`TAPO_KLAP_HANDSHAKE1_HTTP_${first.status}`), {
         status: first.status,
+        thirdPartyRefused: first.status === 403,
       });
     }
     if (first.body.length !== 48) {

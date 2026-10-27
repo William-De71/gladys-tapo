@@ -123,11 +123,13 @@ export function deviceState({ info = {}, energy = null, children = [] } = {}) {
  * @param {string} options.password - Its password.
  * @param {1|2} [options.version] - The KLAP generation.
  * @param {object} options.state - From `deviceState`.
+ * @param {boolean} [options.thirdPartyOff] - Answer handshake1 with a 403, like a
+ * recent firmware with "Third-Party Compatibility" off.
  * @returns {Promise<{ port: number, close: Function, stats: object }>} Where it listens.
  * @example
  * const device = await startKlapDevice({ username, password, state });
  */
-export function startKlapDevice({ username, password, version = 2, state }) {
+export function startKlapDevice({ username, password, version = 2, state, thirdPartyOff = false }) {
   const hash = authHash(version, username, password);
   let pending = null;
   let session = null;
@@ -137,6 +139,11 @@ export function startKlapDevice({ username, password, version = 2, state }) {
     const url = new URL(request.url, 'http://localhost');
     if (url.pathname === '/app/handshake1') {
       stats.handshakes += 1;
+      if (thirdPartyOff) {
+        response.writeHead(403);
+        response.end();
+        return;
+      }
       const remoteSeed = crypto.randomBytes(16);
       pending = { localSeed: body, remoteSeed };
       response.writeHead(200, { 'Set-Cookie': 'TP_SESSIONID=FAKE;TIMEOUT=86400' });

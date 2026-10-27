@@ -49,6 +49,22 @@ test('a device bound to another account is refused locally, before any login', a
   }
 });
 
+test('a firmware with Third-Party Compatibility off is told apart from a wrong account', async () => {
+  const state = deviceState({ info: {} });
+  const device = await startKlapDevice({ ...ACCOUNT, state, thirdPartyOff: true });
+  try {
+    const client = new SmartClient({ ip: '127.0.0.1', httpPort: device.port, ...ACCOUNT });
+    await assert.rejects(
+      () => client.request('get_device_info'),
+      (e) => e.thirdPartyRefused === true && !e.authFailed && /HANDSHAKE1_HTTP_403/.test(e.message),
+    );
+    // Not a protocol to fall back from, and nothing a retry would fix by itself.
+    assert.equal(client.encryptType, null);
+  } finally {
+    await device.close();
+  }
+});
+
 test('a device answering with the built-in test account is still reached', async () => {
   // A known firmware quirk: devices intermittently answer with the Tapo app's
   // built-in account instead of the user's.

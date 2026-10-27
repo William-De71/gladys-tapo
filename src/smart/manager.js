@@ -186,7 +186,11 @@ export class SmartManager {
             devices: this.previousDevicesOf(physical, knownDevices),
             problem: {
               physical,
-              reason: e.authFailed ? 'credentials' : 'unreachable',
+              reason: e.authFailed
+                ? 'credentials'
+                : e.thirdPartyRefused
+                  ? 'third-party'
+                  : 'unreachable',
               message: e.message,
             },
           };

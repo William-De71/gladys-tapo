@@ -13,7 +13,7 @@ Integración externa de [Gladys Assistant](https://gladysassistant.com) para los
 
 📖 Documentación de usuario: [English](docs/en.md) — [Français](docs/fr.md) — [Deutsch](docs/de.md) — [Español](docs/es.md)
 
-> **Requisito previo:** en algunos firmwares, la **Compatibilidad con terceros** debe estar activada en la aplicación Tapo (_Yo_ → _Tapo Lab_). Sin ella, una cámara rechaza RTSP y ONVIF, y un enchufe o una bombilla reciente puede rechazar su cuenta Tapo. Es lo primero que hay que comprobar cuando un dispositivo «no responde».
+> **Requisito previo:** en algunos firmwares, la **Compatibilidad con terceros** debe estar activada en la aplicación Tapo (_Yo_ → _Servicios de terceros_, o _Yo_ → _Tapo Lab_ en versiones antiguas de la aplicación). Sin ella, una cámara rechaza RTSP y ONVIF, y un enchufe o una bombilla reciente puede rechazar su cuenta Tapo. Es lo primero que hay que comprobar cuando un dispositivo «no responde».
 
 ## Funciones
 
@@ -303,16 +303,17 @@ Si `main` está protegida (regla de protección de rama o ruleset), el workflow 
 
 ## Solución de problemas
 
-| Síntoma                                        | Qué comprobar                                                                                                                                          |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| ✖ _no encontrado en su red_                    | otra subred o VLAN, o broadcast filtrado: ejecute **Definir la dirección IP de un dispositivo**                                                        |
-| ⚠ _no responde_                                | dispositivo encendido, en la misma red que Gladys, **Compatibilidad con terceros** activada en la aplicación Tapo (_Yo_ → _Tapo Lab_)                  |
-| Imagen de cámara pero sin vista en directo     | la vista en directo necesita RTSP: los modelos con batería y los timbres no lo tienen; para una cámara cableada, guarde su cuenta de cámara            |
-| El movimiento llega tarde                      | sin cuenta de cámara, la cámara se sondea: guarde una para pasar a ONVIF                                                                               |
-| La detección llega siempre como **Movimiento** | la detección inteligente (persona, vehículo, mascota) está desactivada en la aplicación Tapo, o el modelo no la tiene                                  |
-| Una cámara con batería deja de actualizarse    | la protección de la batería la ha pausado — se reanuda al nivel de recarga (80 % por defecto)                                                          |
-| Enchufe, bombilla o hub rechaza la cuenta Tapo | compruebe el correo y la contraseña tal como se escriben en la aplicación Tapo; un firmware reciente puede requerir la **Compatibilidad con terceros** |
-| Inicio de sesión rechazado                     | la verificación en dos pasos de la cuenta TP-Link impide el inicio de sesión de una aplicación de terceros                                             |
+| Síntoma                                        | Qué comprobar                                                                                                                                                                                                  |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✖ _no encontrado en su red_                    | otra subred o VLAN, o broadcast filtrado: ejecute **Definir la dirección IP de un dispositivo**                                                                                                                |
+| ⚠ _no responde_                                | dispositivo encendido, en la misma red que Gladys, **Compatibilidad con terceros** activada en la aplicación Tapo (_Yo_ → _Servicios de terceros_, o _Yo_ → _Tapo Lab_ en versiones antiguas de la aplicación) |
+| Imagen de cámara pero sin vista en directo     | la vista en directo necesita RTSP: los modelos con batería y los timbres no lo tienen; para una cámara cableada, guarde su cuenta de cámara                                                                    |
+| El movimiento llega tarde                      | sin cuenta de cámara, la cámara se sondea: guarde una para pasar a ONVIF                                                                                                                                       |
+| La detección llega siempre como **Movimiento** | la detección inteligente (persona, vehículo, mascota) está desactivada en la aplicación Tapo, o el modelo no la tiene                                                                                          |
+| Una cámara con batería deja de actualizarse    | la protección de la batería la ha pausado — se reanuda al nivel de recarga (80 % por defecto)                                                                                                                  |
+| ✖ _rechaza las aplicaciones de terceros_       | enchufe, bombilla o hub con un firmware reciente: active la **Compatibilidad con terceros** en la aplicación Tapo; si ya lo está, desactívela, espere un minuto y vuelva a activarla                           |
+| Enchufe, bombilla o hub rechaza la cuenta Tapo | compruebe el correo y la contraseña tal como se escriben en la aplicación Tapo; un firmware reciente puede requerir la **Compatibilidad con terceros**                                                         |
+| Inicio de sesión rechazado                     | la verificación en dos pasos de la cuenta TP-Link impide el inicio de sesión de una aplicación de terceros                                                                                                     |
 
 Registros: la pestaña **Supervisión** de la integración; añada `DEBUG=gladys-integration-sdk` al contenedor para ver el detalle del SDK. La documentación de usuario tiene una sección de solución de problemas más completa.
 

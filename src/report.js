@@ -209,6 +209,19 @@ export function problemLine(problem) {
       es: `✖ ${label}: ${physical.ip} rechaza su cuenta Tapo. Compruebe el correo electrónico y la contraseña de arriba, tal como en la aplicación Tapo.`,
     };
   }
+  if (reason === 'third-party') {
+    // A recent firmware refusing the local protocol outright: the device is
+    // there, the account is not even checked. The switch is pushed from the
+    // account and does not always reach a device updated after it was set,
+    // hence the off-and-on advice.
+    return {
+      ok: false,
+      en: `✖ ${label}: ${physical.ip} refuses third-party apps → in the Tapo app, enable "Third-Party Compatibility" (Me > Third-Party Services; Me > Tapo Lab on older app versions). If it is already on, turn it off, wait a minute, turn it on again, then scan again.`,
+      fr: `✖ ${label} : ${physical.ip} refuse les applications tierces → dans l'application Tapo, activez la « Compatibilité tierce » (Moi > Services tiers ; Moi > Tapo Lab sur les anciennes versions de l'application). Si elle l'est déjà, désactivez-la, attendez une minute, réactivez-la, puis relancez un scan.`,
+      de: `✖ ${label}: ${physical.ip} lehnt Drittanbieter-Apps ab → aktivieren Sie in der Tapo-App die „Drittanbieter-Kompatibilität“ (Ich > Drittanbieterdienste; Ich > Tapo Lab bei älteren App-Versionen). Ist sie bereits aktiv, schalten Sie sie aus, warten Sie eine Minute, schalten Sie sie wieder ein und starten Sie die Suche erneut.`,
+      es: `✖ ${label}: ${physical.ip} rechaza las aplicaciones de terceros → en la aplicación Tapo, active la «Compatibilidad con terceros» (Yo > Servicios de terceros; Yo > Tapo Lab en versiones antiguas de la aplicación). Si ya está activada, desactívela, espere un minuto, vuelva a activarla y vuelva a buscar.`,
+    };
+  }
   return {
     ok: false,
     en: `⚠ ${label}: ${physical.ip} does not answer. Is it powered on and on this network? If the address is wrong, fix it with "${ADDRESS_ACTION_LABEL.en}".`,
@@ -288,9 +301,19 @@ export function connectionStatusFor(devices, problems = []) {
     .filter(needsManualField)
     .map((problem) => manualEntryFor(problem.physical));
   const silent = problems
-    .filter((problem) => problem.reason !== 'address')
+    .filter((problem) => problem.reason !== 'address' && problem.reason !== 'third-party')
     .map((problem) => problem.physical.name);
-  if (missing.length === 0 && unlisted.length === 0 && silent.length === 0) {
+  // They do answer: saying "not answering" would send the user after the
+  // network (issue #6).
+  const refused = problems
+    .filter((problem) => problem.reason === 'third-party')
+    .map((problem) => problem.physical.name);
+  if (
+    missing.length === 0 &&
+    unlisted.length === 0 &&
+    silent.length === 0 &&
+    refused.length === 0
+  ) {
     return { connected: true };
   }
   if (unlisted.length > 0) {
@@ -331,13 +354,29 @@ export function connectionStatusFor(devices, problems = []) {
     };
   }
   if (missing.length === 0) {
+    const lines = (refusedLine, silentLine) =>
+      [refused.length > 0 && refusedLine, silent.length > 0 && silentLine]
+        .filter(Boolean)
+        .join('\n');
     return {
       connected: true,
       message: {
-        en: `Not answering: ${silent.join(', ')}. Run "Test the connection" for details.`,
-        fr: `Ne répondent pas : ${silent.join(', ')}. Lancez « Tester la connexion » pour le détail.`,
-        de: `Antworten nicht: ${silent.join(', ')}. Starten Sie „Verbindung testen“ für Details.`,
-        es: `No responden: ${silent.join(', ')}. Ejecute «Probar la conexión» para ver el detalle.`,
+        en: lines(
+          `Refusing third-party apps: ${refused.join(', ')}. Enable "Third-Party Compatibility" in the Tapo app (Me > Third-Party Services), then scan again.`,
+          `Not answering: ${silent.join(', ')}. Run "Test the connection" for details.`,
+        ),
+        fr: lines(
+          `Refusent les applications tierces : ${refused.join(', ')}. Activez la « Compatibilité tierce » dans l'application Tapo (Moi > Services tiers), puis relancez un scan.`,
+          `Ne répondent pas : ${silent.join(', ')}. Lancez « Tester la connexion » pour le détail.`,
+        ),
+        de: lines(
+          `Lehnen Drittanbieter-Apps ab: ${refused.join(', ')}. Aktivieren Sie die „Drittanbieter-Kompatibilität“ in der Tapo-App (Ich > Drittanbieterdienste) und starten Sie die Suche erneut.`,
+          `Antworten nicht: ${silent.join(', ')}. Starten Sie „Verbindung testen“ für Details.`,
+        ),
+        es: lines(
+          `Rechazan las aplicaciones de terceros: ${refused.join(', ')}. Active la «Compatibilidad con terceros» en la aplicación Tapo (Yo > Servicios de terceros) y vuelva a buscar.`,
+          `No responden: ${silent.join(', ')}. Ejecute «Probar la conexión» para ver el detalle.`,
+        ),
       },
     };
   }

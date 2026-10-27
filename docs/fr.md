@@ -51,7 +51,7 @@ Ces comptes par caméra sont prioritaires sur le compte par défaut, et restent 
 
 Le champ **Comptes par caméra (avancé)** permet aussi une saisie à la main (`nom|identifiant|motdepasse`, séparés par des virgules), mais l'action est plus simple et accepte n'importe quel mot de passe, virgules comprises.
 
-Sur certains modèles, il faut également activer **Compatibilité tierce** (dans l'application Tapo, rubrique _Moi_ → _Tapo Lab_) pour que le flux RTSP soit accessible.
+Sur certains modèles, il faut également activer **Compatibilité tierce** (dans l'application Tapo, rubrique _Moi_ → _Services tiers_, ou _Moi_ → _Tapo Lab_ sur les anciennes versions de l'application) pour que le flux RTSP soit accessible.
 
 ### 3. Lancez un scan
 
@@ -278,6 +278,8 @@ L'action **Rafraîchir les images** force une nouvelle capture de toutes vos cam
 **« Connexion refusée »** — vérifiez l'e-mail et le mot de passe de votre compte Tapo. Si vous utilisez la validation en deux étapes sur votre compte TP-Link, elle empêche cette connexion.
 
 **Le widget reste vide, les logs affichent `TAPO_CAMERA_IP_UNKNOWN`** — Gladys ne connaît pas l'adresse de la caméra : le scan ne l'a pas trouvée. Lancez **Tester la connexion** pour voir quelles caméras sont concernées, puis suivez [Quand le scan ne trouve pas une caméra](#quand-le-scan-ne-trouve-pas-une-caméra).
+
+**Une prise, une ampoule ou un hub « refuse les applications tierces »** — un firmware récent refuse le protocole local de toute application autre que l'application Tapo, tant que la **Compatibilité tierce** n'est pas activée dans l'application Tapo (_Moi_ → _Services tiers_). Si elle l'est déjà, désactivez-la, attendez une minute et réactivez-la : le réglage n'atteint pas toujours un appareil mis à jour après coup. Relancez ensuite un scan.
 
 **Une caméra a une adresse mais ne répond pas** — **Tester la connexion** l'indique par un ⚠ et précise d'où vient l'adresse. Vérifiez que la caméra est allumée, sur le même réseau que Gladys, et que la **Compatibilité tierce** est activée dans l'application Tapo. Si l'adresse a changé (pas de réservation DHCP), corrigez-la avec l'action **Définir l'adresse IP d'un appareil**.
 

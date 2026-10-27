@@ -13,7 +13,7 @@ Externe [Gladys Assistant](https://gladysassistant.com)-Integration für **TP-Li
 
 📖 Benutzerdokumentation: [English](docs/en.md) — [Français](docs/fr.md) — [Deutsch](docs/de.md) — [Español](docs/es.md)
 
-> **Voraussetzung:** Bei manchen Firmwares muss die **Drittanbieter-Kompatibilität** in der Tapo-App aktiviert sein (_Ich_ → _Tapo Lab_). Ohne sie verweigert eine Kamera RTSP und ONVIF, und eine neuere Steckdose oder Lampe kann Ihr Tapo-Konto ablehnen. Das ist das Erste, was zu prüfen ist, wenn ein Gerät „nicht antwortet“.
+> **Voraussetzung:** Bei manchen Firmwares muss die **Drittanbieter-Kompatibilität** in der Tapo-App aktiviert sein (_Ich_ → _Drittanbieterdienste_, oder _Ich_ → _Tapo Lab_ bei älteren App-Versionen). Ohne sie verweigert eine Kamera RTSP und ONVIF, und eine neuere Steckdose oder Lampe kann Ihr Tapo-Konto ablehnen. Das ist das Erste, was zu prüfen ist, wenn ein Gerät „nicht antwortet“.
 
 ## Funktionen
 
@@ -303,16 +303,17 @@ Ist `main` geschützt (Branch-Schutzregel oder Ruleset), kann der Workflow den B
 
 ## Fehlerbehebung
 
-| Symptom                                           | Zu prüfen                                                                                                                           |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| ✖ _nicht in Ihrem Netzwerk gefunden_              | anderes Subnetz oder VLAN, oder Broadcast gefiltert: **IP-Adresse eines Geräts festlegen** ausführen                                |
-| ⚠ _antwortet nicht_                               | Gerät eingeschaltet, im selben Netzwerk wie Gladys, **Drittanbieter-Kompatibilität** in der Tapo-App aktiviert (_Ich_ → _Tapo Lab_) |
-| Kamerabild, aber keine Live-Ansicht               | die Live-Ansicht braucht RTSP: Akkumodelle und Türklingeln haben keins; bei einer Kabelkamera ihr Kamerakonto speichern             |
-| Bewegung kommt verspätet                          | ohne Kamerakonto wird die Kamera abgefragt: eines speichern, um ONVIF-Push zu erhalten                                              |
-| Erkennung kommt immer als **Bewegung** an         | die intelligente Erkennung (Person, Fahrzeug, Haustier) ist in der Tapo-App aus, oder das Modell hat sie nicht                      |
-| Akkukamera aktualisiert sich nicht mehr           | der Akkuschutz hat sie pausiert — sie setzt beim Ladestand für die Wiederaufnahme fort (standardmäßig 80 %)                         |
-| Steckdose, Lampe oder Hub lehnt das Tapo-Konto ab | E-Mail und Passwort wie in der Tapo-App eingegeben prüfen; eine neuere Firmware kann die **Drittanbieter-Kompatibilität** verlangen |
-| Anmeldung abgelehnt                               | die Zwei-Faktor-Authentifizierung des TP-Link-Kontos verhindert die Anmeldung einer Drittanbieter-Anwendung                         |
+| Symptom                                           | Zu prüfen                                                                                                                                                                                          |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✖ _nicht in Ihrem Netzwerk gefunden_              | anderes Subnetz oder VLAN, oder Broadcast gefiltert: **IP-Adresse eines Geräts festlegen** ausführen                                                                                               |
+| ⚠ _antwortet nicht_                               | Gerät eingeschaltet, im selben Netzwerk wie Gladys, **Drittanbieter-Kompatibilität** in der Tapo-App aktiviert (_Ich_ → _Drittanbieterdienste_, oder _Ich_ → _Tapo Lab_ bei älteren App-Versionen) |
+| Kamerabild, aber keine Live-Ansicht               | die Live-Ansicht braucht RTSP: Akkumodelle und Türklingeln haben keins; bei einer Kabelkamera ihr Kamerakonto speichern                                                                            |
+| Bewegung kommt verspätet                          | ohne Kamerakonto wird die Kamera abgefragt: eines speichern, um ONVIF-Push zu erhalten                                                                                                             |
+| Erkennung kommt immer als **Bewegung** an         | die intelligente Erkennung (Person, Fahrzeug, Haustier) ist in der Tapo-App aus, oder das Modell hat sie nicht                                                                                     |
+| Akkukamera aktualisiert sich nicht mehr           | der Akkuschutz hat sie pausiert — sie setzt beim Ladestand für die Wiederaufnahme fort (standardmäßig 80 %)                                                                                        |
+| ✖ _lehnt Drittanbieter-Apps ab_                   | Steckdose, Lampe oder Hub mit neuerer Firmware: **Drittanbieter-Kompatibilität** in der Tapo-App aktivieren; bereits aktiv, ausschalten, eine Minute warten, wieder einschalten                    |
+| Steckdose, Lampe oder Hub lehnt das Tapo-Konto ab | E-Mail und Passwort wie in der Tapo-App eingegeben prüfen; eine neuere Firmware kann die **Drittanbieter-Kompatibilität** verlangen                                                                |
+| Anmeldung abgelehnt                               | die Zwei-Faktor-Authentifizierung des TP-Link-Kontos verhindert die Anmeldung einer Drittanbieter-Anwendung                                                                                        |
 
 Protokolle: der Tab **Überwachung** der Integration; fügen Sie dem Container `DEBUG=gladys-integration-sdk` hinzu, um die Details des SDK zu sehen. Die Benutzerdokumentation enthält einen ausführlicheren Abschnitt zur Fehlerbehebung.
 

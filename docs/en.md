@@ -51,7 +51,7 @@ Per-camera accounts take precedence over the default one, and stay attached to t
 
 The **Accounts per camera (advanced)** field still accepts a typed list (`name|username|password`, comma-separated), but the action is simpler and accepts any password, commas included.
 
-On some models you also need to enable **Third-Party Compatibility** (in the Tapo app, under _Me_ → _Tapo Lab_) before the RTSP stream becomes reachable.
+On some models you also need to enable **Third-Party Compatibility** (in the Tapo app, under _Me_ → _Third-Party Services_, or _Me_ → _Tapo Lab_ on older app versions) before the RTSP stream becomes reachable.
 
 ### 3. Run a scan
 
@@ -278,6 +278,8 @@ The **Refresh the images** action forces a new capture of every camera, handy to
 **"Connection refused"** — check the email and password of your Tapo account. Two-step verification on your TP-Link account prevents this login.
 
 **The widget stays empty, the logs show `TAPO_CAMERA_IP_UNKNOWN`** — Gladys does not know the camera's address: the scan did not find it. Run **Test the connection** to see which cameras are affected, then follow [When the scan does not find a camera](#when-the-scan-does-not-find-a-camera).
+
+**A plug, bulb or hub "refuses third-party apps"** — a recent firmware turns down the local protocol of every application but the Tapo app's, until **Third-Party Compatibility** is enabled in the Tapo app (_Me_ → _Third-Party Services_). If it already is, turn it off, wait a minute and turn it on again: the setting does not always reach a device updated after it was set. Then scan again.
 
 **A camera has an address but does not answer** — **Test the connection** flags it with a ⚠ and says where the address came from. Check that the camera is powered on, on the same network as Gladys, and that **Third-Party Compatibility** is enabled in the Tapo app. If the address changed (no DHCP reservation), fix it with the **Set a device IP address** action.
 

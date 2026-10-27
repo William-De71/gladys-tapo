@@ -13,7 +13,7 @@ Intégration externe [Gladys Assistant](https://gladysassistant.com) pour les ap
 
 📖 Documentation utilisateur : [English](docs/en.md) — [Français](docs/fr.md) — [Deutsch](docs/de.md) — [Español](docs/es.md)
 
-> **Prérequis :** sur certains firmwares, la **Compatibilité tierce** doit être activée dans l'application Tapo (_Moi_ → _Tapo Lab_). Sans elle, une caméra refuse RTSP et ONVIF, et une prise ou une ampoule récente peut refuser votre compte Tapo. C'est la première chose à vérifier quand un appareil « ne répond pas ».
+> **Prérequis :** sur certains firmwares, la **Compatibilité tierce** doit être activée dans l'application Tapo (_Moi_ → _Services tiers_, ou _Moi_ → _Tapo Lab_ sur les anciennes versions de l'application). Sans elle, une caméra refuse RTSP et ONVIF, et une prise ou une ampoule récente peut refuser votre compte Tapo. C'est la première chose à vérifier quand un appareil « ne répond pas ».
 
 ## Fonctionnalités
 
@@ -303,16 +303,17 @@ Si `main` est protégée (règle de protection de branche ou ruleset), le workfl
 
 ## Résolution de problèmes
 
-| Symptôme                                      | À vérifier                                                                                                                                      |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| ✖ _introuvable sur votre réseau_              | autre sous-réseau ou VLAN, ou broadcast filtré : lancez **Définir l'adresse IP d'un appareil**                                                  |
-| ⚠ _ne répond pas_                             | appareil allumé, sur le même réseau que Gladys, **Compatibilité tierce** activée dans l'application Tapo (_Moi_ → _Tapo Lab_)                   |
-| Image de caméra mais pas de vue en direct     | la vue en direct demande RTSP : les modèles sur batterie et les sonnettes n'en ont pas ; pour une caméra filaire, enregistrez son compte caméra |
-| Le mouvement arrive en retard                 | sans compte caméra, la caméra est interrogée : enregistrez-en un pour passer à ONVIF                                                            |
-| La détection arrive toujours en **Mouvement** | la détection intelligente (personne, véhicule, animal) est désactivée dans l'application Tapo, ou le modèle ne l'a pas                          |
-| Une caméra sur batterie ne se met plus à jour | la protection de la batterie l'a mise en pause — elle reprend au niveau de recharge (80 % par défaut)                                           |
-| Prise, ampoule ou hub refuse le compte Tapo   | vérifiez l'e-mail et le mot de passe tels que saisis dans l'application Tapo ; un firmware récent peut demander la **Compatibilité tierce**     |
-| Connexion refusée                             | la validation en deux étapes du compte TP-Link empêche la connexion d'une application tierce                                                    |
+| Symptôme                                      | À vérifier                                                                                                                                                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ✖ _introuvable sur votre réseau_              | autre sous-réseau ou VLAN, ou broadcast filtré : lancez **Définir l'adresse IP d'un appareil**                                                                                                         |
+| ⚠ _ne répond pas_                             | appareil allumé, sur le même réseau que Gladys, **Compatibilité tierce** activée dans l'application Tapo (_Moi_ → _Services tiers_, ou _Moi_ → _Tapo Lab_ sur les anciennes versions de l'application) |
+| Image de caméra mais pas de vue en direct     | la vue en direct demande RTSP : les modèles sur batterie et les sonnettes n'en ont pas ; pour une caméra filaire, enregistrez son compte caméra                                                        |
+| Le mouvement arrive en retard                 | sans compte caméra, la caméra est interrogée : enregistrez-en un pour passer à ONVIF                                                                                                                   |
+| La détection arrive toujours en **Mouvement** | la détection intelligente (personne, véhicule, animal) est désactivée dans l'application Tapo, ou le modèle ne l'a pas                                                                                 |
+| Une caméra sur batterie ne se met plus à jour | la protection de la batterie l'a mise en pause — elle reprend au niveau de recharge (80 % par défaut)                                                                                                  |
+| ✖ _refuse les applications tierces_           | prise, ampoule ou hub au firmware récent : activez la **Compatibilité tierce** dans l'application Tapo ; déjà active, désactivez-la, attendez une minute, réactivez-la                                 |
+| Prise, ampoule ou hub refuse le compte Tapo   | vérifiez l'e-mail et le mot de passe tels que saisis dans l'application Tapo ; un firmware récent peut demander la **Compatibilité tierce**                                                            |
+| Connexion refusée                             | la validation en deux étapes du compte TP-Link empêche la connexion d'une application tierce                                                                                                           |
 
 Journaux : l'onglet **Supervision** de l'intégration ; ajoutez `DEBUG=gladys-integration-sdk` au conteneur pour le détail du SDK. La documentation utilisateur a une section de dépannage plus complète.
 

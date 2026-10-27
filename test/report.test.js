@@ -91,7 +91,7 @@ test('every message speaks the four languages of Gladys', () => {
     reportLine(camera({ ip: '', ipSource: null, captureMode: null })),
     reportLine(camera({ captureMode: null })),
     MANUAL_ADDRESSES_LABEL,
-    ...['address', 'unsupported', 'credentials', 'unreachable'].map((reason) =>
+    ...['address', 'unsupported', 'credentials', 'third-party', 'unreachable'].map((reason) =>
       problemLine({ physical, reason }),
     ),
     problemLine({ physical, reason: 'address', listed: false }),
@@ -102,6 +102,7 @@ test('every message speaks the four languages of Gladys', () => {
     connectionStatusFor([]).message,
     connectionStatusFor([camera({ ip: '' })]).message,
     connectionStatusFor([camera({})], [{ physical, reason: 'unreachable' }]).message,
+    connectionStatusFor([camera({})], [{ physical, reason: 'third-party' }]).message,
   ];
   for (const message of messages) {
     for (const language of LANGUAGES) {
@@ -163,4 +164,26 @@ test('every inline message of src/app.js carries de and es after fr', () => {
       assert.match(source[index + 2] || '', /^\s*es: /, `es missing after line ${index + 1}`);
     }
   });
+});
+
+test('a device refusing third-party apps points to the Tapo switch, not to the network', () => {
+  const physical = {
+    name: 'ampoule',
+    model: 'L530EA(EU)',
+    ip: '192.168.1.42',
+    cloudDeviceId: 'ID6',
+  };
+  const line = problemLine({ physical, reason: 'third-party' });
+  assert.equal(line.ok, false);
+  assert.match(line.fr, /Compatibilité tierce/);
+  assert.doesNotMatch(line.fr, /ne répond pas/);
+  const status = connectionStatusFor(
+    [],
+    [
+      { physical, reason: 'third-party' },
+      { physical: { ...physical, name: 'prise' }, reason: 'unreachable' },
+    ],
+  ).message;
+  assert.match(status.fr, /^Refusent les applications tierces : ampoule\./);
+  assert.match(status.fr, /\nNe répondent pas : prise\./);
 });

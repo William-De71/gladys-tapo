@@ -51,7 +51,7 @@ Konten pro Kamera haben Vorrang vor dem Standardkonto und bleiben der Kamera zug
 
 Das Feld **Konten pro Kamera (erweitert)** akzeptiert weiterhin eine eingetippte Liste (`name|benutzername|passwort`, durch Kommas getrennt), die Aktion ist aber einfacher und akzeptiert jedes Passwort, auch mit Kommas.
 
-Bei manchen Modellen müssen Sie außerdem die **Drittanbieter-Kompatibilität** aktivieren (in der Tapo-App unter _Ich_ → _Tapo Lab_), bevor der RTSP-Stream erreichbar ist.
+Bei manchen Modellen müssen Sie außerdem die **Drittanbieter-Kompatibilität** aktivieren (in der Tapo-App unter _Ich_ → _Drittanbieterdienste_, oder _Ich_ → _Tapo Lab_ bei älteren App-Versionen), bevor der RTSP-Stream erreichbar ist.
 
 ### 3. Einen Scan starten
 
@@ -278,6 +278,8 @@ Die Aktion **Bilder aktualisieren** erzwingt eine neue Aufnahme aller Kameras, p
 **„Verbindung abgelehnt“** – prüfen Sie die E-Mail-Adresse und das Passwort Ihres Tapo-Kontos. Die Zwei-Faktor-Authentifizierung Ihres TP-Link-Kontos verhindert diese Anmeldung.
 
 **Das Widget bleibt leer, die Protokolle zeigen `TAPO_CAMERA_IP_UNKNOWN`** – Gladys kennt die Adresse der Kamera nicht: Der Scan hat sie nicht gefunden. Führen Sie **Verbindung testen** aus, um zu sehen, welche Kameras betroffen sind, und folgen Sie dann [Wenn der Scan eine Kamera nicht findet](#wenn-der-scan-eine-kamera-nicht-findet).
+
+**Eine Steckdose, Lampe oder ein Hub „lehnt Drittanbieter-Apps ab“** – eine neuere Firmware verweigert das lokale Protokoll jeder Anwendung außer der Tapo-App, solange die **Drittanbieter-Kompatibilität** in der Tapo-App nicht aktiviert ist (_Ich_ → _Drittanbieterdienste_). Ist sie bereits aktiv, schalten Sie sie aus, warten Sie eine Minute und schalten Sie sie wieder ein: Die Einstellung erreicht ein später aktualisiertes Gerät nicht immer. Starten Sie danach die Suche erneut.
 
 **Eine Kamera hat eine Adresse, antwortet aber nicht** – **Verbindung testen** kennzeichnet sie mit ⚠ und gibt an, woher die Adresse stammt. Prüfen Sie, ob die Kamera eingeschaltet ist, sich im selben Netzwerk wie Gladys befindet und ob die **Drittanbieter-Kompatibilität** in der Tapo-App aktiviert ist. Wenn sich die Adresse geändert hat (keine DHCP-Reservierung), korrigieren Sie sie mit der Aktion **IP-Adresse eines Geräts festlegen**.
 

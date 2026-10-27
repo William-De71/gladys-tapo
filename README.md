@@ -13,7 +13,7 @@ External [Gladys Assistant](https://gladysassistant.com) integration for **TP-Li
 
 📖 User documentation: [English](docs/en.md) — [Français](docs/fr.md) — [Deutsch](docs/de.md) — [Español](docs/es.md)
 
-> **Prerequisite:** on some firmwares, **Third-Party Compatibility** must be enabled in the Tapo app (_Me_ → _Tapo Lab_). Without it, a camera refuses RTSP and ONVIF, and a recent plug or bulb may refuse your Tapo account. It is the first thing to check when a device "does not answer".
+> **Prerequisite:** on some firmwares, **Third-Party Compatibility** must be enabled in the Tapo app (_Me_ → _Third-Party Services_, or _Me_ → _Tapo Lab_ on older app versions). Without it, a camera refuses RTSP and ONVIF, and a recent plug or bulb may refuse your Tapo account. It is the first thing to check when a device "does not answer".
 
 ## Features
 
@@ -303,16 +303,17 @@ If `main` is protected (branch protection rule or ruleset), the workflow can onl
 
 ## Troubleshooting
 
-| Symptom                                    | What to check                                                                                                               |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| ✖ _not found on your network_              | another subnet or VLAN, or broadcast filtered: run **Set a device IP address**                                              |
-| ⚠ _does not answer_                        | device powered on, on the same network as Gladys, **Third-Party Compatibility** enabled in the Tapo app (_Me_ → _Tapo Lab_) |
-| Camera image but no live view              | live view needs RTSP: battery models and doorbells have none; for a wired camera, save its camera account                   |
-| Motion fires late                          | without a camera account the camera is polled: save one to get ONVIF push                                                   |
-| Detection always arrives as **Motion**     | smart detection (person, vehicle, pet) is off in the Tapo app, or the model does not have it                                |
-| Battery camera stops updating              | battery protection paused it — it resumes at the recharge level (80% by default)                                            |
-| Plug, bulb or hub refuses the Tapo account | check the email and password as typed in the Tapo app; a recent firmware may need **Third-Party Compatibility**             |
-| Login refused                              | two-step verification on the TP-Link account prevents the login of a third-party application                                |
+| Symptom                                    | What to check                                                                                                                                                                       |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✖ _not found on your network_              | another subnet or VLAN, or broadcast filtered: run **Set a device IP address**                                                                                                      |
+| ⚠ _does not answer_                        | device powered on, on the same network as Gladys, **Third-Party Compatibility** enabled in the Tapo app (_Me_ → _Third-Party Services_, or _Me_ → _Tapo Lab_ on older app versions) |
+| Camera image but no live view              | live view needs RTSP: battery models and doorbells have none; for a wired camera, save its camera account                                                                           |
+| Motion fires late                          | without a camera account the camera is polled: save one to get ONVIF push                                                                                                           |
+| Detection always arrives as **Motion**     | smart detection (person, vehicle, pet) is off in the Tapo app, or the model does not have it                                                                                        |
+| Battery camera stops updating              | battery protection paused it — it resumes at the recharge level (80% by default)                                                                                                    |
+| ✖ _refuses third-party apps_               | plug, bulb or hub on a recent firmware: enable **Third-Party Compatibility** in the Tapo app; already on, turn it off, wait a minute, turn it on again                              |
+| Plug, bulb or hub refuses the Tapo account | check the email and password as typed in the Tapo app; a recent firmware may need **Third-Party Compatibility**                                                                     |
+| Login refused                              | two-step verification on the TP-Link account prevents the login of a third-party application                                                                                        |
 
 Logs: the **Supervision** tab of the integration; add `DEBUG=gladys-integration-sdk` to the container for the SDK details. The user documentation has a longer troubleshooting section.
 
