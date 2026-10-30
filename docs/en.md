@@ -249,7 +249,7 @@ Each hub sensor becomes a device of its own, with a low-battery alert (and the b
 
 These devices do not notify Gladys on their own: the integration reads them regularly, at the **Plugs, lights and sensors check interval** option (5 seconds by default). A button press or a door opening therefore reaches Gladys at the next read. One read per physical device is enough: a hub with ten sensors costs a single request. Only **values that change** are sent to Gladys.
 
-The exchange is **local**, with the protocol the Tapo app uses (KLAP on recent firmwares, the older encryption on the others — picked automatically). The IP address comes from the network scan, as for the cameras; otherwise use the **Set a device IP address** action (for a sensor, it is its **hub's** address that matters). A plug, bulb or hub the scan has never reached does not appear in Discover, so it is missing from that action's list too: type its address in the **Manual addresses (advanced)** field instead, as `name in the Tapo app|ip`, save and scan again. The connection status gives the exact line to copy.
+The exchange is **local**, with the protocol the Tapo app uses (TPAP or KLAP on recent firmwares, the older encryption on the others — picked automatically). The IP address comes from the network scan, as for the cameras; otherwise use the **Set a device IP address** action (for a sensor, it is its **hub's** address that matters). A plug, bulb or hub the scan has never reached does not appear in Discover, so it is missing from that action's list too: type its address in the **Manual addresses (advanced)** field instead, as `name in the Tapo app|ip`, save and scan again. The connection status gives the exact line to copy.
 
 ### Energy of metering plugs
 
@@ -279,7 +279,7 @@ The **Refresh the images** action forces a new capture of every camera, handy to
 
 **The widget stays empty, the logs show `TAPO_CAMERA_IP_UNKNOWN`** — Gladys does not know the camera's address: the scan did not find it. Run **Test the connection** to see which cameras are affected, then follow [When the scan does not find a camera](#when-the-scan-does-not-find-a-camera).
 
-**A plug, bulb or hub "refuses third-party apps"** — a recent firmware turns down the local protocol of every application but the Tapo app's, until **Third-Party Compatibility** is enabled in the Tapo app (_Me_ → _Third-Party Services_). If it already is, turn it off, wait a minute and turn it on again: the setting does not always reach a device updated after it was set. Then scan again.
+**A plug, bulb or hub "refuses third-party apps"** — the device turns down KLAP and does not offer TPAP either, the protocol of firmware 1.4 and later. In the Tapo app (_Me_ → _Third-Party Services_), turn **Third-Party Compatibility** off, wait a minute and turn it on again: the setting does not always reach a device updated after it was set, and the integration reaches the device in either position. Then scan again.
 
 **A camera has an address but does not answer** — **Test the connection** flags it with a ⚠ and says where the address came from. Check that the camera is powered on, on the same network as Gladys, and that **Third-Party Compatibility** is enabled in the Tapo app. If the address changed (no DHCP reservation), fix it with the **Set a device IP address** action.
 

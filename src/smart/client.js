@@ -1,8 +1,8 @@
 // -----------------------------------------------------------------------------
 // Client of one Tapo plug, bulb, switch or hub ("SMART" protocol).
 //
-// It owns the transport (KLAP or the older securePassthrough, picked from what
-// the device announced, or found by trying), and exposes the protocol's three
+// It owns the transport (TPAP, KLAP or the older securePassthrough, picked from
+// what the device announced, or found by trying), and exposes the protocol's three
 // shapes of call:
 //   - one method                 `{ method, params }`;
 //   - several methods at once    `multipleRequest`, sent in batches;
@@ -19,6 +19,7 @@ import crypto from 'node:crypto';
 import { logger } from '@gladysassistant/integration-sdk';
 import { KlapTransport } from './klap.js';
 import { AesTransport } from './aes.js';
+import { TpapTransport } from './tpap.js';
 import { LOCAL_API_BACKOFF_MS } from '../tapo/constants.js';
 
 /** Methods per `multipleRequest`: firmwares refuse long batches. */
@@ -76,7 +77,7 @@ export class SmartClient {
    * @param {string} options.ip - The device address.
    * @param {string} options.username - The Tapo account email.
    * @param {string} options.password - The Tapo account password.
-   * @param {string|null} [options.encryptType] - 'KLAP' or 'AES', when known.
+   * @param {string|null} [options.encryptType] - 'TPAP', 'KLAP' or 'AES', when known.
    * @param {number|null} [options.loginVersion] - From the discovery reply.
    * @param {number|null} [options.httpPort] - From the discovery reply.
    * @param {number} [options.timeoutMs] - Deadline of each HTTP exchange.
@@ -100,7 +101,7 @@ export class SmartClient {
       timeoutMs,
     };
     this.encryptType = encryptType ? String(encryptType).toUpperCase() : null;
-    /** @type {KlapTransport|AesTransport|null} */
+    /** @type {TpapTransport|KlapTransport|AesTransport|null} */
     this.transport = null;
     this.queue = Promise.resolve();
     this.blockedUntil = 0;
@@ -123,10 +124,11 @@ export class SmartClient {
   /**
    * The transport, built on first use.
    *
-   * KLAP is tried first when nothing was announced: it is what every recent
-   * firmware speaks, and a device that does not answers its handshake with a
-   * 404 — the signal to fall back to securePassthrough.
-   * @returns {KlapTransport|AesTransport} The transport.
+   * KLAP is tried first when nothing was announced: it is what most firmwares
+   * speak, a device that does not answers its handshake with a 404 — the
+   * signal to fall back to securePassthrough — and one in TPAP mode with a
+   * 403, the signal to try TPAP.
+   * @returns {TpapTransport|KlapTransport|AesTransport} The transport.
    * @example
    * client.getTransport();
    */
@@ -135,14 +137,31 @@ export class SmartClient {
       this.transport =
         this.encryptType === 'AES'
           ? new AesTransport(this.options)
-          : new KlapTransport(this.options);
+          : this.encryptType === 'TPAP'
+            ? new TpapTransport(this.options)
+            : new KlapTransport(this.options);
     }
     return this.transport;
   }
 
   /**
-   * Send one raw request through the transport, falling back to the other
-   * protocol once when the device turns KLAP down.
+   * Switch to another protocol and send the request through it.
+   * @param {string} encryptType - 'TPAP', 'KLAP' or 'AES'.
+   * @param {object} request - The JSON request.
+   * @returns {Promise<object>} The answer.
+   * @example
+   * await client.switchTo('TPAP', { method: 'get_device_info' });
+   */
+  switchTo(encryptType, request) {
+    logger.debug(`Tapo ${this.ip}: switching to ${encryptType}`);
+    this.encryptType = encryptType;
+    this.transport = null;
+    return this.getTransport().send(request);
+  }
+
+  /**
+   * Send one raw request through the transport, falling back to another
+   * protocol once when the device turns this one down.
    * @param {object} request - The JSON request.
    * @returns {Promise<object>} The answer.
    * @example
@@ -154,10 +173,28 @@ export class SmartClient {
       return await transport.send(request);
     } catch (e) {
       if (!this.encryptType && transport instanceof KlapTransport && e.status === 404) {
-        logger.debug(`Tapo ${this.ip}: no KLAP, switching to securePassthrough`);
-        this.encryptType = 'AES';
-        this.transport = new AesTransport(this.options);
-        return this.transport.send(request);
+        return this.switchTo('AES', request);
+      }
+      if (transport instanceof KlapTransport && e.thirdPartyRefused) {
+        // A device in TPAP mode, whatever it announced when last scanned (a
+        // firmware update or the Third-Party Compatibility switch changes
+        // it). One that does not announce TPAP either really refuses
+        // third-party apps: the KLAP error says so.
+        const announced = this.encryptType;
+        try {
+          return await this.switchTo('TPAP', request);
+        } catch (tpapError) {
+          if (tpapError.notTpap) {
+            this.encryptType = announced;
+            this.transport = transport;
+            throw e;
+          }
+          throw tpapError;
+        }
+      }
+      if (transport instanceof TpapTransport && e.notTpap) {
+        // Announced TPAP when scanned, no longer in TPAP mode.
+        return this.switchTo('KLAP', request);
       }
       if (e.retryable) {
         // A session the device dropped: one fresh handshake.

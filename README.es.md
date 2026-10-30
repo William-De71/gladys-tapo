@@ -13,7 +13,7 @@ Integración externa de [Gladys Assistant](https://gladysassistant.com) para los
 
 📖 Documentación de usuario: [English](docs/en.md) — [Français](docs/fr.md) — [Deutsch](docs/de.md) — [Español](docs/es.md)
 
-> **Requisito previo:** en algunos firmwares, la **Compatibilidad con terceros** debe estar activada en la aplicación Tapo (_Yo_ → _Servicios de terceros_, o _Yo_ → _Tapo Lab_ en versiones antiguas de la aplicación). Sin ella, una cámara rechaza RTSP y ONVIF, y un enchufe o una bombilla reciente puede rechazar su cuenta Tapo. Es lo primero que hay que comprobar cuando un dispositivo «no responde».
+> **Requisito previo:** en algunos firmwares, la **Compatibilidad con terceros** debe estar activada en la aplicación Tapo (_Yo_ → _Servicios de terceros_, o _Yo_ → _Tapo Lab_ en versiones antiguas de la aplicación). Sin ella, una cámara rechaza RTSP y ONVIF, y algunos enchufes o bombillas rechazan el protocolo local. Es lo primero que hay que comprobar cuando un dispositivo «no responde».
 
 ## Funciones
 
@@ -177,7 +177,7 @@ El manifiesto declara `"transports": ["local", "cloud"]`, pero la nube solo sirv
 
 Los enchufes, bombillas, interruptores y hubs llevan una **insignia de transporte**: **Local** mientras el dispositivo responde a su sondeo, **Inaccesible** si no. Se leen en cada **Intervalo de lectura de enchufes, luces y sensores** — una petición por dispositivo físico, un hub con diez sensores cuesta una sola — y solo los valores que han cambiado se envían a Gladys. Un dispositivo creado en Gladys se lee de inmediato: su estado y, para una cámara, su primera imagen aparecen sin esperar a la siguiente ronda.
 
-Con los enchufes, luces y hubs se hablan dos protocolos locales, elegidos según la respuesta al escaneo o encontrados probando: **KLAP** (dos negociaciones, luego AES-128-CBC con un número de secuencia en el IV y una firma SHA-256; las dos generaciones de hash) y el antiguo **securePassthrough** (negociación RSA, luego `login_device`). Las peticiones a un dispositivo pasan de una en una; varios métodos salen como un único `multipleRequest`; las tomas de una regleta y los sensores de un hub se alcanzan con `control_child`. Los enchufes con medición solo indican la energía del día, puesta a cero a medianoche: se acumula en un índice kWh, la forma que lee el seguimiento de energía de Gladys.
+Con los enchufes, luces y hubs se hablan tres protocolos locales, elegidos según la respuesta al escaneo o encontrados probando: **TPAP** (firmwares 1.4 y posteriores: inicio de sesión SPAKE2+ sobre P-256 según la RFC 9383, luego AES-128-CCM con un número de secuencia; se prueba cuando un dispositivo rechaza KLAP con un 403), **KLAP** (dos negociaciones, luego AES-128-CBC con un número de secuencia en el IV y una firma SHA-256; las dos generaciones de hash) y el antiguo **securePassthrough** (negociación RSA, luego `login_device`). Las peticiones a un dispositivo pasan de una en una; varios métodos salen como un único `multipleRequest`; las tomas de una regleta y los sensores de un hub se alcanzan con `control_child`. Los enchufes con medición solo indican la energía del día, puesta a cero a medianoche: se acumula en un índice kWh, la forma que lee el seguimiento de energía de Gladys.
 
 ## Escenas
 
@@ -251,6 +251,7 @@ src/
       mediaSession.js       protocolo de flujo propietario (puerto 8800)
   smart/                    enchufes, regletas, bombillas, interruptores, sensores de hub
     http.js                 cliente HTTP mínimo (puerto 80) con plazo y cookies
+    tpap.js                 transporte TPAP (inicio de sesión SPAKE2+, sesiones AES-CCM)
     klap.js                 transporte KLAP (negociaciones, cifrado de sesión)
     aes.js                  transporte securePassthrough (negociación RSA, inicio de sesión)
     client.js               elección del transporte, lotes, hijos, espera progresiva
@@ -270,7 +271,7 @@ Los errores encontrados del lado de Gladys al construir esta integración (`sele
 ## Pruebas
 
 ```bash
-npm test               # node --test: cámaras falsas y dispositivos KLAP/AES falsos en localhost
+npm test               # node --test: cámaras falsas y dispositivos TPAP/KLAP/AES falsos en localhost
 npm run lint           # ESLint
 npm run format:check   # Prettier, como lo ejecuta la CI
 npx github:GladysAssistant/integration-store . --skip-image-check
@@ -311,7 +312,7 @@ Si `main` está protegida (regla de protección de rama o ruleset), el workflow 
 | El movimiento llega tarde                      | sin cuenta de cámara, la cámara se sondea: guarde una para pasar a ONVIF                                                                                                                                       |
 | La detección llega siempre como **Movimiento** | la detección inteligente (persona, vehículo, mascota) está desactivada en la aplicación Tapo, o el modelo no la tiene                                                                                          |
 | Una cámara con batería deja de actualizarse    | la protección de la batería la ha pausado — se reanuda al nivel de recarga (80 % por defecto)                                                                                                                  |
-| ✖ _rechaza las aplicaciones de terceros_       | enchufe, bombilla o hub con un firmware reciente: active la **Compatibilidad con terceros** en la aplicación Tapo; si ya lo está, desactívela, espere un minuto y vuelva a activarla                           |
+| ✖ _rechaza las aplicaciones de terceros_       | enchufe, bombilla o hub sin KLAP ni TPAP: en la aplicación Tapo, desactive la **Compatibilidad con terceros**, espere un minuto y vuelva a activarla                                                           |
 | Enchufe, bombilla o hub rechaza la cuenta Tapo | compruebe el correo y la contraseña tal como se escriben en la aplicación Tapo; un firmware reciente puede requerir la **Compatibilidad con terceros**                                                         |
 | Inicio de sesión rechazado                     | la verificación en dos pasos de la cuenta TP-Link impide el inicio de sesión de una aplicación de terceros                                                                                                     |
 
@@ -321,7 +322,7 @@ Registros: la pestaña **Supervisión** de la integración; añada `DEBUG=gladys
 
 Las issues y pull requests son bienvenidas: [informar de un error](https://github.com/William-De71/gladys-tapo/issues/new?template=bug_report.yml) (versiones de Gladys y de la integración, modelo y firmware del dispositivo, registros) o [proponer una función](https://github.com/William-De71/gladys-tapo/issues/new?template=feature_request.yml). Los comentarios y preguntas también son bienvenidos en el [hilo del foro](https://community.gladysassistant.com/t/10531). Problemas de seguridad: consulte [SECURITY.md](SECURITY.md).
 
-El flujo propietario de las cámaras es una adaptación a Node.js de la implementación del flujo multimedia de [pytapo](https://github.com/JurajNyiri/pytapo), el mismo enfoque que usa go2rtc. Los protocolos KLAP y securePassthrough, así como la sonda de descubrimiento, se implementan a partir de la descripción que da de ellos el proyecto [python-kasa](https://github.com/python-kasa/python-kasa); la implementación es independiente. Construida sobre el [SDK de integración de Gladys](https://github.com/GladysAssistant/integration-sdk-js), a partir de la [plantilla oficial](https://github.com/GladysAssistant/integration-template-js).
+El flujo propietario de las cámaras es una adaptación a Node.js de la implementación del flujo multimedia de [pytapo](https://github.com/JurajNyiri/pytapo), el mismo enfoque que usa go2rtc. Los protocolos KLAP y securePassthrough, así como la sonda de descubrimiento, se implementan a partir de la descripción que da de ellos el proyecto [python-kasa](https://github.com/python-kasa/python-kasa); la implementación es independiente. TPAP sigue la descripción que da de él el proyecto [tapo](https://github.com/mihai-dinculescu/tapo) (MIT), también con una implementación independiente. Construida sobre el [SDK de integración de Gladys](https://github.com/GladysAssistant/integration-sdk-js), a partir de la [plantilla oficial](https://github.com/GladysAssistant/integration-template-js).
 
 ## Licencia
 

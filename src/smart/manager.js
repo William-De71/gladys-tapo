@@ -190,7 +190,9 @@ export class SmartManager {
                 ? 'credentials'
                 : e.thirdPartyRefused
                   ? 'third-party'
-                  : 'unreachable',
+                  : e.unsupportedProtocol
+                    ? 'unsupported'
+                    : 'unreachable',
               message: e.message,
             },
           };

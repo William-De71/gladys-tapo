@@ -1,4 +1,4 @@
-// A Tapo plug/bulb/hub on localhost, speaking KLAP or securePassthrough the way
+// A Tapo plug/bulb/hub on localhost, speaking TPAP, KLAP or securePassthrough the way
 // the firmware does, so the client is exercised over real HTTP rather than
 // against mocks of its own functions. The protocol primitives come from the
 // modules under test (cross-checked separately against an independent Python
@@ -8,6 +8,21 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { authHash, handshake1Proof, handshake2Proof, KlapSession } from '../../src/smart/klap.js';
 import { loginParams } from '../../src/smart/aes.js';
+import {
+  GENERATOR,
+  TpapCipher,
+  credentialFor,
+  decodePoint,
+  deriveW0W1,
+  encodePoint,
+  hmac,
+  keySchedule,
+  masks,
+  pointAdd,
+  pointMultiply,
+  pointNegate,
+  randomScalar,
+} from '../../src/smart/tpap.js';
 
 /**
  * Read a request body.
@@ -256,6 +271,162 @@ export function startAesDevice({ username, password, loginVersion = 2, state }) 
     response.end(JSON.stringify({ error_code: 0, result: { response: encrypt(answer) } }));
   });
   return listen(server, stats, () => {});
+}
+
+/**
+ * Start a device in TPAP mode: KLAP is turned down with a 403, like a firmware
+ * 1.4 device, and the login is the verifier side of SPAKE2+.
+ * @param {object} options - The device.
+ * @param {string} options.password - The account password it holds.
+ * @param {object} options.state - From `deviceState`.
+ * @param {object} [options.tpap] - What `discover` announces.
+ * @param {object|null} [options.extraCrypt] - How it stores the password.
+ * @returns {Promise<{ port: number, close: Function, stats: object, dropSession: Function }>}
+ * Where it listens.
+ * @example
+ * const device = await startTpapDevice({ password, state });
+ */
+export function startTpapDevice({
+  password,
+  state,
+  tpap = { tls: 0, dac: 0, noc: 0, pake: [2] },
+  extraCrypt = { type: 'password_shadow', params: { passwd_id: 2 } },
+}) {
+  const stats = { klap: 0, discovers: 0, registers: 0, shares: 0, requests: 0 };
+  const salt = crypto.randomBytes(16);
+  const iterations = 1000;
+  let pending = null;
+  const sessions = new Map();
+  let port = 0;
+  const json = (response, body) => {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify(body));
+  };
+  const server = http.createServer(async (request, response) => {
+    const body = await readBody(request);
+    const url = new URL(request.url, 'http://localhost');
+    if (url.pathname.startsWith('/app')) {
+      stats.klap += 1;
+      response.writeHead(403);
+      response.end();
+      return;
+    }
+    if (url.pathname === '/') {
+      const params = JSON.parse(body.toString('utf8')).params || {};
+      if (params.sub_method === 'discover') {
+        stats.discovers += 1;
+        json(response, {
+          error_code: 0,
+          result: { sub_method: 'discover', tpap_preferred: true, tpap: { ...tpap, port } },
+        });
+        return;
+      }
+      if (params.sub_method === 'pake_register') {
+        stats.registers += 1;
+        const { w0, w1 } = await deriveW0W1(credentialFor(password, extraCrypt), salt, iterations);
+        const y = randomScalar();
+        const share = pointAdd(pointMultiply(GENERATOR, y), pointMultiply(masks().n, w0));
+        const deviceRandom = crypto.randomBytes(32);
+        const userRandom = Buffer.from(params.user_random, 'base64');
+        pending = {
+          w0,
+          y,
+          l: pointMultiply(GENERATOR, w1),
+          share: encodePoint(share),
+          context: crypto
+            .createHash('sha256')
+            .update(Buffer.concat([Buffer.from('PAKE V1'), userRandom, deviceRandom]))
+            .digest(),
+        };
+        json(response, {
+          error_code: 0,
+          result: {
+            sub_method: 'pake_register',
+            ...(extraCrypt ? { extra_crypt: extraCrypt } : {}),
+            encryption: 'aes_128_ccm',
+            cipher_suites: 1,
+            iterations,
+            dev_random: deviceRandom.toString('base64'),
+            dev_salt: salt.toString('base64'),
+            dev_share: pending.share.toString('base64'),
+          },
+        });
+        return;
+      }
+      if (params.sub_method === 'pake_share') {
+        stats.shares += 1;
+        const login = pending;
+        pending = null;
+        const proverShare = Buffer.from(params.user_share, 'base64');
+        const x = decodePoint(proverShare);
+        const unmasked = pointAdd(x, pointNegate(pointMultiply(masks().m, login.w0)));
+        const keys = keySchedule({
+          context: login.context,
+          proverIdentity: Buffer.alloc(0),
+          verifierIdentity: Buffer.alloc(0),
+          proverShare,
+          verifierShare: login.share,
+          z: pointMultiply(unmasked, login.y),
+          v: pointMultiply(login.l, login.y),
+          w0: login.w0,
+        });
+        if (
+          !hmac(keys.proverConfirmKey, login.share).equals(
+            Buffer.from(params.user_confirm, 'base64'),
+          )
+        ) {
+          json(response, { error_code: -2203 });
+          return;
+        }
+        const token = crypto.randomBytes(8).toString('hex');
+        const startSeq = crypto.randomInt(-(2 ** 31), 2 ** 31 - 1);
+        sessions.set(token, { cipher: new TpapCipher(keys.sharedKey, startSeq), next: startSeq });
+        json(response, {
+          error_code: 0,
+          result: {
+            dev_confirm: hmac(keys.verifierConfirmKey, proverShare).toString('base64'),
+            stok: token,
+            start_seq: startSeq,
+            expired: 604800,
+          },
+        });
+        return;
+      }
+    }
+    const match = /^\/stok=([^/]+)\/ds$/.exec(url.pathname);
+    const session = match && sessions.get(match[1]);
+    if (!session) {
+      // What a device answers for a session it no longer knows.
+      json(response, { error_code: -2402 });
+      return;
+    }
+    stats.requests += 1;
+    const seq = body.readInt32BE(0);
+    if (seq !== session.next) {
+      json(response, { error_code: -1 });
+      return;
+    }
+    session.next = (seq + 1) | 0;
+    const plaintext = JSON.parse(session.cipher.decrypt(body, seq).toString('utf8'));
+    const answer = Buffer.from(JSON.stringify(dispatch(state, plaintext)));
+    // The device encrypts under the sequence number of the request.
+    const replier = Object.assign(Object.create(TpapCipher.prototype), session.cipher, {
+      seq,
+    });
+    response.writeHead(200);
+    response.end(replier.encrypt(answer).body);
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      port = server.address().port;
+      resolve({
+        port,
+        stats,
+        dropSession: () => sessions.clear(),
+        close: () => new Promise((done) => server.close(done)),
+      });
+    });
+  });
 }
 
 /**

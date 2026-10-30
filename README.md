@@ -13,7 +13,7 @@ External [Gladys Assistant](https://gladysassistant.com) integration for **TP-Li
 
 📖 User documentation: [English](docs/en.md) — [Français](docs/fr.md) — [Deutsch](docs/de.md) — [Español](docs/es.md)
 
-> **Prerequisite:** on some firmwares, **Third-Party Compatibility** must be enabled in the Tapo app (_Me_ → _Third-Party Services_, or _Me_ → _Tapo Lab_ on older app versions). Without it, a camera refuses RTSP and ONVIF, and a recent plug or bulb may refuse your Tapo account. It is the first thing to check when a device "does not answer".
+> **Prerequisite:** on some firmwares, **Third-Party Compatibility** must be enabled in the Tapo app (_Me_ → _Third-Party Services_, or _Me_ → _Tapo Lab_ on older app versions). Without it, a camera refuses RTSP and ONVIF, and some plugs or bulbs refuse the local protocol. It is the first thing to check when a device "does not answer".
 
 ## Features
 
@@ -177,7 +177,7 @@ The manifest declares `"transports": ["local", "cloud"]`, but the cloud is only 
 
 Plugs, bulbs, switches and hubs carry a **transport badge**: **Local** while the device answers its poll, **Unreachable** while it does not. They are read every **Plugs, lights and sensors check interval** — one request per physical device, a hub with ten sensors costing a single request — and only the values that changed are sent to Gladys. A device created in Gladys is read at once, so its state and, for a camera, its first image show up without waiting for the next round.
 
-Two local protocols are spoken to plugs, lights and hubs, picked from the discovery reply or found by trying: **KLAP** (two handshakes, then AES-128-CBC with a sequence number in the IV and a SHA-256 signature; both hashing generations) and the older **securePassthrough** (RSA handshake, then `login_device`). Requests to one device run one at a time; several methods go out as one `multipleRequest`; strip sockets and hub sensors are reached with `control_child`. Metering plugs only report today's energy, reset at midnight: it is accumulated into a cumulative kWh index, the shape the Gladys energy monitoring reads.
+Three local protocols are spoken to plugs, lights and hubs, picked from the discovery reply or found by trying: **TPAP** (firmware 1.4 and later: SPAKE2+ login on P-256 per RFC 9383, then AES-128-CCM with a sequence number; tried when a device turns KLAP down with a 403), **KLAP** (two handshakes, then AES-128-CBC with a sequence number in the IV and a SHA-256 signature; both hashing generations) and the older **securePassthrough** (RSA handshake, then `login_device`). Requests to one device run one at a time; several methods go out as one `multipleRequest`; strip sockets and hub sensors are reached with `control_child`. Metering plugs only report today's energy, reset at midnight: it is accumulated into a cumulative kWh index, the shape the Gladys energy monitoring reads.
 
 ## Scenes
 
@@ -251,6 +251,7 @@ src/
       mediaSession.js       proprietary stream protocol (port 8800)
   smart/                    plugs, power strips, bulbs, switches, hub sensors
     http.js                 minimal HTTP client (port 80) with deadline and cookies
+    tpap.js                 TPAP transport (SPAKE2+ login, AES-CCM sessions)
     klap.js                 KLAP transport (handshakes, session crypto)
     aes.js                  securePassthrough transport (RSA handshake, login)
     client.js               transport choice, batches, children, backoff
@@ -270,7 +271,7 @@ The bugs found on the Gladys side while building this integration (dynamic `sele
 ## Tests
 
 ```bash
-npm test               # node --test: fake cameras and fake KLAP/AES devices on localhost
+npm test               # node --test: fake cameras and fake TPAP/KLAP/AES devices on localhost
 npm run lint           # ESLint
 npm run format:check   # Prettier, as the CI runs it
 npx github:GladysAssistant/integration-store . --skip-image-check
@@ -311,7 +312,7 @@ If `main` is protected (branch protection rule or ruleset), the workflow can onl
 | Motion fires late                          | without a camera account the camera is polled: save one to get ONVIF push                                                                                                           |
 | Detection always arrives as **Motion**     | smart detection (person, vehicle, pet) is off in the Tapo app, or the model does not have it                                                                                        |
 | Battery camera stops updating              | battery protection paused it — it resumes at the recharge level (80% by default)                                                                                                    |
-| ✖ _refuses third-party apps_               | plug, bulb or hub on a recent firmware: enable **Third-Party Compatibility** in the Tapo app; already on, turn it off, wait a minute, turn it on again                              |
+| ✖ _refuses third-party apps_               | plug, bulb or hub offering neither KLAP nor TPAP: in the Tapo app, turn **Third-Party Compatibility** off, wait a minute, turn it on again                                          |
 | Plug, bulb or hub refuses the Tapo account | check the email and password as typed in the Tapo app; a recent firmware may need **Third-Party Compatibility**                                                                     |
 | Login refused                              | two-step verification on the TP-Link account prevents the login of a third-party application                                                                                        |
 
@@ -321,7 +322,7 @@ Logs: the **Supervision** tab of the integration; add `DEBUG=gladys-integration-
 
 Issues and pull requests are welcome: [bug report](https://github.com/William-De71/gladys-tapo/issues/new?template=bug_report.yml) (Gladys and integration versions, device model and firmware, logs) or [feature request](https://github.com/William-De71/gladys-tapo/issues/new?template=feature_request.yml). Feedback and questions also go to the [forum thread](https://community.gladysassistant.com/t/10531). Security problems: see [SECURITY.md](SECURITY.md).
 
-The proprietary camera stream is a Node.js port of [pytapo](https://github.com/JurajNyiri/pytapo)'s media stream implementation, the same approach go2rtc uses. The KLAP and securePassthrough protocols, and the discovery probe, are implemented from the description the [python-kasa](https://github.com/python-kasa/python-kasa) project gives of them; the implementation is independent. Built on the [Gladys integration SDK](https://github.com/GladysAssistant/integration-sdk-js), from the [official template](https://github.com/GladysAssistant/integration-template-js).
+The proprietary camera stream is a Node.js port of [pytapo](https://github.com/JurajNyiri/pytapo)'s media stream implementation, the same approach go2rtc uses. The KLAP and securePassthrough protocols, and the discovery probe, are implemented from the description the [python-kasa](https://github.com/python-kasa/python-kasa) project gives of them; the implementation is independent. TPAP follows the description the [tapo](https://github.com/mihai-dinculescu/tapo) project (MIT) gives of it, also implemented independently. Built on the [Gladys integration SDK](https://github.com/GladysAssistant/integration-sdk-js), from the [official template](https://github.com/GladysAssistant/integration-template-js).
 
 ## License
 

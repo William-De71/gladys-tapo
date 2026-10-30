@@ -13,7 +13,7 @@ Intégration externe [Gladys Assistant](https://gladysassistant.com) pour les ap
 
 📖 Documentation utilisateur : [English](docs/en.md) — [Français](docs/fr.md) — [Deutsch](docs/de.md) — [Español](docs/es.md)
 
-> **Prérequis :** sur certains firmwares, la **Compatibilité tierce** doit être activée dans l'application Tapo (_Moi_ → _Services tiers_, ou _Moi_ → _Tapo Lab_ sur les anciennes versions de l'application). Sans elle, une caméra refuse RTSP et ONVIF, et une prise ou une ampoule récente peut refuser votre compte Tapo. C'est la première chose à vérifier quand un appareil « ne répond pas ».
+> **Prérequis :** sur certains firmwares, la **Compatibilité tierce** doit être activée dans l'application Tapo (_Moi_ → _Services tiers_, ou _Moi_ → _Tapo Lab_ sur les anciennes versions de l'application). Sans elle, une caméra refuse RTSP et ONVIF, et certaines prises ou ampoules refusent le protocole local. C'est la première chose à vérifier quand un appareil « ne répond pas ».
 
 ## Fonctionnalités
 
@@ -177,7 +177,7 @@ Le manifeste déclare `"transports": ["local", "cloud"]`, mais le cloud ne sert 
 
 Les prises, ampoules, interrupteurs et hubs portent un **badge de transport** : **Local** tant que l'appareil répond à son interrogation, **Injoignable** sinon. Ils sont lus à chaque **Intervalle de lecture des prises, lampes et capteurs** — une requête par appareil physique, un hub à dix capteurs ne coûtant qu'une requête — et seules les valeurs qui ont changé sont envoyées à Gladys. Un appareil créé dans Gladys est lu aussitôt : son état et, pour une caméra, sa première image s'affichent sans attendre le tour suivant.
 
-Deux protocoles locaux servent pour les prises, lampes et hubs, choisis d'après la réponse au scan ou trouvés en essayant : **KLAP** (deux poignées de main, puis AES-128-CBC avec un numéro de séquence dans l'IV et une signature SHA-256 ; les deux générations de hachage) et l'ancien **securePassthrough** (poignée de main RSA, puis `login_device`). Les requêtes vers un appareil passent une à une ; plusieurs méthodes partent en un seul `multipleRequest` ; les prises d'une multiprise et les capteurs d'un hub sont joints par `control_child`. Les prises avec mesure ne donnent que l'énergie du jour, remise à zéro à minuit : elle est cumulée en un index kWh, la forme que lit le suivi d'énergie de Gladys.
+Trois protocoles locaux servent pour les prises, lampes et hubs, choisis d'après la réponse au scan ou trouvés en essayant : **TPAP** (firmwares 1.4 et suivants : connexion SPAKE2+ sur P-256 selon la RFC 9383, puis AES-128-CCM avec un numéro de séquence ; essayé quand un appareil refuse KLAP par un 403), **KLAP** (deux poignées de main, puis AES-128-CBC avec un numéro de séquence dans l'IV et une signature SHA-256 ; les deux générations de hachage) et l'ancien **securePassthrough** (poignée de main RSA, puis `login_device`). Les requêtes vers un appareil passent une à une ; plusieurs méthodes partent en un seul `multipleRequest` ; les prises d'une multiprise et les capteurs d'un hub sont joints par `control_child`. Les prises avec mesure ne donnent que l'énergie du jour, remise à zéro à minuit : elle est cumulée en un index kWh, la forme que lit le suivi d'énergie de Gladys.
 
 ## Scènes
 
@@ -251,6 +251,7 @@ src/
       mediaSession.js       protocole de flux propriétaire (port 8800)
   smart/                    prises, multiprises, ampoules, interrupteurs, capteurs de hub
     http.js                 client HTTP minimal (port 80) avec échéance et cookies
+    tpap.js                 transport TPAP (connexion SPAKE2+, sessions AES-CCM)
     klap.js                 transport KLAP (poignées de main, chiffrement de session)
     aes.js                  transport securePassthrough (poignée de main RSA, connexion)
     client.js               choix du transport, lots, enfants, temporisation
@@ -270,7 +271,7 @@ Les bugs trouvés côté Gladys pendant la construction de cette intégration (`
 ## Tests
 
 ```bash
-npm test               # node --test : fausses caméras et faux appareils KLAP/AES sur localhost
+npm test               # node --test : fausses caméras et faux appareils TPAP/KLAP/AES sur localhost
 npm run lint           # ESLint
 npm run format:check   # Prettier, comme le lance la CI
 npx github:GladysAssistant/integration-store . --skip-image-check
@@ -311,7 +312,7 @@ Si `main` est protégée (règle de protection de branche ou ruleset), le workfl
 | Le mouvement arrive en retard                 | sans compte caméra, la caméra est interrogée : enregistrez-en un pour passer à ONVIF                                                                                                                   |
 | La détection arrive toujours en **Mouvement** | la détection intelligente (personne, véhicule, animal) est désactivée dans l'application Tapo, ou le modèle ne l'a pas                                                                                 |
 | Une caméra sur batterie ne se met plus à jour | la protection de la batterie l'a mise en pause — elle reprend au niveau de recharge (80 % par défaut)                                                                                                  |
-| ✖ _refuse les applications tierces_           | prise, ampoule ou hub au firmware récent : activez la **Compatibilité tierce** dans l'application Tapo ; déjà active, désactivez-la, attendez une minute, réactivez-la                                 |
+| ✖ _refuse les applications tierces_           | prise, ampoule ou hub qui ne propose ni KLAP ni TPAP : dans l'application Tapo, désactivez la **Compatibilité tierce**, attendez une minute, réactivez-la                                              |
 | Prise, ampoule ou hub refuse le compte Tapo   | vérifiez l'e-mail et le mot de passe tels que saisis dans l'application Tapo ; un firmware récent peut demander la **Compatibilité tierce**                                                            |
 | Connexion refusée                             | la validation en deux étapes du compte TP-Link empêche la connexion d'une application tierce                                                                                                           |
 
@@ -321,7 +322,7 @@ Journaux : l'onglet **Supervision** de l'intégration ; ajoutez `DEBUG=gladys-in
 
 Les issues et pull requests sont les bienvenues : [signaler un bug](https://github.com/William-De71/gladys-tapo/issues/new?template=bug_report.yml) (versions de Gladys et de l'intégration, modèle et firmware de l'appareil, journaux) ou [proposer une fonctionnalité](https://github.com/William-De71/gladys-tapo/issues/new?template=feature_request.yml). Retours et questions sont aussi les bienvenus sur le [fil du forum](https://community.gladysassistant.com/t/10531). Problèmes de sécurité : voir [SECURITY.md](SECURITY.md).
 
-Le flux propriétaire des caméras est un portage Node.js de l'implémentation du flux média de [pytapo](https://github.com/JurajNyiri/pytapo), la même approche que go2rtc. Les protocoles KLAP et securePassthrough, ainsi que la sonde de découverte, sont implémentés d'après la description qu'en donne le projet [python-kasa](https://github.com/python-kasa/python-kasa) ; l'implémentation est indépendante. Construite sur le [SDK d'intégration Gladys](https://github.com/GladysAssistant/integration-sdk-js), à partir du [modèle officiel](https://github.com/GladysAssistant/integration-template-js).
+Le flux propriétaire des caméras est un portage Node.js de l'implémentation du flux média de [pytapo](https://github.com/JurajNyiri/pytapo), la même approche que go2rtc. Les protocoles KLAP et securePassthrough, ainsi que la sonde de découverte, sont implémentés d'après la description qu'en donne le projet [python-kasa](https://github.com/python-kasa/python-kasa) ; l'implémentation est indépendante. TPAP suit la description qu'en donne le projet [tapo](https://github.com/mihai-dinculescu/tapo) (MIT), implémentée elle aussi de façon indépendante. Construite sur le [SDK d'intégration Gladys](https://github.com/GladysAssistant/integration-sdk-js), à partir du [modèle officiel](https://github.com/GladysAssistant/integration-template-js).
 
 ## Licence
 

@@ -15,7 +15,7 @@ TP-Link cloud only lists the devices; everything else is local: devices are
 located by a TDP probe Gladys broadcasts on UDP 20002 (`udp-active-broadcast`),
 cameras are reached over RTSP 554 / the proprietary protocol 8800 (images,
 through ffmpeg), ONVIF 2020 (events, PTZ) and HTTPS 443 (local API: battery,
-detections, privacy), the SMART devices over HTTP 80 (KLAP or
+detections, privacy), the SMART devices over HTTP 80 (TPAP, KLAP or
 securePassthrough). A camera detection is a scene trigger.
 
 ## Commands
@@ -55,7 +55,7 @@ src/tapo/ptz.js                  ONVIF PTZ steps and presets
 src/tapo/events.js               EventWatcher: doorbell, motion, battery, privacy, ONVIF or polled
 src/tapo/batteryGuard.js         capture and poll throttling of battery cameras
 src/tapo/constants.js            protocol values, timings, device params, feature suffixes
-src/smart/                       plugs, strips, bulbs, switches, hub sensors: http, klap, aes
+src/smart/                       plugs, strips, bulbs, switches, hub sensors: http, tpap, klap, aes
                                  (securePassthrough), client, model (answers -> features), manager
                                  (polling, change-only publishing, transport badges, commands)
 .github/scripts/release.mjs      version, changelog, version files, PR title checks

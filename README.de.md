@@ -13,7 +13,7 @@ Externe [Gladys Assistant](https://gladysassistant.com)-Integration für **TP-Li
 
 📖 Benutzerdokumentation: [English](docs/en.md) — [Français](docs/fr.md) — [Deutsch](docs/de.md) — [Español](docs/es.md)
 
-> **Voraussetzung:** Bei manchen Firmwares muss die **Drittanbieter-Kompatibilität** in der Tapo-App aktiviert sein (_Ich_ → _Drittanbieterdienste_, oder _Ich_ → _Tapo Lab_ bei älteren App-Versionen). Ohne sie verweigert eine Kamera RTSP und ONVIF, und eine neuere Steckdose oder Lampe kann Ihr Tapo-Konto ablehnen. Das ist das Erste, was zu prüfen ist, wenn ein Gerät „nicht antwortet“.
+> **Voraussetzung:** Bei manchen Firmwares muss die **Drittanbieter-Kompatibilität** in der Tapo-App aktiviert sein (_Ich_ → _Drittanbieterdienste_, oder _Ich_ → _Tapo Lab_ bei älteren App-Versionen). Ohne sie verweigert eine Kamera RTSP und ONVIF, und manche Steckdosen oder Lampen verweigern das lokale Protokoll. Das ist das Erste, was zu prüfen ist, wenn ein Gerät „nicht antwortet“.
 
 ## Funktionen
 
@@ -177,7 +177,7 @@ Das Manifest deklariert `"transports": ["local", "cloud"]`, doch die Cloud dient
 
 Steckdosen, Lampen, Schalter und Hubs tragen ein **Transport-Abzeichen**: **Lokal**, solange das Gerät auf seine Abfrage antwortet, sonst **Nicht erreichbar**. Sie werden in jedem **Leseintervall für Steckdosen, Lampen und Sensoren** gelesen — eine Anfrage pro physischem Gerät, ein Hub mit zehn Sensoren kostet eine einzige — und nur die geänderten Werte gehen an Gladys. Ein in Gladys erstelltes Gerät wird sofort gelesen: Sein Zustand und, bei einer Kamera, sein erstes Bild erscheinen, ohne auf die nächste Runde zu warten.
 
-Mit Steckdosen, Lampen und Hubs werden zwei lokale Protokolle gesprochen, aus der Scan-Antwort gewählt oder durch Ausprobieren ermittelt: **KLAP** (zwei Handshakes, dann AES-128-CBC mit einer Sequenznummer im IV und einer SHA-256-Signatur; beide Hash-Generationen) und das ältere **securePassthrough** (RSA-Handshake, dann `login_device`). Anfragen an ein Gerät laufen nacheinander; mehrere Methoden gehen als ein `multipleRequest`; Steckplätze einer Leiste und Hub-Sensoren werden per `control_child` erreicht. Steckdosen mit Messung melden nur die Energie des Tages, um Mitternacht zurückgesetzt: Sie wird zu einem kumulierten kWh-Zählerstand aufsummiert, der Form, die die Energieüberwachung von Gladys liest.
+Mit Steckdosen, Lampen und Hubs werden drei lokale Protokolle gesprochen, aus der Scan-Antwort gewählt oder durch Ausprobieren ermittelt: **TPAP** (Firmware ab 1.4: SPAKE2+-Anmeldung auf P-256 nach RFC 9383, dann AES-128-CCM mit einer Sequenznummer; versucht, wenn ein Gerät KLAP mit einem 403 ablehnt), **KLAP** (zwei Handshakes, dann AES-128-CBC mit einer Sequenznummer im IV und einer SHA-256-Signatur; beide Hash-Generationen) und das ältere **securePassthrough** (RSA-Handshake, dann `login_device`). Anfragen an ein Gerät laufen nacheinander; mehrere Methoden gehen als ein `multipleRequest`; Steckplätze einer Leiste und Hub-Sensoren werden per `control_child` erreicht. Steckdosen mit Messung melden nur die Energie des Tages, um Mitternacht zurückgesetzt: Sie wird zu einem kumulierten kWh-Zählerstand aufsummiert, der Form, die die Energieüberwachung von Gladys liest.
 
 ## Szenen
 
@@ -251,6 +251,7 @@ src/
       mediaSession.js       proprietäres Stream-Protokoll (Port 8800)
   smart/                    Steckdosen, Leisten, Lampen, Schalter, Hub-Sensoren
     http.js                 minimaler HTTP-Client (Port 80) mit Frist und Cookies
+    tpap.js                 TPAP-Transport (SPAKE2+-Anmeldung, AES-CCM-Sitzungen)
     klap.js                 KLAP-Transport (Handshakes, Sitzungsverschlüsselung)
     aes.js                  securePassthrough-Transport (RSA-Handshake, Anmeldung)
     client.js               Transportwahl, Stapel, Kindgeräte, Backoff
@@ -270,7 +271,7 @@ Die beim Bau dieser Integration auf Gladys-Seite gefundenen Fehler (dynamisches 
 ## Tests
 
 ```bash
-npm test               # node --test: falsche Kameras und falsche KLAP/AES-Geräte auf localhost
+npm test               # node --test: falsche Kameras und falsche TPAP/KLAP/AES-Geräte auf localhost
 npm run lint           # ESLint
 npm run format:check   # Prettier, wie die CI es ausführt
 npx github:GladysAssistant/integration-store . --skip-image-check
@@ -311,7 +312,7 @@ Ist `main` geschützt (Branch-Schutzregel oder Ruleset), kann der Workflow den B
 | Bewegung kommt verspätet                          | ohne Kamerakonto wird die Kamera abgefragt: eines speichern, um ONVIF-Push zu erhalten                                                                                                             |
 | Erkennung kommt immer als **Bewegung** an         | die intelligente Erkennung (Person, Fahrzeug, Haustier) ist in der Tapo-App aus, oder das Modell hat sie nicht                                                                                     |
 | Akkukamera aktualisiert sich nicht mehr           | der Akkuschutz hat sie pausiert — sie setzt beim Ladestand für die Wiederaufnahme fort (standardmäßig 80 %)                                                                                        |
-| ✖ _lehnt Drittanbieter-Apps ab_                   | Steckdose, Lampe oder Hub mit neuerer Firmware: **Drittanbieter-Kompatibilität** in der Tapo-App aktivieren; bereits aktiv, ausschalten, eine Minute warten, wieder einschalten                    |
+| ✖ _lehnt Drittanbieter-Apps ab_                   | Steckdose, Lampe oder Hub ohne KLAP und ohne TPAP: in der Tapo-App die **Drittanbieter-Kompatibilität** ausschalten, eine Minute warten, wieder einschalten                                        |
 | Steckdose, Lampe oder Hub lehnt das Tapo-Konto ab | E-Mail und Passwort wie in der Tapo-App eingegeben prüfen; eine neuere Firmware kann die **Drittanbieter-Kompatibilität** verlangen                                                                |
 | Anmeldung abgelehnt                               | die Zwei-Faktor-Authentifizierung des TP-Link-Kontos verhindert die Anmeldung einer Drittanbieter-Anwendung                                                                                        |
 
@@ -321,7 +322,7 @@ Protokolle: der Tab **Überwachung** der Integration; fügen Sie dem Container `
 
 Issues und Pull Requests sind willkommen: [Fehlerbericht](https://github.com/William-De71/gladys-tapo/issues/new?template=bug_report.yml) (Versionen von Gladys und der Integration, Modell und Firmware des Geräts, Protokolle) oder [Funktionswunsch](https://github.com/William-De71/gladys-tapo/issues/new?template=feature_request.yml). Rückmeldungen und Fragen gehören auch in den [Forum-Thread](https://community.gladysassistant.com/t/10531). Sicherheitsprobleme: siehe [SECURITY.md](SECURITY.md).
 
-Der proprietäre Kamerastream ist eine Node.js-Portierung der Media-Stream-Implementierung von [pytapo](https://github.com/JurajNyiri/pytapo), derselbe Ansatz wie bei go2rtc. Die Protokolle KLAP und securePassthrough sowie die Erkennungssonde sind nach der Beschreibung umgesetzt, die das Projekt [python-kasa](https://github.com/python-kasa/python-kasa) von ihnen gibt; die Implementierung ist unabhängig. Aufgebaut auf dem [Gladys-Integrations-SDK](https://github.com/GladysAssistant/integration-sdk-js), ausgehend von der [offiziellen Vorlage](https://github.com/GladysAssistant/integration-template-js).
+Der proprietäre Kamerastream ist eine Node.js-Portierung der Media-Stream-Implementierung von [pytapo](https://github.com/JurajNyiri/pytapo), derselbe Ansatz wie bei go2rtc. Die Protokolle KLAP und securePassthrough sowie die Erkennungssonde sind nach der Beschreibung umgesetzt, die das Projekt [python-kasa](https://github.com/python-kasa/python-kasa) von ihnen gibt; die Implementierung ist unabhängig. TPAP folgt der Beschreibung, die das Projekt [tapo](https://github.com/mihai-dinculescu/tapo) (MIT) davon gibt, ebenfalls unabhängig implementiert. Aufgebaut auf dem [Gladys-Integrations-SDK](https://github.com/GladysAssistant/integration-sdk-js), ausgehend von der [offiziellen Vorlage](https://github.com/GladysAssistant/integration-template-js).
 
 ## Lizenz
 

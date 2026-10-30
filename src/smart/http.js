@@ -9,6 +9,7 @@
 // -----------------------------------------------------------------------------
 
 import http from 'node:http';
+import https from 'node:https';
 
 /** Largest answer accepted; the real ones are a few kilobytes. */
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -53,12 +54,14 @@ export function parseCookies(setCookie) {
  * @param {Record<string, string>} [options.headers] - Extra headers.
  * @param {Record<string, string>} [options.cookies] - Cookies to send.
  * @param {number} options.timeoutMs - The overall deadline.
+ * @param {boolean} [options.secure] - Over TLS, the device's self-signed
+ * certificate accepted (a TPAP device may announce it).
  * @returns {Promise<{ status: number, body: Buffer, cookies: Record<string, string> }>}
  * The answer.
  * @example
  * await post({ host: '192.168.1.30', port: 80, path: '/app', body: '{}', timeoutMs: 5000 });
  */
-export function post({ host, port, path, body, headers = {}, cookies, timeoutMs }) {
+export function post({ host, port, path, body, headers = {}, cookies, timeoutMs, secure = false }) {
   return new Promise((resolve, reject) => {
     const payload = Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'utf8');
     const cookieHeader = cookies
@@ -93,12 +96,13 @@ export function post({ host, port, path, body, headers = {}, cookies, timeoutMs 
 
     const deadline = setTimeout(() => settle(new Error('TAPO_SMART_TIMEOUT')), timeoutMs);
 
-    const request = http.request(
+    const request = (secure ? https : http).request(
       {
         host,
         port,
         path,
         method: 'POST',
+        ...(secure ? { rejectUnauthorized: false } : {}),
         headers: {
           'Content-Length': payload.length,
           ...(cookieHeader ? { Cookie: cookieHeader } : {}),
