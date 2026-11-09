@@ -39,6 +39,7 @@ import {
 } from './tapo/constants.js';
 import { TapoPtz } from './tapo/ptz.js';
 import { TapoOnvif } from './tapo/onvif.js';
+import { selectableName } from './deviceName.js';
 
 /**
  * Default labels of the canonical movements.
@@ -417,7 +418,7 @@ export async function probeDoorbell(camera, config) {
  */
 export function buildDevice(gladys, camera) {
   return {
-    name: camera.name,
+    name: selectableName(camera.name, camera.model),
     external_id: cameraIds(gladys, camera.cloudDeviceId).device,
     model: camera.model || null,
     // The dashboard widget shows the last PUBLISHED image, never a fresh one, so

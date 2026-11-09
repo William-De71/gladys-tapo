@@ -19,6 +19,7 @@ import {
   DEVICE_FEATURE_UNITS,
 } from '@gladysassistant/integration-sdk';
 import { DEVICE_PARAMS } from '../tapo/constants.js';
+import { selectableName } from '../deviceName.js';
 
 /** What a cloud `deviceType` is, for this integration. */
 export const FAMILIES = {
@@ -516,7 +517,7 @@ export function buildSmartDevices(
         }
         return {
           ...base,
-          name: childName,
+          name: selectableName(childName, child.model),
           model: child.model || null,
           external_id: ids.device,
           features,
@@ -533,7 +534,7 @@ export function buildSmartDevices(
       const ids = gladys.externalIds('plug', child.device_id);
       return {
         ...base,
-        name: socketName,
+        name: selectableName(socketName, base.model),
         external_id: ids.device,
         features: outletFeatures(ids, socketName, meteredChildren.has(child.device_id)),
         params: baseParams(physical, { [SMART_PARAMS.CHILD_ID]: child.device_id }),
@@ -548,7 +549,7 @@ export function buildSmartDevices(
   return [
     {
       ...base,
-      name,
+      name: selectableName(name, base.model),
       external_id: ids.device,
       features: isLight ? lightFeatures(ids, name, info) : outletFeatures(ids, name, metered),
       params: baseParams(physical),
