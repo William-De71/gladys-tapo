@@ -22,13 +22,16 @@
 #   - dry-run: show the version and the changelog section in the job summary,
 #     publish nothing.
 #
-# Why build.yml and github-release.yml are called instead of triggered by the
-# tag: a tag pushed with the default GITHUB_TOKEN triggers no other workflow.
-# For the same reason, the release commit does not start this workflow again
-# (and the `if` below skips it if it ever did).
+# Protected main and v* tags: the rulesets only let the maintainer and deploy
+# keys through (GitHub Actions cannot be a bypass actor on a personal
+# repository). The tag and main are therefore pushed with the deploy key of the
+# `release` environment (secret RELEASE_DEPLOY_KEY), and that environment only
+# accepts main: a workflow run from another branch never gets the key.
 #
-# Protected main branch: moving main to the release commit is refused unless
-# GitHub Actions may bypass the rule (see the README, "Release").
+# A push made with a deploy key starts other workflows (unlike GITHUB_TOKEN):
+# build.yml and github-release.yml do not listen to tags, they are only called
+# from here (or run by hand to finish a release); moving main starts this
+# workflow again, and the `if` below skips the release commit.
 # -----------------------------------------------------------------------------
 name: Release
 
@@ -67,8 +70,9 @@ jobs:
   prepare:
     needs: ci
     runs-on: ubuntu-latest
+    environment: release # the deploy key that pushes the tag
     permissions:
-      contents: write # push the release tag
+      contents: read # the tag is pushed with the deploy key
     outputs:
       release: ${{ steps.next.outputs.release }}
       version: ${{ steps.next.outputs.version }}
@@ -77,6 +81,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0 # every commit and tag, for the version and the changelog
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -96,7 +101,7 @@ jobs:
           release="$(jq -r .release <<<"$next")"
           version="$(jq -r .version <<<"$next")"
           if [ "$release" = "true" ] && git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
-            echo "::error::Tag v${version} already exists but main does not contain it: a previous release stopped half-way. If its image exists, merge the tag into main (git merge v${version}) and push; otherwise re-run the failed jobs of that release."
+            echo "::error::Tag v${version} already exists but main does not contain it: a previous release stopped half-way. If its image exists, merge the tag into main (git merge v${version}) and push; otherwise re-run the failed jobs of that release, or run Build and publish image by hand with version ${version}."
             exit 1
           fi
           echo "release=$release" >> "$GITHUB_OUTPUT"
@@ -160,13 +165,15 @@ jobs:
   publish:
     needs: [prepare, build]
     runs-on: ubuntu-latest
+    environment: release # the deploy key that moves main
     permissions:
-      contents: write # move main to the release commit
+      contents: read # main is moved with the deploy key
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       - name: Move main to the release commit
         env:
@@ -175,7 +182,7 @@ jobs:
           set -euo pipefail
           git fetch origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
           if ! git push origin "refs/tags/v${VERSION}^{commit}:refs/heads/${GITHUB_REF_NAME}"; then
-            echo "::error::${GITHUB_REF_NAME} moved during the release, or is protected. The image of ${VERSION} is published: merge the tag into ${GITHUB_REF_NAME} (git merge v${VERSION}) and push, then run the GitHub releases workflow."
+            echo "::error::${GITHUB_REF_NAME} moved during the release, or is protected. The image of ${VERSION} is published: merge the tag into ${GITHUB_REF_NAME} (git merge v${VERSION}) and push, then run the GitHub releases workflow by hand."
             exit 1
           fi
 

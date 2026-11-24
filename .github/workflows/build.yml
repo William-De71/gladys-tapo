@@ -3,10 +3,14 @@
 # the GitHub Container Registry.
 #
 # Triggers:
-#   - called by the Release workflow (workflow_call) -> `:X.Y.Z` + `:latest`;
-#   - a `vX.Y.Z` tag pushed by hand                  -> `:X.Y.Z` + `:latest`;
-#   - a manual run (workflow_dispatch)               -> test image tagged with
+#   - called by the Release workflow (workflow_call)  -> `:X.Y.Z` + `:latest`;
+#   - a manual run with `version` (workflow_dispatch) -> the same, from the tag
+#     vX.Y.Z: finishes a release that stopped before its image;
+#   - a manual run without `version`                  -> test image tagged with
 #     the branch name (or `image-tag`), `latest` untouched.
+#
+# No `push: tags` trigger: the Release workflow pushes its tag with a deploy
+# key, which would start this workflow a second time for the same image.
 #
 # OCI labels (source, licence, version) come from docker/metadata-action. The
 # manifest also ships as the `io.gladysassistant.manifest` label: Gladys reads
@@ -15,11 +19,12 @@
 name: Build and publish image
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
+      version:
+        description: 'Release to (re)build from its tag, e.g. 1.2.0 (publishes :<version> + :latest); empty = test image'
+        required: false
+        default: ''
       image-tag:
         description: 'Image tag to publish (defaults to the branch name)'
         required: false
@@ -56,12 +61,17 @@ jobs:
         run: |
           # Registry names are lowercase (the owner is not).
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-          # The `version` input only exists when release.yml calls us: inside a
-          # called workflow GITHUB_EVENT_NAME is the caller's event.
+          # `version` comes from release.yml (inside a called workflow
+          # GITHUB_EVENT_NAME is the caller's event) or from a manual run that
+          # finishes a release; without it, a manual test image.
+          if [ -n "$INPUT_VERSION" ] && [ -n "$INPUT_IMAGE_TAG" ]; then
+            echo "::error::Give either version (a release) or image-tag (a test image), not both."
+            exit 1
+          fi
           if [ -n "$INPUT_VERSION" ]; then
             echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
             echo "release=true" >> "$GITHUB_OUTPUT"
-          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          else
             tag="${INPUT_IMAGE_TAG:-${GITHUB_REF_NAME//\//-}}"
             if [ "$tag" = "latest" ]; then
               echo "::error::Cannot use 'latest' as a manual image tag."
@@ -69,9 +79,6 @@ jobs:
             fi
             echo "version=$tag" >> "$GITHUB_OUTPUT"
             echo "release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-            echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Image tags and OCI labels

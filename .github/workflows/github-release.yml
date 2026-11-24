@@ -3,15 +3,14 @@
 # version's section of CHANGELOG.md as notes. The Gladys Supervision page links
 # the installed version to the repository's releases.
 #
-# Triggers: called by the Release workflow once the image exists; a tag pushed
-# by hand; a manual run (back-fill). Idempotent, oldest first.
+# Triggers: called by the Release workflow once the image exists; a manual run
+# (back-fill, e.g. after finishing a release by hand). Idempotent, oldest
+# first. No `push: tags` trigger: the release tag is pushed with a deploy key
+# and would start a second, racing run.
 # -----------------------------------------------------------------------------
 name: GitHub releases
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
   workflow_call:
 
