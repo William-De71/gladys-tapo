@@ -246,7 +246,13 @@ export class AesTransport {
       return this.decrypt(response);
     } catch {
       // Some firmwares answer in clear inside the envelope.
-      return JSON.parse(response);
+      try {
+        return JSON.parse(response);
+      } catch (e) {
+        throw Object.assign(new Error(`TAPO_AES_UNDECRYPTABLE:${e.message}`), {
+          undecryptable: true,
+        });
+      }
     }
   }
 
@@ -300,8 +306,10 @@ export class AesTransport {
     try {
       return await this.passthrough(request);
     } catch (e) {
-      // 9999 is the device saying the session timed out.
-      if (e.code === 9999 || e.code === -1012) {
+      // 9999 is the device saying the session timed out; an undecryptable reply
+      // means the device dropped or replaced its session key (e.g. another app
+      // logged in). Re-handshake once rather than keeping a dead token.
+      if (e.code === 9999 || e.code === -1012 || e.undecryptable) {
         this.token = null;
         throw Object.assign(e, { retryable: true });
       }

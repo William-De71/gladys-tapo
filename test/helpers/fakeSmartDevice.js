@@ -51,6 +51,9 @@ function readBody(request) {
 export function dispatch(state, request) {
   state.calls.push(request.method);
   if (request.method === 'multipleRequest') {
+    if (state.multipleErrorCode !== null) {
+      return { error_code: state.multipleErrorCode };
+    }
     return {
       error_code: 0,
       result: {
@@ -82,15 +85,22 @@ export function dispatch(state, request) {
  * @param {object} [options.info] - Its `get_device_info`.
  * @param {object} [options.energy] - Its `get_energy_usage`, when it meters.
  * @param {object[]} [options.children] - Sub-devices: `{ device_id, info, logs }`.
+ * @param {number|null} [options.multipleErrorCode] - Refusal code for `multipleRequest`.
  * @returns {object} The state, with a `calls` log.
  * @example
  * deviceState({ info: { device_on: false } });
  */
-export function deviceState({ info = {}, energy = null, children = [] } = {}) {
+export function deviceState({
+  info = {},
+  energy = null,
+  children = [],
+  multipleErrorCode = null,
+} = {}) {
   const state = {
     calls: [],
     info: { ...info },
     energy,
+    multipleErrorCode,
     children: children.map((child) => ({
       device_id: child.device_id,
       state: null,
@@ -216,14 +226,16 @@ export function startAesDevice({ username, password, loginVersion = 2, state }) 
   const expectedLogin = loginParams(loginVersion, { username, password });
   let key = null;
   let iv = null;
+  let staleSession = false;
   const token = 'TOKEN123';
   const stats = { handshakes: 0, logins: 0 };
-  const encrypt = (object) => {
-    const cipher = crypto.createCipheriv('aes-128-cbc', key, iv);
+  const encryptWith = (object, aesKey, aesIv) => {
+    const cipher = crypto.createCipheriv('aes-128-cbc', aesKey, aesIv);
     return Buffer.concat([cipher.update(JSON.stringify(object)), cipher.final()]).toString(
       'base64',
     );
   };
+  const encrypt = (object) => encryptWith(object, key, iv);
   const server = http.createServer(async (request, response) => {
     const body = await readBody(request);
     const url = new URL(request.url, 'http://localhost');
@@ -235,6 +247,7 @@ export function startAesDevice({ username, password, loginVersion = 2, state }) 
     const json = JSON.parse(body.toString('utf8'));
     if (json.method === 'handshake') {
       stats.handshakes += 1;
+      staleSession = false;
       const keyAndIv = crypto.randomBytes(32);
       key = keyAndIv.subarray(0, 16);
       iv = keyAndIv.subarray(16);
@@ -246,6 +259,18 @@ export function startAesDevice({ username, password, loginVersion = 2, state }) 
       response.end(
         JSON.stringify({ error_code: 0, result: { key: encrypted.toString('base64') } }),
       );
+      return;
+    }
+    if (staleSession) {
+      // Simulate a device that rotated its session key (e.g. another client
+      // logged in): the response is base64 ciphertext under a different key.
+      const foreign = encryptWith(
+        { error_code: 9999 },
+        crypto.randomBytes(16),
+        crypto.randomBytes(16),
+      );
+      response.writeHead(200);
+      response.end(JSON.stringify({ error_code: 0, result: { response: foreign } }));
       return;
     }
     const decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
@@ -270,7 +295,9 @@ export function startAesDevice({ username, password, loginVersion = 2, state }) 
     response.writeHead(200);
     response.end(JSON.stringify({ error_code: 0, result: { response: encrypt(answer) } }));
   });
-  return listen(server, stats, () => {});
+  return listen(server, stats, () => {
+    staleSession = true;
+  });
 }
 
 /**
