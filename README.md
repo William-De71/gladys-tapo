@@ -300,7 +300,7 @@ The manifest only reaches `main` once its image exists, so the store never annou
 
 Commit and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org/), in English, written as the changelog line the user will read: `feat(scenes): start a scene when a camera sees a person, a vehicle, a pet, a motion or a doorbell press`. `feat` publishes a minor version, `fix` and `perf` a patch, `!` or a `BREAKING CHANGE:` footer a major; `docs`, `chore`, `ci`, `test`, `style`, `refactor` and `build` alone publish nothing.
 
-If `main` is protected (branch protection rule or ruleset), the workflow can only move it to the release commit when **GitHub Actions** is allowed to bypass the rule (Settings → Rules → Bypass list), or with a GitHub App token; otherwise the tag and the image are published but `main` stays behind.
+Rulesets require a pull request on `main` and lock the `v*` tags; only the maintainer and deploy keys get through. The release pushes with the deploy key of the `release` environment (secret `RELEASE_DEPLOY_KEY`, `main` only): a run from another branch never gets it. `build.yml` and `github-release.yml` do not start on a tag: the release calls them, or run them by hand (Actions → Run workflow, with `version` for the image) to finish a release.
 
 ## Troubleshooting
 

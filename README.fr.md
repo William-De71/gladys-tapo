@@ -300,7 +300,7 @@ Le manifeste n'arrive sur `main` qu'une fois son image disponible, si bien que l
 
 Les titres de commit et de pull request suivent les [Conventional Commits](https://www.conventionalcommits.org/), en anglais, rédigés comme la ligne du changelog que l'utilisateur lira : `feat(scenes): start a scene when a camera sees a person, a vehicle, a pet, a motion or a doorbell press`. `feat` publie une version mineure, `fix` et `perf` un correctif, `!` ou un pied de commit `BREAKING CHANGE:` une version majeure ; `docs`, `chore`, `ci`, `test`, `style`, `refactor` et `build` seuls ne publient rien.
 
-Si `main` est protégée (règle de protection de branche ou ruleset), le workflow ne peut l'avancer jusqu'au commit de publication que si **GitHub Actions** est autorisé à contourner la règle (Settings → Rules → Bypass list), ou avec le jeton d'une GitHub App ; sinon le tag et l'image sont publiés mais `main` reste en arrière.
+Des rulesets imposent une pull request sur `main` et verrouillent les tags `v*` ; seuls le mainteneur et les deploy keys passent. La release pousse avec la deploy key de l’environnement `release` (secret `RELEASE_DEPLOY_KEY`, `main` seulement) : un run lancé depuis une autre branche ne l’obtient jamais. `build.yml` et `github-release.yml` ne démarrent pas sur un tag : la release les appelle, ou lancez-les à la main (Actions → Run workflow, avec `version` pour l’image) pour terminer une release.
 
 ## Résolution de problèmes
 

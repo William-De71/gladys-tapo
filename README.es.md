@@ -300,7 +300,7 @@ El manifiesto solo llega a `main` una vez que su imagen existe, de modo que la t
 
 Los títulos de commit y de pull request siguen los [Conventional Commits](https://www.conventionalcommits.org/), en inglés, redactados como la línea del changelog que leerá el usuario: `feat(scenes): start a scene when a camera sees a person, a vehicle, a pet, a motion or a doorbell press`. `feat` publica una versión menor, `fix` y `perf` un parche, `!` o un pie `BREAKING CHANGE:` una versión mayor; `docs`, `chore`, `ci`, `test`, `style`, `refactor` y `build` solos no publican nada.
 
-Si `main` está protegida (regla de protección de rama o ruleset), el workflow solo puede moverla al commit de publicación si **GitHub Actions** puede saltarse la regla (Settings → Rules → Bypass list), o con el token de una GitHub App; si no, el tag y la imagen se publican pero `main` se queda atrás.
+Unos rulesets exigen una pull request en `main` y bloquean las etiquetas `v*`; solo pasan el mantenedor y las deploy keys. La publicación hace push con la deploy key del entorno `release` (secreto `RELEASE_DEPLOY_KEY`, solo `main`): una ejecución lanzada desde otra rama nunca la obtiene. `build.yml` y `github-release.yml` no arrancan con una etiqueta: la publicación los llama, o lánzelos a mano (Actions → Run workflow, con `version` para la imagen) para terminar una publicación.
 
 ## Solución de problemas
 

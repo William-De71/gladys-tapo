@@ -300,7 +300,7 @@ Das Manifest erreicht `main` erst, wenn sein Image existiert, sodass der Store n
 
 Titel von Commits und Pull Requests folgen [Conventional Commits](https://www.conventionalcommits.org/), auf Englisch, formuliert als die Changelog-Zeile, die der Benutzer lesen wird: `feat(scenes): start a scene when a camera sees a person, a vehicle, a pet, a motion or a doorbell press`. `feat` veröffentlicht eine Minor-Version, `fix` und `perf` einen Patch, `!` oder eine Fußzeile `BREAKING CHANGE:` eine Major-Version; `docs`, `chore`, `ci`, `test`, `style`, `refactor` und `build` allein veröffentlichen nichts.
 
-Ist `main` geschützt (Branch-Schutzregel oder Ruleset), kann der Workflow den Branch nur dann auf den Release-Commit setzen, wenn **GitHub Actions** die Regel umgehen darf (Settings → Rules → Bypass list), oder mit dem Token einer GitHub App; andernfalls werden Tag und Image veröffentlicht, aber `main` bleibt zurück.
+Rulesets verlangen einen Pull Request auf `main` und sperren die `v*`-Tags; nur der Maintainer und Deploy Keys kommen durch. Das Release pusht mit dem Deploy Key der Umgebung `release` (Secret `RELEASE_DEPLOY_KEY`, nur `main`): Ein Lauf von einem anderen Branch erhält ihn nie. `build.yml` und `github-release.yml` starten nicht bei einem Tag: Das Release ruft sie auf, oder starten Sie sie von Hand (Actions → Run workflow, mit `version` für das Image), um ein Release abzuschließen.
 
 ## Fehlerbehebung
 
