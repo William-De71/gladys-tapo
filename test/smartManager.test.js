@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SmartManager } from '../src/smart/manager.js';
 import { FAMILIES } from '../src/smart/model.js';
 import { normalizeConfig } from '../src/config.js';
-import { deviceState, startKlapDevice } from './helpers/fakeSmartDevice.js';
+import { deviceState, startKlapDevice, startAesDevice } from './helpers/fakeSmartDevice.js';
 import { fakeGladys } from './helpers/fakeGladys.js';
 
 const config = normalizeConfig({ email: 'me@example.com', password: 'S3cret!' });
@@ -313,4 +313,28 @@ test('a device without an address says whether the address action can list it', 
   const known = await manager.describe([bulb], [previous], config);
   assert.deepEqual(known.devices, [previous]);
   assert.equal(known.problems[0].listed, true);
+});
+
+test('a P100 over securePassthrough refusing multipleRequest is discovered and polled', async () => {
+  const state = deviceState({
+    info: { device_on: false, model: 'P100' },
+    multipleErrorCode: -1003,
+  });
+  const device = await startAesDevice({ ...ACCOUNT, state });
+  const gladys = fakeGladys();
+  const manager = new SmartManager({ gladys });
+  try {
+    const [plug] = await adopt(gladys, manager, located(device, { model: 'P100' }));
+    assert.equal(plug.features.length, 1, 'plain plug: on/off only');
+
+    await manager.tick();
+    assert.deepEqual(gladys.published.states, [
+      { device_feature_external_id: plug.features[0].external_id, state: 0 },
+    ]);
+
+    await manager.setValue(plug, plug.features[0], 1);
+    assert.equal(state.info.device_on, true);
+  } finally {
+    await device.close();
+  }
 });

@@ -160,6 +160,63 @@ test('several methods go out as one multipleRequest, a refused one apart', async
   }
 });
 
+test('a firmware refusing multipleRequest falls back to single requests', async () => {
+  const state = deviceState({
+    info: { device_on: true, model: 'P100' },
+    multipleErrorCode: -1003,
+  });
+  const device = await startAesDevice({ ...ACCOUNT, state });
+  try {
+    const client = new SmartClient({ ip: '127.0.0.1', httpPort: device.port, ...ACCOUNT });
+    const first = await client.multiple([
+      { method: 'get_device_info' },
+      { method: 'get_energy_usage' },
+    ]);
+    assert.equal(first.get_device_info.model, 'P100');
+    assert.ok(first.get_energy_usage instanceof SmartError, 'unsupported, not fatal');
+    assert.equal(client.supportsMultiple, false);
+
+    state.calls.length = 0;
+    const second = await client.multiple([{ method: 'get_device_info' }]);
+    assert.equal(second.get_device_info.device_on, true);
+    assert.deepEqual(state.calls, ['get_device_info'], 'multipleRequest is not retried');
+  } finally {
+    await device.close();
+  }
+});
+
+test('a generic -1 error on multipleRequest does not disable batching', async () => {
+  const state = deviceState({
+    info: { device_on: true, model: 'P100' },
+    multipleErrorCode: -1,
+  });
+  const device = await startAesDevice({ ...ACCOUNT, state });
+  try {
+    const client = new SmartClient({ ip: '127.0.0.1', httpPort: device.port, ...ACCOUNT });
+    await assert.rejects(
+      () => client.multiple([{ method: 'get_device_info' }]),
+      (e) => e instanceof SmartError && e.code === -1,
+    );
+    assert.equal(client.supportsMultiple, true);
+  } finally {
+    await device.close();
+  }
+});
+
+test('an undecryptable securePassthrough session is reopened once, transparently', async () => {
+  const state = deviceState({ info: { device_on: true, model: 'P100' } });
+  const device = await startAesDevice({ ...ACCOUNT, state });
+  try {
+    const client = new SmartClient({ ip: '127.0.0.1', httpPort: device.port, ...ACCOUNT });
+    await client.request('get_device_info');
+    device.dropSession();
+    assert.equal((await client.request('get_device_info')).device_on, true);
+    assert.equal(device.stats.logins, 2);
+  } finally {
+    await device.close();
+  }
+});
+
 test('a socket of a power strip is driven through control_child', async () => {
   const state = deviceState({
     info: { model: 'P300' },

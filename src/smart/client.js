@@ -25,6 +25,12 @@ import { LOCAL_API_BACKOFF_MS } from '../tapo/constants.js';
 /** Methods per `multipleRequest`: firmwares refuse long batches. */
 const BATCH_SIZE = 5;
 
+/**
+ * Error codes meaning the firmware refuses `multipleRequest` altogether
+ * (seen on older P100 securePassthrough firmwares returning `-1003`).
+ */
+const MULTIPLE_REFUSED_CODES = [-1003];
+
 /** Children per page of `get_child_device_list`. */
 const CHILD_PAGE_GUARD = 20;
 
@@ -106,6 +112,8 @@ export class SmartClient {
     this.queue = Promise.resolve();
     this.blockedUntil = 0;
     this.blockedReason = '';
+    /** Remember when a firmware rejects `multipleRequest`, to skip it next round. */
+    this.supportsMultiple = true;
   }
 
   /**
@@ -256,23 +264,60 @@ export class SmartClient {
   }
 
   /**
+   * Run calls one by one when the firmware refuses `multipleRequest`.
+   *
+   * Keeps the same error contract as `multiple`: a method the device refuses
+   * stays a `SmartError` under its key rather than failing the others.
+   * @param {Array<{ method: string, params?: object }>} requests - The calls.
+   * @returns {Promise<Record<string, object|SmartError>>} The results.
+   * @example
+   * await client.sequential([{ method: 'get_device_info' }]);
+   */
+  async sequential(requests) {
+    /** @type {Record<string, object|SmartError>} */
+    const results = {};
+    for (const { method, params } of requests) {
+      try {
+        results[method] = await this.request(method, params);
+      } catch (e) {
+        if (!(e instanceof SmartError)) {
+          throw e;
+        }
+        results[method] = e;
+      }
+    }
+    return results;
+  }
+
+  /**
    * Call several methods, in batches, and return their results by method.
    *
    * A method the device refuses (an unsupported one, typically) does not fail
    * the others: its entry holds a `SmartError`, for the caller to tell
-   * "unsupported" from "unreachable".
+   * "unsupported" from "unreachable". Older firmwares that reject
+   * `multipleRequest` itself fall back to single requests.
    * @param {Array<{ method: string, params?: object }>} requests - The calls.
    * @returns {Promise<Record<string, object|SmartError>>} The results.
    * @example
    * await client.multiple([{ method: 'get_device_info' }, { method: 'get_energy_usage' }]);
    */
   async multiple(requests) {
+    if (!this.supportsMultiple) {
+      return this.sequential(requests);
+    }
     /** @type {Record<string, object|SmartError>} */
     const results = {};
     for (let index = 0; index < requests.length; index += BATCH_SIZE) {
       const batch = requests.slice(index, index + BATCH_SIZE);
       const answer = await this.call({ method: 'multipleRequest', params: { requests: batch } });
       if (answer.error_code !== 0) {
+        if (MULTIPLE_REFUSED_CODES.includes(answer.error_code)) {
+          logger.debug(
+            `Tapo ${this.ip}: multipleRequest refused (${answer.error_code}), falling back`,
+          );
+          this.supportsMultiple = false;
+          return { ...results, ...(await this.sequential(requests.slice(index))) };
+        }
         throw new SmartError('multipleRequest', answer.error_code);
       }
       (answer.result?.responses || []).forEach((response) => {
